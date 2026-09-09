@@ -1,0 +1,21 @@
+name: reef_workspace
+publish_to: none
+
+environment:
+  sdk: ">=3.13.0"
+
+workspace:
+  - packages/*
+  - packages/*/example
+
+dev_dependencies:
+  melos: ^7.0.0
+
+dependency_overrides:
+  listenable_plus:
+    path: ../listenable_plus
+  formularium_localization:
+    path: ../../formularium/packages/formularium_localization
+
+melos:
+  repository: https://github.com/gsporto226/reef

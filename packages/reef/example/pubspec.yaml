@@ -1,0 +1,33 @@
+name: reef_example
+description: Reef quartet example — Page / Model / ViewModel / Provider with formularium fields.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ">=3.13.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  auto_route: ^11.1.0
+  flutter_riverpod: ^3.4.2
+  riverpod_annotation: ^4.0.6
+  freezed_annotation: ^3.1.0
+  json_annotation: ^4.12.0
+  listenable_plus: ^0.0.2
+  formularium:
+    path: ../../../../../formularium/packages/formularium
+  reef: ^0.1.0
+  reef_fp: ^0.1.0
+  reef_widgets: ^0.1.0
+  reef_auto_route: ^0.1.0
+
+dev_dependencies:
+  build_runner: ^2.16.0
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+  freezed: ^4.0.1
+  json_serializable: ^6.14.1
+  riverpod_generator: ^4.0.8

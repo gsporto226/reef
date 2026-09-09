@@ -1,0 +1,25 @@
+name: reef
+description: Reef MVVM framework core — ValueListenable-first pages, models and viewmodels.
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ">=3.13.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_riverpod: ^3.4.2
+  riverpod: ^3.4.2
+  uuid: ^4.6.0
+  listenable_plus: ^0.0.2
+  reef_fp: ^0.1.0
+  reef_utils: ^0.1.0
+  formularium:
+    path: ../../../../formularium/packages/formularium
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter

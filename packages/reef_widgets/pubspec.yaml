@@ -1,0 +1,19 @@
+name: reef_widgets
+description: Reef widget-layer features — design-system-agnostic widgets over reef's listenable contracts (§5).
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ">=3.13.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  listenable_plus: ^0.0.2
+  reef_fp: ^0.1.0
+
+dev_dependencies:
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
