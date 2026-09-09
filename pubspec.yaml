@@ -15,7 +15,7 @@ dependency_overrides:
   listenable_plus:
     path: ../listenable_plus
   formularium_localization:
-    path: ../../formularium/packages/formularium_localization
+    path: ../formularium/packages/formularium_localization
 
 melos:
   repository: https://github.com/gsporto226/reef

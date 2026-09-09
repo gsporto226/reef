@@ -286,14 +286,14 @@ packages:
   formularium:
     dependency: transitive
     description:
-      path: "../../formularium/packages/formularium"
+      path: "../formularium/packages/formularium"
       relative: true
     source: path
     version: "0.1.0"
   formularium_localization:
     dependency: "direct overridden"
     description:
-      path: "../../formularium/packages/formularium_localization"
+      path: "../formularium/packages/formularium_localization"
       relative: true
     source: path
     version: "0.0.1"
