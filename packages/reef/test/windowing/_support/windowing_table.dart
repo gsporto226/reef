@@ -22,9 +22,15 @@ void expectInvariants(WindowingDoc doc) {
 
   final members = <WindowId>[];
   for (final tab in doc.tabs.values) {
-    expect(tab.activeWindowId, tab.root,
-        reason: 'active window is in the tab (single-window tree)');
-    if (tab.root case final root?) members.add(root);
+    final ids = tab.root?.windowIds.toList() ?? const <WindowId>[];
+    if (tab.root case final root?) _expectTree(root);
+    if (ids.isEmpty) {
+      expect(tab.activeWindowId, isNull, reason: 'an empty tab has no focus');
+    } else {
+      expect(ids, contains(tab.activeWindowId),
+          reason: 'active window is in the tab');
+    }
+    members.addAll(ids);
   }
   expect(members.toSet().length, members.length,
       reason: 'a window belongs to one tab');
@@ -61,4 +67,18 @@ void runTable(String name, List<Row> rows) {
       });
     }
   });
+}
+
+/// A branch has at least two children and one positive ratio per child,
+/// summing to one.
+void _expectTree(WindowNode node) {
+  if (node is! WindowBranch) return;
+  expect(node.children.length, greaterThanOrEqualTo(2),
+      reason: 'a branch with one child collapses');
+  expect(node.ratios.length, node.children.length,
+      reason: 'one ratio per child');
+  expect(node.ratios.every((r) => r > 0), isTrue, reason: 'ratios positive');
+  expect(node.ratios.fold<double>(0, (a, b) => a + b), closeTo(1, 1e-9),
+      reason: 'ratios sum to one');
+  node.children.forEach(_expectTree);
 }

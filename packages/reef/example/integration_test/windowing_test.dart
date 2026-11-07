@@ -29,4 +29,31 @@ void main() {
     expect(find.text('tab 2'), findsNothing);
     expect(find.text('active: 1'), findsOneWidget);
   });
+
+  testWidgets('split, resize, close window', (tester) async {
+    final controller = WindowingController();
+    controller.newTab(buffer: const BufferId.manual('b'));
+    await tester.pumpWidget(Directionality(
+      textDirection: TextDirection.ltr,
+      child: WindowingDemo(controller: controller),
+    ));
+    expect(find.text('windows: 1'), findsOneWidget);
+
+    await tester.tap(find.text('split'));
+    await tester.pumpAndSettle();
+    expect(find.text('windows: 2'), findsOneWidget);
+    expect(find.text('ratios: 0.5 0.5'), findsOneWidget);
+
+    await tester.tap(find.text('resize'));
+    await tester.pumpAndSettle();
+    expect(find.text('ratios: 0.25 0.75'), findsOneWidget);
+
+    await tester.tap(find.text('close window'));
+    await tester.pumpAndSettle();
+    expect(find.text('windows: 1'), findsOneWidget);
+
+    await tester.tap(find.text('close window'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('windows:'), findsNothing);
+  });
 }

@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show Axis;
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
@@ -32,7 +33,12 @@ class NewTab extends WindowingCommand {
         ...doc.shells,
         shellId: ShellState(tabIds: [...shell.tabIds, tabId], activeTabId: tabId),
       },
-      tabs: {...doc.tabs, tabId: TabState(root: window, activeWindowId: window)},
+      tabs: {
+        ...doc.tabs,
+        tabId: TabState(
+            root: window == null ? null : WindowLeaf(window),
+            activeWindowId: window),
+      },
       windows: {
         ...doc.windows,
         if (buffer case (final w, final b))
@@ -84,9 +90,171 @@ class CloseTab extends WindowingCommand {
     return doc.copyWith(
       shells: {...doc.shells, id: ShellState(tabIds: tabIds, activeTabId: active)},
       tabs: {...doc.tabs}..remove(tabId),
-      windows: {...doc.windows}..remove(root),
+      windows: {...doc.windows}
+        ..removeWhere((w, _) => root?.windowIds.contains(w) ?? false),
     );
   }
+}
+
+/// Splits [windowId] along [axis], putting [newWindowId] after it. The new
+/// window copies the window history, with [buffer] pushed on top when given,
+/// and takes focus.
+class SplitWindow extends WindowingCommand {
+  const SplitWindow(
+    this.windowId, {
+    required this.newWindowId,
+    required this.axis,
+    this.buffer,
+  });
+
+  final WindowId windowId;
+  final WindowId newWindowId;
+  final Axis axis;
+  final BufferId? buffer;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    final tabId = _tabOf(doc, windowId);
+    if (tabId == null || doc.windows.containsKey(newWindowId)) return doc;
+    final history = doc.windows[windowId]!.history;
+    final copy = switch (buffer) {
+      null => history,
+      final b => BufferHistory(back: [...history.back, history.current], current: b),
+    };
+    // ponytail: always nests a new branch; flatten into a same-axis parent
+    // if deep trees from repeated splits become a problem.
+    final split = WindowBranch(
+      axis: axis,
+      children: [WindowLeaf(windowId), WindowLeaf(newWindowId)],
+      ratios: const [0.5, 0.5],
+    );
+    final next = doc.copyWith(
+      shells: doc.shells,
+      tabs: {
+        ...doc.tabs,
+        tabId: TabState(
+          root: _replaceLeaf(doc.tabs[tabId]!.root!, windowId, split),
+          activeWindowId: newWindowId,
+        ),
+      },
+      windows: {...doc.windows, newWindowId: WindowState(history: copy)},
+    );
+    return ActivateTab(tabId).apply(next);
+  }
+}
+
+/// Closes tree window [windowId]. A branch left with one child collapses
+/// into it and the remaining ratios are renormalized. When the window was
+/// active, focus moves to its left neighbour, or the next one. Closing the
+/// last window leaves the tab empty.
+class CloseWindow extends WindowingCommand {
+  const CloseWindow(this.windowId);
+
+  final WindowId windowId;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    final tabId = _tabOf(doc, windowId);
+    if (tabId == null) return doc;
+    final tab = doc.tabs[tabId]!;
+    WindowId? neighbour;
+    final root = _atParent(tab.root!, windowId, (branch, i) {
+      final children = [...branch.children]..removeAt(i);
+      final ratios = [...branch.ratios]..removeAt(i);
+      neighbour = children[i == 0 ? 0 : i - 1].windowIds.first;
+      if (children.length == 1) return children.single;
+      final sum = ratios.fold(0.0, (a, r) => a + r);
+      return WindowBranch(
+        axis: branch.axis,
+        children: children,
+        ratios: [for (final r in ratios) r / sum],
+      );
+    });
+    return doc.copyWith(
+      shells: doc.shells,
+      tabs: {
+        ...doc.tabs,
+        tabId: TabState(
+          root: root,
+          activeWindowId:
+              tab.activeWindowId == windowId ? neighbour : tab.activeWindowId,
+        ),
+      },
+      windows: {...doc.windows}..remove(windowId),
+    );
+  }
+}
+
+/// Sets the [ratios] of the branch directly holding [windowId]. Ratios must
+/// be positive, one per child, and sum to one.
+class ResizeWindow extends WindowingCommand {
+  const ResizeWindow(this.windowId, this.ratios);
+
+  final WindowId windowId;
+  final List<double> ratios;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    final tabId = _tabOf(doc, windowId);
+    if (tabId == null ||
+        ratios.any((r) => r <= 0) ||
+        (ratios.fold(0.0, (a, r) => a + r) - 1).abs() > 1e-9) {
+      return doc;
+    }
+    final tab = doc.tabs[tabId]!;
+    final root = _atParent(
+      tab.root!,
+      windowId,
+      (branch, _) => branch.ratios.length != ratios.length
+          ? branch
+          : WindowBranch(
+              axis: branch.axis, children: branch.children, ratios: ratios),
+    );
+    if (root == null || root == tab.root) return doc;
+    return doc.copyWith(
+      shells: doc.shells,
+      tabs: {
+        ...doc.tabs,
+        tabId: TabState(root: root, activeWindowId: tab.activeWindowId),
+      },
+    );
+  }
+}
+
+TabId? _tabOf(WindowingDoc doc, WindowId window) {
+  for (final MapEntry(:key, :value) in doc.tabs.entries) {
+    if (value.root?.windowIds.contains(window) ?? false) return key;
+  }
+  return null;
+}
+
+WindowNode _replaceLeaf(WindowNode node, WindowId id, WindowNode with_) =>
+    switch (node) {
+      WindowLeaf(id: final leaf) => leaf == id ? with_ : node,
+      WindowBranch() => WindowBranch(
+          axis: node.axis,
+          children: [for (final c in node.children) _replaceLeaf(c, id, with_)],
+          ratios: node.ratios,
+        ),
+    };
+
+/// Replaces the branch directly holding leaf [id] with `edit(branch, index)`
+/// and returns the new tree, or null when no branch holds the leaf.
+WindowNode? _atParent(WindowNode node, WindowId id,
+    WindowNode Function(WindowBranch branch, int index) edit) {
+  if (node is! WindowBranch) return null;
+  final i = node.children.indexWhere((c) => c == WindowLeaf(id));
+  if (i >= 0) return edit(node, i);
+  for (final (j, child) in node.children.indexed) {
+    if (_atParent(child, id, edit) case final edited?) {
+      return WindowBranch(
+        axis: node.axis,
+        children: [...node.children]..[j] = edited,
+        ratios: node.ratios,
+      );
+    }
+  }
+  return null;
 }
 
 (ShellId, ShellState)? _owner(WindowingDoc doc, TabId tab) {
@@ -130,6 +298,20 @@ class WindowingController {
   void activateTab(TabId tabId) => dispatch(ActivateTab(tabId));
 
   void closeTab(TabId tabId) => dispatch(CloseTab(tabId));
+
+  /// Splits [windowId] along [axis]. Returns the new window's id.
+  WindowId splitWindow(WindowId windowId,
+      {required Axis axis, BufferId? buffer}) {
+    final window = WindowId.generate();
+    dispatch(SplitWindow(windowId,
+        newWindowId: window, axis: axis, buffer: buffer));
+    return window;
+  }
+
+  void closeWindow(WindowId windowId) => dispatch(CloseWindow(windowId));
+
+  void resizeWindow(WindowId windowId, List<double> ratios) =>
+      dispatch(ResizeWindow(windowId, ratios));
 
   void dispose() => _doc.dispose();
 }

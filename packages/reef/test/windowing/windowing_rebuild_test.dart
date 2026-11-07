@@ -29,4 +29,34 @@ void main() {
     await tester.pump();
     expect(builds, 2);
   });
+
+  testWidgets('split, resize and close rebuild; an invalid resize does not',
+      (tester) async {
+    final controller = WindowingController();
+    addTearDown(controller.dispose);
+    controller.newTab(buffer: const BufferId.manual('b'));
+    final window = controller.doc.value.tabs.values.last.activeWindowId!;
+    var builds = 0;
+    await tester.pumpWidget(ValueListenableBuilder<WindowingDoc>(
+      valueListenable: controller.doc,
+      builder: (_, doc, _) {
+        builds++;
+        return const SizedBox();
+      },
+    ));
+
+    final split = controller.splitWindow(window, axis: Axis.horizontal);
+    await tester.pump();
+    controller.resizeWindow(split, [0.25, 0.75]);
+    await tester.pump();
+    expect(builds, 3);
+
+    controller.resizeWindow(split, [0.5, 0.6]);
+    await tester.pump();
+    expect(builds, 3);
+
+    controller.closeWindow(split);
+    await tester.pump();
+    expect(builds, 4);
+  });
 }

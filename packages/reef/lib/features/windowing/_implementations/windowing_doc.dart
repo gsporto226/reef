@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show Axis;
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 
@@ -78,13 +79,11 @@ class ShellState {
 }
 
 /// A tab's window tree and its active window. Empty when [root] is null.
-// ponytail: the tree is a single window for now; splits (#4+) turn [root]
-// into a tree node.
 @immutable
 class TabState {
   const TabState({this.root, this.activeWindowId});
 
-  final WindowId? root;
+  final WindowNode? root;
   final WindowId? activeWindowId;
 
   @override
@@ -95,6 +94,60 @@ class TabState {
 
   @override
   int get hashCode => Object.hash(root, activeWindowId);
+}
+
+/// A node of a tab's window tree: a [WindowLeaf] or a [WindowBranch].
+@immutable
+sealed class WindowNode {
+  const WindowNode();
+
+  /// The tree windows under this node, in layout order.
+  Iterable<WindowId> get windowIds;
+}
+
+/// A tree window's slot.
+class WindowLeaf extends WindowNode {
+  const WindowLeaf(this.id);
+
+  final WindowId id;
+
+  @override
+  Iterable<WindowId> get windowIds => [id];
+
+  @override
+  bool operator ==(Object other) => other is WindowLeaf && other.id == id;
+
+  @override
+  int get hashCode => id.hashCode;
+}
+
+/// Children laid out along [axis], each taking its share of [ratios]
+/// (positive, one per child, summing to one). Always two or more children.
+class WindowBranch extends WindowNode {
+  WindowBranch({
+    required this.axis,
+    required List<WindowNode> children,
+    required List<double> ratios,
+  })  : children = List.unmodifiable(children),
+        ratios = List.unmodifiable(ratios);
+
+  final Axis axis;
+  final List<WindowNode> children;
+  final List<double> ratios;
+
+  @override
+  Iterable<WindowId> get windowIds => children.expand((c) => c.windowIds);
+
+  @override
+  bool operator ==(Object other) =>
+      other is WindowBranch &&
+      other.axis == axis &&
+      listEquals(other.children, children) &&
+      listEquals(other.ratios, ratios);
+
+  @override
+  int get hashCode =>
+      Object.hash(axis, Object.hashAll(children), Object.hashAll(ratios));
 }
 
 /// A window: a viewport showing one buffer, with its own history.

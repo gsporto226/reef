@@ -33,6 +33,26 @@ class WindowingDemo extends StatelessWidget {
               ),
             ]),
             Text('active: ${tabs.indexOf(shell.activeTabId) + 1}'),
+            if (doc.tabs[shell.activeTabId]!
+                case TabState(:final root?, activeWindowId: final window?))
+              Row(children: [
+                Text('windows: ${root.windowIds.length}'),
+                if (root case WindowBranch(:final ratios))
+                  Text('ratios: ${ratios.join(' ')}'),
+                GestureDetector(
+                  onTap: () =>
+                      controller.splitWindow(window, axis: Axis.horizontal),
+                  child: const Text('split'),
+                ),
+                GestureDetector(
+                  onTap: () => controller.resizeWindow(window, [0.25, 0.75]),
+                  child: const Text('resize'),
+                ),
+                GestureDetector(
+                  onTap: () => controller.closeWindow(window),
+                  child: const Text('close window'),
+                ),
+              ]),
           ]);
         },
       );

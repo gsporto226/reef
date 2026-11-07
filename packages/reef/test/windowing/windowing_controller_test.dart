@@ -1,3 +1,4 @@
+import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reef/reef.dart';
 
@@ -10,7 +11,12 @@ const t2 = TabId.manual('t2');
 const t3 = TabId.manual('t3');
 const w1 = WindowId.manual('w1');
 const w2 = WindowId.manual('w2');
+const w3 = WindowId.manual('w3');
 const b1 = BufferId.manual('b1');
+const b2 = BufferId.manual('b2');
+const l1 = WindowLeaf(w1);
+const l2 = WindowLeaf(w2);
+const l3 = WindowLeaf(w3);
 
 WindowState showing(BufferId buffer) =>
     WindowState(history: BufferHistory(current: buffer));
@@ -30,11 +36,42 @@ WindowingDoc doc(
       tabs: {
         for (final (tabs, _) in shells.values)
           for (final t in tabs)
-            t: TabState(root: windows[t], activeWindowId: windows[t]),
+            t: TabState(
+                root: windows[t] == null ? null : WindowLeaf(windows[t]!),
+                activeWindowId: windows[t]),
       },
       windows: {for (final w in windows.values) w: showing(b1)},
       focusedShellId: focused,
     );
+
+WindowBranch h(List<WindowNode> children, [List<double>? ratios]) =>
+    WindowBranch(
+        axis: Axis.horizontal,
+        children: children,
+        ratios: ratios ?? [for (final _ in children) 1 / children.length]);
+
+WindowBranch v(List<WindowNode> children, [List<double>? ratios]) =>
+    WindowBranch(
+        axis: Axis.vertical,
+        children: children,
+        ratios: ratios ?? [for (final _ in children) 1 / children.length]);
+
+/// One shell `s1` with tab `t1` holding [root]; every window shows [b1]
+/// unless [windows] says otherwise.
+WindowingDoc tree(WindowNode? root, WindowId? active,
+        {Map<WindowId, WindowState> windows = const {}}) =>
+    WindowingDoc(
+      shells: {s1: ShellState(tabIds: [t1], activeTabId: t1)},
+      tabs: {t1: TabState(root: root, activeWindowId: active)},
+      windows: {
+        for (final w in root?.windowIds ?? const <WindowId>[])
+          w: windows[w] ?? showing(b1),
+      },
+      focusedShellId: s1,
+    );
+
+final history = WindowState(
+    history: BufferHistory(back: [b2], current: b1, forward: [b2]));
 
 void main() {
   test('a fresh doc is one focused shell with one empty tab', () {
@@ -63,8 +100,14 @@ void main() {
     expect(showing(b1).hashCode, showing(b1).hashCode);
     expect(ShellState(tabIds: [t1], activeTabId: t1).hashCode,
         ShellState(tabIds: [t1], activeTabId: t1).hashCode);
-    expect(const TabState(root: w1, activeWindowId: w1).hashCode,
-        const TabState(root: w1, activeWindowId: w1).hashCode);
+    expect(const TabState(root: l1, activeWindowId: w1).hashCode,
+        const TabState(root: l1, activeWindowId: w1).hashCode);
+    expect(l1.hashCode, const WindowLeaf(w1).hashCode);
+    expect(h([l1, l2]), h([l1, l2]));
+    expect(h([l1, l2]).hashCode, h([l1, l2]).hashCode);
+    expect(h([l1, l2]), isNot(v([l1, l2])));
+    expect(() => h([l1, l2]).ratios.add(0), throwsUnsupportedError);
+    expect(() => h([l1, l2]).children.add(l3), throwsUnsupportedError);
   });
 
   runTable('NewTab', [
@@ -166,6 +209,136 @@ void main() {
     ),
   ]);
 
+  runTable('SplitWindow', [
+    (
+      name: 'shows the same buffer, copies the history and takes focus',
+      start: tree(l1, w1, windows: {w1: history}),
+      commands: [const SplitWindow(w1, newWindowId: w2, axis: Axis.horizontal)],
+      expected: tree(h([l1, l2]), w2, windows: {w1: history, w2: history}),
+    ),
+    (
+      name: 'with a buffer, the new window pushes it onto the copied history',
+      start: tree(l1, w1, windows: {w1: history}),
+      commands: [
+        const SplitWindow(w1, newWindowId: w2, axis: Axis.vertical, buffer: b2)
+      ],
+      expected: tree(v([l1, l2]), w2, windows: {
+        w1: history,
+        w2: WindowState(history: BufferHistory(back: [b2, b1], current: b2)),
+      }),
+    ),
+    (
+      name: 'splitting a nested window nests a branch in its place',
+      start: tree(h([l1, l2], [0.25, 0.75]), w1),
+      commands: [const SplitWindow(w2, newWindowId: w3, axis: Axis.vertical)],
+      expected: tree(h([l1, v([l2, l3])], [0.25, 0.75]), w3),
+    ),
+    (
+      name: 'splitting a window in an inactive tab activates the tab',
+      start: doc({s1: ([t1, t2], t2)}, windows: {t1: w1}),
+      commands: [const SplitWindow(w1, newWindowId: w2, axis: Axis.horizontal)],
+      expected: WindowingDoc(
+        shells: {s1: ShellState(tabIds: [t1, t2], activeTabId: t1)},
+        tabs: {
+          t1: TabState(root: h([l1, l2]), activeWindowId: w2),
+          t2: const TabState(),
+        },
+        windows: {w1: showing(b1), w2: showing(b1)},
+        focusedShellId: s1,
+      ),
+    ),
+    (
+      name: 'unknown window is unchanged',
+      start: tree(l1, w1),
+      commands: [const SplitWindow(w3, newWindowId: w2, axis: Axis.horizontal)],
+      expected: null,
+    ),
+    (
+      name: 'existing new window id is unchanged',
+      start: tree(h([l1, l2]), w1),
+      commands: [const SplitWindow(w1, newWindowId: w2, axis: Axis.horizontal)],
+      expected: null,
+    ),
+  ]);
+
+  runTable('CloseWindow', [
+    (
+      name: 'collapses a branch left with one child, focus goes left',
+      start: tree(h([l1, l2]), w2),
+      commands: [const CloseWindow(w2)],
+      expected: tree(l1, w1),
+    ),
+    (
+      name: 'closing the first window focuses the next one',
+      start: tree(h([l1, l2]), w1),
+      commands: [const CloseWindow(w1)],
+      expected: tree(l2, w2),
+    ),
+    (
+      name: 'remaining ratios are renormalized',
+      start: tree(h([l1, l2, l3], [0.5, 0.25, 0.25]), w1),
+      commands: [const CloseWindow(w1)],
+      expected: tree(h([l2, l3], [0.5, 0.5]), w2),
+    ),
+    (
+      name: 'focus moves into the neighbour subtree',
+      start: tree(h([v([l1, l2]), l3]), w3),
+      commands: [const CloseWindow(w3)],
+      expected: tree(v([l1, l2]), w1),
+    ),
+    (
+      name: 'closing an inactive nested window keeps focus',
+      start: tree(h([l1, v([l2, l3])]), w1),
+      commands: [const CloseWindow(w3)],
+      expected: tree(h([l1, l2]), w1),
+    ),
+    (
+      name: "closing the tab's last window leaves the tab empty",
+      start: tree(l1, w1),
+      commands: [const CloseWindow(w1)],
+      expected: tree(null, null),
+    ),
+    (
+      name: 'unknown window is unchanged',
+      start: tree(l1, w1),
+      commands: [const CloseWindow(w2)],
+      expected: null,
+    ),
+  ]);
+
+  runTable('ResizeWindow', [
+    (
+      name: "sets the ratios of the window's branch",
+      start: tree(h([l1, v([l2, l3])]), w1),
+      commands: [const ResizeWindow(w3, [0.25, 0.75])],
+      expected: tree(h([l1, v([l2, l3], [0.25, 0.75])]), w1),
+    ),
+    for (final (name, ratios) in [
+      ('a zero ratio', [0.0, 1.0]),
+      ('a negative ratio', [-0.5, 1.5]),
+      ('the wrong count', [0.25, 0.25, 0.5]),
+      ('ratios not summing to one', [0.25, 0.5]),
+    ])
+      (
+        name: '$name is unchanged',
+        start: tree(h([l1, l2]), w1),
+        commands: [ResizeWindow(w1, ratios)],
+        expected: null,
+      ),
+    (
+      name: 'a root window has no branch and is unchanged',
+      start: tree(l1, w1),
+      commands: [const ResizeWindow(w1, [1.0])],
+      expected: null,
+    ),
+    (
+      name: 'unknown window is unchanged',
+      start: tree(h([l1, l2]), w1),
+      commands: [const ResizeWindow(w3, [0.5, 0.5])],
+      expected: null,
+    ),
+  ]);
+
   runTable('dispatchAll', [
     (
       name: 'applies a batch in order',
@@ -215,7 +388,7 @@ void main() {
       expect(controller.doc.value.tabs[empty], const TabState());
 
       final withBuffer = controller.newTab(buffer: b1);
-      final window = controller.doc.value.tabs[withBuffer]!.root!;
+      final window = controller.doc.value.tabs[withBuffer]!.activeWindowId!;
       expect(controller.doc.value.windows[window], showing(b1));
 
       controller.activateTab(empty);
@@ -224,6 +397,19 @@ void main() {
       controller.closeTab(empty);
       expect(controller.doc.value.shells[s1]!.tabIds, [t1, withBuffer]);
       expectInvariants(controller.doc.value);
+    });
+
+    test('split, resize and close windows', () {
+      final controller = WindowingController(initial: tree(l1, w1));
+      final w = controller.splitWindow(w1, axis: Axis.horizontal);
+      expect(controller.doc.value, tree(h([l1, WindowLeaf(w)]), w));
+      controller.resizeWindow(w, [0.25, 0.75]);
+      expect(
+          controller.doc.value, tree(h([l1, WindowLeaf(w)], [0.25, 0.75]), w));
+      controller.closeWindow(w);
+      expect(controller.doc.value, tree(l1, w1));
+      final other = controller.splitWindow(w1, axis: Axis.vertical, buffer: b2);
+      expect(controller.doc.value.windows[other]!.history.current, b2);
     });
 
     test('newTab opens in the given shell', () {
