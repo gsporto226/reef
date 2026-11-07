@@ -1,5 +1,4 @@
 import 'package:flutter/widgets.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:formularium/features/forms/_data_types/form_field_status.dart';
 import 'package:reef/features/page/_implementations/reef_buffer_scope.dart';
 import 'package:reef/features/page/_implementations/reef_window.dart';
@@ -165,7 +164,7 @@ class _TaskEditLayout extends StatelessWidget {
                     onPressed: viewModel.onSubmit,
                   ),
                   const KitDivider(),
-                  const _HibernateBar(),
+                  _HibernateBar(viewModel: viewModel),
                 ],
               ),
             ),
@@ -178,23 +177,21 @@ class _TaskEditLayout extends StatelessWidget {
 
 /// Demo of the hibernation contract: snapshot the model JSON, dispose-free
 /// restore via publish — the out-channel re-seeds every UI object.
-class _HibernateBar extends ConsumerStatefulWidget {
-  const _HibernateBar();
+class _HibernateBar extends StatefulWidget {
+  const _HibernateBar({required this.viewModel});
+
+  final TaskEditViewModel viewModel;
 
   @override
-  ConsumerState<_HibernateBar> createState() => _HibernateBarState();
+  State<_HibernateBar> createState() => _HibernateBarState();
 }
 
-class _HibernateBarState extends ConsumerState<_HibernateBar> {
+class _HibernateBarState extends State<_HibernateBar> {
   Map<String, dynamic>? snapshot;
 
   @override
   Widget build(BuildContext context) {
-    // Descendants reach the buffer id through the scope — no constructor
-    // threading (§4.4).
-    final vm = ref.watch(
-      taskEditViewModelProvider(bufferId: ReefBufferScope.of(context)),
-    );
+    final vm = widget.viewModel;
     return Row(
       children: [
         KitButton(
