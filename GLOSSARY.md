@@ -45,3 +45,14 @@ _Avoid_: duplicate, clone
 Moving a floating window into a tab's tree beside a target window, on a given
 side. Into an empty tab, it becomes the whole tree.
 _Avoid_: attach, pin
+
+**Attach (shell)**:
+Adding a new shell to the windowing state, holding one empty tab, and focusing
+it. Not Dock: attach brings a new container into existence; dock moves an
+existing window into a tab's tree.
+_Avoid_: open, spawn
+
+**Attach (buffer)**:
+Pointing a window at a buffer with a fresh window history, dropping its back
+and forward stacks. Not Dock, which moves windows, not buffers.
+_Avoid_: load, bind
