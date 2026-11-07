@@ -90,4 +90,40 @@ void main() {
     await tester.pump();
     expect(builds, 5);
   });
+
+  testWidgets('each move rebuilds once; a refused move does not',
+      (tester) async {
+    final controller = WindowingController();
+    addTearDown(controller.dispose);
+    final first = controller.doc.value.focusedShellId;
+    controller.newTab(buffer: const BufferId.manual('a'));
+    final window = controller.doc.value.tabs.values.last.activeWindowId!;
+    final tab = controller.doc.value.shells[first]!.activeTabId;
+    var builds = 0;
+    await tester.pumpWidget(ValueListenableBuilder<WindowingDoc>(
+      valueListenable: controller.doc,
+      builder: (_, doc, _) {
+        builds++;
+        return const SizedBox();
+      },
+    ));
+
+    final shell = controller.attachShell();
+    await tester.pump();
+    controller.moveTab(tab, shellId: shell, index: 1);
+    await tester.pump();
+    final target = controller.doc.value.shells[shell]!.tabIds.first;
+    controller.moveWindow(window, tabId: target);
+    await tester.pump();
+    expect(builds, 4);
+
+    final last = controller.doc.value.shells[first]!.tabIds.single;
+    controller.moveTab(last, shellId: shell, index: 0);
+    await tester.pump();
+    expect(builds, 4, reason: "a shell's last tab never moves out");
+
+    controller.closeShell(first);
+    await tester.pump();
+    expect(builds, 5);
+  });
 }

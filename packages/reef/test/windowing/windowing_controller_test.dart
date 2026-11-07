@@ -451,6 +451,207 @@ void main() {
     ),
   ]);
 
+  runTable('AttachShell', [
+    (
+      name: 'adds a focused shell holding one empty tab',
+      start: doc({s1: ([t1], t1)}),
+      commands: [const AttachShell(s2, tabId: t2)],
+      expected: doc({s1: ([t1], t1), s2: ([t2], t2)}, focused: s2),
+    ),
+    (
+      name: 'a taken shell id is unchanged',
+      start: doc({s1: ([t1], t1)}),
+      commands: [const AttachShell(s1, tabId: t2)],
+      expected: null,
+    ),
+    (
+      name: 'a taken tab id is unchanged',
+      start: doc({s1: ([t1], t1)}),
+      commands: [const AttachShell(s2, tabId: t1)],
+      expected: null,
+    ),
+  ]);
+
+  runTable('ActivateShell', [
+    (
+      name: 'focuses the shell',
+      start: doc({s1: ([t1], t1), s2: ([t2], t2)}),
+      commands: [const ActivateShell(s2)],
+      expected: doc({s1: ([t1], t1), s2: ([t2], t2)}, focused: s2),
+    ),
+    (
+      name: 'the focused shell is unchanged',
+      start: doc({s1: ([t1], t1)}),
+      commands: [const ActivateShell(s1)],
+      expected: null,
+    ),
+    (
+      name: 'unknown shell is unchanged',
+      start: doc({s1: ([t1], t1)}),
+      commands: [const ActivateShell(s2)],
+      expected: null,
+    ),
+  ]);
+
+  runTable('CloseShell', [
+    (
+      name: 'removes its tabs and windows and refocuses another shell',
+      start: doc({s1: ([t1], t1), s2: ([t2, t3], t2)},
+          focused: s2, windows: {t1: w1, t2: w2, t3: w3}),
+      commands: [const CloseShell(s2)],
+      expected: doc({s1: ([t1], t1)}, windows: {t1: w1}),
+    ),
+    (
+      name: 'closing an unfocused shell keeps focus',
+      start: doc({s1: ([t1], t1), s2: ([t2], t2)}),
+      commands: [const CloseShell(s2)],
+      expected: doc({s1: ([t1], t1)}),
+    ),
+    (
+      name: 'the last shell is unchanged',
+      start: doc({s1: ([t1], t1)}),
+      commands: [const CloseShell(s1)],
+      expected: null,
+    ),
+    (
+      name: 'unknown shell is unchanged',
+      start: doc({s1: ([t1], t1)}),
+      commands: [const CloseShell(s2)],
+      expected: null,
+    ),
+  ]);
+
+  runTable('ActivateWindow', [
+    (
+      name: 'activates the window, its tab and its shell',
+      start: WindowingDoc(
+        shells: {
+          s1: ShellState(tabIds: [t1], activeTabId: t1),
+          s2: ShellState(tabIds: [t2, t3], activeTabId: t3),
+        },
+        tabs: {
+          t1: const TabState(),
+          t2: TabState(root: h([l1, l2]), activeWindowId: w1),
+          t3: const TabState(),
+        },
+        windows: {w1: showing(b1), w2: showing(b1)},
+        focusedShellId: s1,
+      ),
+      commands: [const ActivateWindow(w2)],
+      expected: WindowingDoc(
+        shells: {
+          s1: ShellState(tabIds: [t1], activeTabId: t1),
+          s2: ShellState(tabIds: [t2, t3], activeTabId: t2),
+        },
+        tabs: {
+          t1: const TabState(),
+          t2: TabState(root: h([l1, l2]), activeWindowId: w2),
+          t3: const TabState(),
+        },
+        windows: {w1: showing(b1), w2: showing(b1)},
+        focusedShellId: s2,
+      ),
+    ),
+    (
+      name: 'the active window is unchanged',
+      start: tree(l1, w1),
+      commands: [const ActivateWindow(w1)],
+      expected: null,
+    ),
+    (
+      name: 'unknown window is unchanged',
+      start: tree(l1, w1),
+      commands: [const ActivateWindow(w2)],
+      expected: null,
+    ),
+  ]);
+
+  runTable('MoveTab', [
+    (
+      name: 'reorders within a shell and activates the tab',
+      start: doc({s1: ([t1, t2, t3], t1)}),
+      commands: [const MoveTab(t3, shellId: s1, index: 0)],
+      expected: doc({s1: ([t3, t1, t2], t3)}),
+    ),
+    (
+      name: 'an index past the end appends',
+      start: doc({s1: ([t1, t2, t3], t1)}),
+      commands: [const MoveTab(t1, shellId: s1, index: 9)],
+      expected: doc({s1: ([t2, t3, t1], t1)}),
+    ),
+    (
+      name: 'moves to another shell with its windows, focusing it',
+      start: doc({s1: ([t1, t2], t2), s2: ([t3], t3)}, windows: {t2: w2}),
+      commands: [const MoveTab(t2, shellId: s2, index: 0)],
+      expected: doc({s1: ([t1], t1), s2: ([t2, t3], t2)},
+          focused: s2, windows: {t2: w2}),
+    ),
+    (
+      name: "moving a shell's last tab out is unchanged",
+      start: doc({s1: ([t1], t1), s2: ([t2], t2)}),
+      commands: [const MoveTab(t1, shellId: s2, index: 0)],
+      expected: null,
+    ),
+    (
+      name: 'the same place is unchanged',
+      start: doc({s1: ([t1, t2], t1)}),
+      commands: [const MoveTab(t1, shellId: s1, index: 0)],
+      expected: null,
+    ),
+    (
+      name: 'unknown tab or shell is unchanged',
+      start: doc({s1: ([t1, t2], t1)}),
+      commands: [
+        const MoveTab(t3, shellId: s1, index: 0),
+        const MoveTab(t1, shellId: s2, index: 0),
+      ],
+      expected: null,
+    ),
+  ]);
+
+  runTable('MoveWindow', [
+    (
+      name: 'moves into an empty tab in another shell, leaving the source '
+          'tab empty',
+      start: doc({s1: ([t1], t1), s2: ([t2], t2)}, windows: {t1: w1}),
+      commands: [const MoveWindow(w1, tabId: t2)],
+      expected: doc({s1: ([t1], t1), s2: ([t2], t2)},
+          focused: s2, windows: {t2: w1}),
+    ),
+    (
+      name: "splits the target tab's active window and takes focus",
+      start: doc({s1: ([t1, t2], t1)}, windows: {t1: w1, t2: w2}),
+      commands: [const MoveWindow(w1, tabId: t2, axis: Axis.vertical)],
+      expected: WindowingDoc(
+        shells: {s1: ShellState(tabIds: [t1, t2], activeTabId: t2)},
+        tabs: {
+          t1: const TabState(),
+          t2: TabState(root: v([l2, l1]), activeWindowId: w1),
+        },
+        windows: {w1: showing(b1), w2: showing(b1)},
+        focusedShellId: s1,
+      ),
+    ),
+    (
+      name: 'splits a named target window within the same tab',
+      start: tree(h([l1, l2, l3]), w1),
+      commands: [const MoveWindow(w3, tabId: t1, target: w1)],
+      expected: tree(h([h([l1, l3]), l2], [0.5, 0.5]), w3),
+    ),
+    (
+      name: 'onto itself, a target outside the tab, or unknown ids is '
+          'unchanged',
+      start: doc({s1: ([t1, t2], t1)}, windows: {t1: w1, t2: w2}),
+      commands: [
+        const MoveWindow(w1, tabId: t1),
+        const MoveWindow(w1, tabId: t2, target: w1),
+        const MoveWindow(w3, tabId: t2),
+        const MoveWindow(w1, tabId: t3),
+      ],
+      expected: null,
+    ),
+  ]);
+
   runTable('dispatchAll', [
     (
       name: 'applies a batch in order',
@@ -533,6 +734,30 @@ void main() {
       expect(controller.doc.value.windows[w1], hist([b1], b3));
       controller.attachBuffer(w1, b2);
       expect(controller.doc.value.windows[w1], showing(b2));
+    });
+
+    test('shells, moves and window focus', () {
+      final controller = WindowingController(
+          initial: doc({s1: ([t1, t2], t1)}, windows: {t1: w1}));
+      final docs = <WindowingDoc>[];
+      controller.doc.addListener(() => docs.add(controller.doc.value));
+
+      final shell = controller.attachShell();
+      final empty = controller.doc.value.shells[shell]!.activeTabId;
+      controller.activateShell(s1);
+      controller.moveTab(t2, shellId: shell, index: 0);
+      controller.moveWindow(w1, tabId: empty);
+      controller.activateWindow(w1);
+      expect(controller.doc.value.shells[shell]!.tabIds, [t2, empty]);
+      expect(controller.doc.value.tabs[t1], const TabState());
+      expect(controller.doc.value.tabs[empty]!.root, l1);
+      expect(controller.doc.value.focusedShellId, shell);
+      controller.closeShell(shell);
+      expect(controller.doc.value.shells.keys, [s1]);
+      expect(controller.doc.value.windows, isEmpty);
+
+      expect(docs, hasLength(5), reason: 'one publish per move');
+      docs.forEach(expectInvariants);
     });
 
     test('newTab opens in the given shell', () {

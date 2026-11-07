@@ -33,6 +33,21 @@ class WindowingDemo extends StatelessWidget {
               ),
             ]),
             Text('active: ${tabs.indexOf(shell.activeTabId) + 1}'),
+            Row(children: [
+              Text('shells: ${doc.shells.length}'),
+              GestureDetector(
+                onTap: controller.attachShell,
+                child: const Text('new shell'),
+              ),
+              // One per other shell: pulls its active tab into this one.
+              for (final MapEntry(:key, :value) in doc.shells.entries)
+                if (key != doc.focusedShellId)
+                  GestureDetector(
+                    onTap: () => controller.moveTab(value.activeTabId,
+                        shellId: doc.focusedShellId, index: tabs.length),
+                    child: const Text('take tab'),
+                  ),
+            ]),
             if (doc.tabs[shell.activeTabId]!
                 case TabState(:final root?, activeWindowId: final window?))
               Row(children: [
@@ -51,6 +66,10 @@ class WindowingDemo extends StatelessWidget {
                 GestureDetector(
                   onTap: () => controller.closeWindow(window),
                   child: const Text('close window'),
+                ),
+                GestureDetector(
+                  onTap: () => controller.moveWindow(window, tabId: tabs.first),
+                  child: const Text('window to tab 1'),
                 ),
                 Text('buffer: ${doc.windows[window]!.history.current.value}'),
                 GestureDetector(

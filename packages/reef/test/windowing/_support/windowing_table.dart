@@ -4,6 +4,7 @@ import 'package:reef/reef.dart';
 /// Fails when [doc] breaks a windowing invariant (spec §2): the focus chain,
 /// each tab in exactly one shell, and window membership.
 void expectInvariants(WindowingDoc doc) {
+  expect(doc.shells, isNotEmpty, reason: 'the last shell never closes');
   final shell = doc.shells[doc.focusedShellId];
   expect(shell, isNotNull, reason: 'focused shell exists');
 

@@ -303,6 +303,167 @@ class ReplaceBuffer extends _HistoryCommand {
       back: history.back, current: buffer, forward: history.forward);
 }
 
+/// Activates [windowId] in its tab, then that tab and its shell.
+class ActivateWindow extends WindowingCommand {
+  const ActivateWindow(this.windowId);
+
+  final WindowId windowId;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    final tabId = _tabOf(doc, windowId);
+    if (tabId == null) return doc;
+    final tab = doc.tabs[tabId]!;
+    final next = tab.activeWindowId == windowId
+        ? doc
+        : doc.copyWith(shells: doc.shells, tabs: {
+            ...doc.tabs,
+            tabId: TabState(root: tab.root, activeWindowId: windowId),
+          });
+    return ActivateTab(tabId).apply(next);
+  }
+}
+
+/// Adds shell [shellId] holding one empty tab [tabId], and focuses it.
+class AttachShell extends WindowingCommand {
+  const AttachShell(this.shellId, {required this.tabId});
+
+  final ShellId shellId;
+  final TabId tabId;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    if (doc.shells.containsKey(shellId) || doc.tabs.containsKey(tabId)) {
+      return doc;
+    }
+    return doc.copyWith(
+      shells: {
+        ...doc.shells,
+        shellId: ShellState(tabIds: [tabId], activeTabId: tabId),
+      },
+      tabs: {...doc.tabs, tabId: const TabState()},
+      focusedShellId: shellId,
+    );
+  }
+}
+
+/// Focuses [shellId].
+class ActivateShell extends WindowingCommand {
+  const ActivateShell(this.shellId);
+
+  final ShellId shellId;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) =>
+      !doc.shells.containsKey(shellId) || doc.focusedShellId == shellId
+          ? doc
+          : doc.copyWith(shells: doc.shells, focusedShellId: shellId);
+}
+
+/// Closes [shellId] with its tabs and their windows. The last shell never
+/// closes. Closing the focused shell focuses the first remaining one.
+class CloseShell extends WindowingCommand {
+  const CloseShell(this.shellId);
+
+  final ShellId shellId;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    final shell = doc.shells[shellId];
+    if (shell == null || doc.shells.length == 1) return doc;
+    final shells = {...doc.shells}..remove(shellId);
+    final gone = {
+      for (final t in shell.tabIds) ...?doc.tabs[t]!.root?.windowIds,
+    };
+    return doc.copyWith(
+      shells: shells,
+      tabs: {...doc.tabs}..removeWhere((t, _) => shell.tabIds.contains(t)),
+      windows: {...doc.windows}..removeWhere((w, _) => gone.contains(w)),
+      focusedShellId:
+          doc.focusedShellId == shellId ? shells.keys.first : null,
+    );
+  }
+}
+
+/// Moves [tabId] to [index] (clamped) in [shellId], then activates it and
+/// focuses that shell. A shell's last tab never moves out. When the moved
+/// tab was active in its old shell, its left neighbour (or the next one)
+/// becomes active there.
+class MoveTab extends WindowingCommand {
+  const MoveTab(this.tabId, {required this.shellId, required this.index});
+
+  final TabId tabId;
+  final ShellId shellId;
+  final int index;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    final (from, source) = _owner(doc, tabId) ?? (null, null);
+    final target = doc.shells[shellId];
+    if (from == null || source == null || target == null) return doc;
+    if (from != shellId && source.tabIds.length == 1) return doc;
+    final i = source.tabIds.indexOf(tabId);
+    final rest = [...source.tabIds]..removeAt(i);
+    final shells = {...doc.shells};
+    if (from != shellId) {
+      shells[from] = ShellState(
+        tabIds: rest,
+        activeTabId: source.activeTabId == tabId
+            ? rest[i == 0 ? 0 : i - 1]
+            : source.activeTabId,
+      );
+    }
+    final into = from == shellId ? rest : [...target.tabIds];
+    into.insert(index.clamp(0, into.length), tabId);
+    shells[shellId] = ShellState(tabIds: into, activeTabId: tabId);
+    final next = doc.copyWith(shells: shells, focusedShellId: shellId);
+    return next == doc ? doc : next;
+  }
+}
+
+/// Moves tree window [windowId] into tab [tabId] of any shell, in one step.
+/// An empty tab takes it as its root; otherwise it splits [target] (the
+/// tab's active window by default) along [axis], placed after it. The
+/// source tree collapses as in [CloseWindow] and may be left empty. The
+/// moved window keeps its history and takes focus.
+class MoveWindow extends WindowingCommand {
+  const MoveWindow(this.windowId,
+      {required this.tabId, this.target, this.axis = Axis.horizontal});
+
+  final WindowId windowId;
+  final TabId tabId;
+  final WindowId? target;
+  final Axis axis;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    final tab = doc.tabs[tabId];
+    if (tab == null || _tabOf(doc, windowId) == null) return doc;
+    final at = target ?? tab.activeWindowId;
+    if (at == windowId) return doc;
+    if (at != null && !tab.root!.windowIds.contains(at)) return doc;
+    final removed = CloseWindow(windowId).apply(doc);
+    final placed = at == null
+        ? WindowLeaf(windowId)
+        : _replaceLeaf(
+            removed.tabs[tabId]!.root!,
+            at,
+            WindowBranch(
+              axis: axis,
+              children: [WindowLeaf(at), WindowLeaf(windowId)],
+              ratios: const [0.5, 0.5],
+            ));
+    return ActivateWindow(windowId).apply(removed.copyWith(
+      shells: removed.shells,
+      tabs: {
+        ...removed.tabs,
+        tabId: TabState(root: placed, activeWindowId: windowId),
+      },
+      windows: {...removed.windows, windowId: doc.windows[windowId]!},
+    ));
+  }
+}
+
 TabId? _tabOf(WindowingDoc doc, WindowId window) {
   for (final MapEntry(:key, :value) in doc.tabs.entries) {
     if (value.root?.windowIds.contains(window) ?? false) return key;
@@ -380,6 +541,27 @@ class WindowingController {
   void activateTab(TabId tabId) => dispatch(ActivateTab(tabId));
 
   void closeTab(TabId tabId) => dispatch(CloseTab(tabId));
+
+  void moveTab(TabId tabId, {required ShellId shellId, required int index}) =>
+      dispatch(MoveTab(tabId, shellId: shellId, index: index));
+
+  /// Adds a shell holding one empty tab and focuses it. Returns its id.
+  /// The platform shell is not opened here (that is `popOutTab`, later).
+  ShellId attachShell() {
+    final shell = ShellId.generate();
+    dispatch(AttachShell(shell, tabId: TabId.generate()));
+    return shell;
+  }
+
+  void activateShell(ShellId shellId) => dispatch(ActivateShell(shellId));
+
+  void closeShell(ShellId shellId) => dispatch(CloseShell(shellId));
+
+  void activateWindow(WindowId windowId) => dispatch(ActivateWindow(windowId));
+
+  void moveWindow(WindowId windowId,
+          {required TabId tabId, WindowId? target, Axis axis = Axis.horizontal}) =>
+      dispatch(MoveWindow(windowId, tabId: tabId, target: target, axis: axis));
 
   /// Splits [windowId] along [axis]. Returns the new window's id.
   WindowId splitWindow(WindowId windowId,
