@@ -21,3 +21,4 @@ export 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 export 'package:reef/features/workspace/_implementations/split_tree.dart';
 export 'package:reef/features/workspace/_implementations/split_tree_controller.dart';
 export 'package:reef/features/workspace/_implementations/split_workspace.dart';
+export 'package:reef/features/undo/_implementations/undo_controller.dart';
