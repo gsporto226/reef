@@ -1,6 +1,6 @@
 // The windowing API is experimental (flutter/flutter#30701): `@internal`,
-// main-channel-only, enabled with
-// `--dart-define=FLUTTER_ENABLED_FEATURE_FLAGS=windowing`.
+// master-channel only, enabled per invocation with `FLUTTER_WINDOWING=true`
+// (see main_windowed.dart).
 // ignore_for_file: invalid_use_of_internal_member, implementation_imports
 
 import 'package:flutter/src/widgets/_window.dart' as windowing;

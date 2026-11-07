@@ -5,7 +5,7 @@
 // Run (master channel; do NOT use `flutter config --enable-windowing` — the
 // global flag breaks `flutter test` on Windows, the Win32 owner FFI-initializes
 // inside flutter_tester):
-//   $env.FLUTTER_WINDOWING = "true"
+//   $env:FLUTTER_WINDOWING = "true"
 //   fvm flutter run -t lib/main_windowed.dart -d windows
 //
 // The windowing API is experimental (flutter/flutter#30701): `@internal`,

@@ -1,0 +1,47 @@
+# Reef
+
+Reef is a Flutter app framework whose navigation model follows neovim: buffers
+hold state, windows show buffers, tabs arrange windows, shells host tabs.
+
+## Windowing
+
+**Shell**:
+A platform window: the top-level surface the operating system draws, hosting an
+ordered stack of tabs. Exactly one is focused; the last one never closes.
+_Avoid_: OS window, platform window, native window
+
+**Tab**:
+The arrangement of windows that fills one shell; the unit a user switches
+between. A tab may be empty (no tree windows).
+_Avoid_: workspace, page, screen
+
+**Window**:
+A viewport that shows one buffer, either as a slot in its tab's tree or
+floating above a shell, tab, or window. Never empty: it always shows a buffer.
+_Avoid_: pane, view, split, viewport
+
+**Floating window**:
+A window that lives in an overlay instead of its tab's tree, scoped to one
+shell, tab, or window and ordered by z-index. Not a separate kind of window.
+_Avoid_: floating pane, panel, popup
+
+**Window history**:
+A window's own back and forward stacks of buffers around the one it currently
+shows.
+_Avoid_: navigation stack, back stack
+
+**Buffer**:
+One keyed instance of a page's state. Many windows can show the same buffer and
+stay in sync; a buffer outlives any single window.
+_Avoid_: document, page state, instance
+
+**Split**:
+Dividing a window's slot so a new window sits beside it. The new window shows
+the original's buffer unless another buffer is given, inherits its window
+history, and takes focus.
+_Avoid_: duplicate, clone
+
+**Dock**:
+Moving a floating window into a tab's tree beside a target window, on a given
+side. Into an empty tab, it becomes the whole tree.
+_Avoid_: attach, pin
