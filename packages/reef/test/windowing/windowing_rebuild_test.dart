@@ -126,4 +126,37 @@ void main() {
     await tester.pump();
     expect(builds, 5);
   });
+
+  testWidgets('float, raise and dock each rebuild once; refused ones do not',
+      (tester) async {
+    final controller = WindowingController();
+    addTearDown(controller.dispose);
+    final tab = controller.newTab(buffer: const BufferId.manual('a'));
+    final first = controller.doc.value.tabs[tab]!.activeWindowId!;
+    final second = controller.splitWindow(first, axis: Axis.horizontal);
+    var builds = 0;
+    await tester.pumpWidget(ValueListenableBuilder<WindowingDoc>(
+      valueListenable: controller.doc,
+      builder: (_, doc, _) {
+        builds++;
+        return const SizedBox();
+      },
+    ));
+
+    controller.floatWindow(first, scope: TabScope(tab));
+    await tester.pump();
+    controller.floatWindow(second, scope: TabScope(tab));
+    await tester.pump();
+    controller.raiseWindow(first);
+    await tester.pump();
+    controller.dockWindow(first, tabId: tab);
+    await tester.pump();
+    expect(builds, 5);
+
+    controller.raiseWindow(second);
+    controller.dockWindow(first, tabId: tab);
+    controller.floatWindow(second, scope: TabScope(tab));
+    await tester.pump();
+    expect(builds, 5, reason: 'already on top, docked, or floating');
+  });
 }

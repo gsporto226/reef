@@ -12,6 +12,7 @@ const t3 = TabId.manual('t3');
 const w1 = WindowId.manual('w1');
 const w2 = WindowId.manual('w2');
 const w3 = WindowId.manual('w3');
+const w4 = WindowId.manual('w4');
 const b1 = BufferId.manual('b1');
 const b2 = BufferId.manual('b2');
 const b3 = BufferId.manual('b3');
@@ -71,6 +72,25 @@ WindowingDoc tree(WindowNode? root, WindowId? active,
       focusedShellId: s1,
     );
 
+/// [start] plus floating windows `{window: (scope, zIndex)}`, each showing
+/// [b1] unless [windows] says otherwise.
+WindowingDoc floating(
+  WindowingDoc start,
+  Map<WindowId, (FloatScope, int)> floats, {
+  Map<WindowId, WindowState> windows = const {},
+}) =>
+    start.copyWith(
+      shells: start.shells,
+      windows: {
+        ...start.windows,
+        for (final w in floats.keys) w: windows[w] ?? showing(b1),
+      },
+      floating: {
+        for (final MapEntry(key: w, value: (scope, z)) in floats.entries)
+          w: FloatingState(scope: scope, zIndex: z),
+      },
+    );
+
 final history = WindowState(
     history: BufferHistory(back: [b2], current: b1, forward: [b2]));
 
@@ -109,6 +129,18 @@ void main() {
     expect(h([l1, l2]), isNot(v([l1, l2])));
     expect(() => h([l1, l2]).ratios.add(0), throwsUnsupportedError);
     expect(() => h([l1, l2]).children.add(l3), throwsUnsupportedError);
+    // Non-const on purpose: distinct instances.
+    final scopes = [ShellScope(s1), TabScope(t1), WindowScope(w1)];
+    final again = [ShellScope(s1), TabScope(t1), WindowScope(w1)];
+    for (final (i, s) in scopes.indexed) {
+      expect(s, again[i]);
+      expect(s.hashCode, again[i].hashCode);
+      expect(s, isNot(scopes[(i + 1) % 3]));
+    }
+    final f = FloatingState(scope: scopes[0], zIndex: 1);
+    expect(f.hashCode, FloatingState(scope: again[0], zIndex: 1).hashCode);
+    final fd = floating(tree(null, null), {w1: (ShellScope(s1), 0)});
+    expect(() => fd.floating.clear(), throwsUnsupportedError);
   });
 
   runTable('NewTab', [
@@ -652,6 +684,174 @@ void main() {
     ),
   ]);
 
+  runTable('FloatWindow', [
+    (
+      name: 'floats a tree window into a tab scope; focus falls to the '
+          'neighbour',
+      start: tree(h([l1, l2]), w2),
+      commands: [const FloatWindow(w2, scope: TabScope(t1))],
+      expected: floating(tree(l1, w1), {w2: (const TabScope(t1), 0)}),
+    ),
+    (
+      name: "floating the tab's last tree window leaves the tab empty",
+      start: tree(l1, w1),
+      commands: [const FloatWindow(w1, scope: ShellScope(s1))],
+      expected: floating(tree(null, null), {w1: (const ShellScope(s1), 0)}),
+    ),
+    (
+      name: 'lands on top of its scope',
+      start: floating(tree(h([l1, l2]), w1), {
+        w3: (const WindowScope(w1), 4),
+        w4: (const TabScope(t1), 9),
+      }),
+      commands: [const FloatWindow(w2, scope: WindowScope(w1))],
+      expected: floating(tree(l1, w1), {
+        w2: (const WindowScope(w1), 5),
+        w3: (const WindowScope(w1), 4),
+        w4: (const TabScope(t1), 9),
+      }),
+    ),
+    (
+      name: 'floating, unknown, self-scoped, cyclic or missing scopes are '
+          'unchanged',
+      start: floating(tree(h([l1, l2]), w1), {w3: (const WindowScope(w1), 0)}),
+      commands: [
+        const FloatWindow(w3, scope: TabScope(t1)),
+        const FloatWindow(w4, scope: TabScope(t1)),
+        const FloatWindow(w1, scope: WindowScope(w1)),
+        const FloatWindow(w1, scope: WindowScope(w3)),
+        const FloatWindow(w1, scope: TabScope(t2)),
+        const FloatWindow(w1, scope: ShellScope(s2)),
+        const FloatWindow(w1, scope: WindowScope(w4)),
+      ],
+      expected: null,
+    ),
+  ]);
+
+  runTable('DockWindow', [
+    (
+      name: 'into an empty tab it becomes the tree root and takes focus',
+      start: floating(tree(null, null), {w1: (const ShellScope(s1), 0)}),
+      commands: [const DockWindow(w1, tabId: t1)],
+      expected: tree(l1, w1),
+    ),
+    (
+      name: 'beside a target, after it',
+      start: floating(tree(h([l1, l2]), w2), {w3: (const TabScope(t1), 0)}),
+      commands: [
+        const DockWindow(w3, tabId: t1, target: w1, axis: Axis.vertical),
+      ],
+      expected: tree(h([v([l1, l3]), l2], [0.5, 0.5]), w3),
+    ),
+    (
+      name: "before the tab's active window",
+      start: floating(tree(l1, w1), {w2: (const TabScope(t1), 0)}),
+      commands: [const DockWindow(w2, tabId: t1, side: DockSide.before)],
+      expected: tree(h([l2, l1]), w2),
+    ),
+    (
+      name: 'keeps windows floating over it',
+      start: floating(tree(l1, w1), {
+        w2: (const ShellScope(s1), 0),
+        w3: (const WindowScope(w2), 0),
+      }),
+      commands: [const DockWindow(w2, tabId: t1)],
+      expected: floating(tree(h([l1, l2]), w2), {w3: (const WindowScope(w2), 0)}),
+    ),
+    (
+      name: "a tree window, unknown ids or another tab's window are unchanged",
+      start: floating(doc({s1: ([t1, t2], t1)}, windows: {t1: w1, t2: w2}),
+          {w3: (const TabScope(t1), 0)}),
+      commands: [
+        const DockWindow(w1, tabId: t2),
+        const DockWindow(w4, tabId: t1),
+        const DockWindow(w3, tabId: t3),
+        const DockWindow(w3, tabId: t1, target: w4),
+        const DockWindow(w3, tabId: t1, target: w2),
+      ],
+      expected: null,
+    ),
+  ]);
+
+  runTable('RaiseWindow', [
+    (
+      name: 'goes above its scope siblings only',
+      start: floating(tree(l1, w1), {
+        w2: (const TabScope(t1), 0),
+        w3: (const TabScope(t1), 1),
+        w4: (const ShellScope(s1), 7),
+      }),
+      commands: [const RaiseWindow(w2)],
+      expected: floating(tree(l1, w1), {
+        w2: (const TabScope(t1), 2),
+        w3: (const TabScope(t1), 1),
+        w4: (const ShellScope(s1), 7),
+      }),
+    ),
+    (
+      name: 'already on top, a tree window or unknown is unchanged',
+      start: floating(tree(l1, w1), {
+        w2: (const TabScope(t1), 3),
+        w3: (const TabScope(t1), 1),
+        w4: (const ShellScope(s1), 0),
+      }),
+      commands: [
+        const RaiseWindow(w2),
+        const RaiseWindow(w4),
+        const RaiseWindow(w1),
+        const RaiseWindow(WindowId.manual('nope')),
+      ],
+      expected: null,
+    ),
+  ]);
+
+  runTable('floating windows and closes', [
+    (
+      name: 'closing a floating window takes windows scoped to it along',
+      start: floating(tree(l1, w1), {
+        w2: (const TabScope(t1), 0),
+        w3: (const WindowScope(w2), 0),
+      }),
+      commands: [const CloseWindow(w2)],
+      expected: tree(l1, w1),
+    ),
+    (
+      name: 'closing a tree window takes its floating windows along',
+      start: floating(tree(h([l1, l2]), w1), {w3: (const WindowScope(w2), 0)}),
+      commands: [const CloseWindow(w2)],
+      expected: tree(l1, w1),
+    ),
+    (
+      name: 'closing a tab or shell takes its floating windows along',
+      start: floating(
+          doc({s1: ([t1, t2], t1), s2: ([t3], t3)}, windows: {t1: w1}), {
+        w2: (const TabScope(t2), 0),
+        w3: (const ShellScope(s2), 0),
+        w4: (const ShellScope(s1), 0),
+      }),
+      commands: [const CloseTab(t2), const CloseShell(s2)],
+      expected: floating(doc({s1: ([t1], t1)}, windows: {t1: w1}),
+          {w4: (const ShellScope(s1), 0)}),
+    ),
+    (
+      name: 'moving a tree window keeps windows floating over it',
+      start: floating(doc({s1: ([t1, t2], t1)}, windows: {t1: w1}),
+          {w2: (const WindowScope(w1), 0)}),
+      commands: [const MoveWindow(w1, tabId: t2)],
+      expected: floating(
+          doc({s1: ([t1, t2], t2)}, windows: {t2: w1}),
+          {w2: (const WindowScope(w1), 0)}),
+    ),
+    (
+      name: 'window history works on a floating window',
+      start: floating(tree(null, null), {w1: (const ShellScope(s1), 0)}),
+      commands: [const PushBuffer(w1, b2), const PopBuffer(w1),
+        const NavigateForward(w1), const ReplaceBuffer(w1, b3)],
+      expected: floating(tree(null, null), {w1: (const ShellScope(s1), 0)},
+          windows: {w1: hist([b1], b3)}),
+    ),
+  ]);
+
   runTable('dispatchAll', [
     (
       name: 'applies a batch in order',
@@ -758,6 +958,23 @@ void main() {
 
       expect(docs, hasLength(5), reason: 'one publish per move');
       docs.forEach(expectInvariants);
+    });
+
+    test('float, raise and dock windows', () {
+      final controller = WindowingController(initial: tree(h([l1, l2]), w1));
+      controller.floatWindow(w2, scope: const TabScope(t1));
+      controller.floatWindow(w1, scope: const TabScope(t1));
+      controller.raiseWindow(w2);
+      expect(
+          controller.doc.value,
+          floating(tree(null, null), {
+            w1: (const TabScope(t1), 1),
+            w2: (const TabScope(t1), 2),
+          }));
+      controller.dockWindow(w1, tabId: t1);
+      controller.dockWindow(w2,
+          tabId: t1, target: w1, axis: Axis.vertical, side: DockSide.before);
+      expect(controller.doc.value, tree(v([l2, l1]), w2));
     });
 
     test('newTab opens in the given shell', () {

@@ -104,4 +104,37 @@ void main() {
     expect(find.text('active: 1'), findsOneWidget);
     expect(find.text('buffer: b'), findsOneWidget);
   });
+
+  testWidgets('float, raise, dock', (tester) async {
+    final controller = WindowingController();
+    controller.newTab(buffer: const BufferId.manual('b'));
+    await tester.pumpWidget(Directionality(
+      textDirection: TextDirection.ltr,
+      child: WindowingDemo(controller: controller),
+    ));
+    await tester.tap(find.text('split'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('push'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('float'));
+    await tester.pumpAndSettle();
+    expect(find.text('windows: 1'), findsOneWidget);
+    expect(find.text('top: pushed'), findsOneWidget);
+
+    await tester.tap(find.text('float'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('windows:'), findsNothing);
+    expect(find.text('top: b'), findsOneWidget);
+
+    await tester.tap(find.text('raise'));
+    await tester.pumpAndSettle();
+    expect(find.text('top: pushed'), findsOneWidget);
+
+    await tester.tap(find.text('dock'));
+    await tester.pumpAndSettle();
+    expect(find.text('windows: 1'), findsOneWidget);
+    expect(find.text('buffer: pushed'), findsOneWidget);
+    expect(find.text('top: b'), findsOneWidget);
+  });
 }

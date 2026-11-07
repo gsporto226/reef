@@ -35,8 +35,20 @@ void expectInvariants(WindowingDoc doc) {
   }
   expect(members.toSet().length, members.length,
       reason: 'a window belongs to one tab');
-  expect(members.toSet(), doc.windows.keys.toSet(),
-      reason: 'every window is a member of a tab and vice versa');
+  expect(members.toSet().intersection(doc.floating.keys.toSet()), isEmpty,
+      reason: 'a window is in a tree or floating, not both');
+  expect({...members, ...doc.floating.keys}, doc.windows.keys.toSet(),
+      reason: 'every window is a tree or floating window and vice versa');
+  for (final MapEntry(key: w, value: f) in doc.floating.entries) {
+    expect(
+        switch (f.scope) {
+          ShellScope(:final id) => doc.shells.containsKey(id),
+          TabScope(:final id) => doc.tabs.containsKey(id),
+          WindowScope(:final id) => doc.windows.containsKey(id) && id != w,
+        },
+        isTrue,
+        reason: "a floating window's scope exists");
+  }
 }
 
 /// One table row: a start doc, the commands dispatched as one batch, and the

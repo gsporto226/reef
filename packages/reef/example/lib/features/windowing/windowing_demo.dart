@@ -85,6 +85,31 @@ class WindowingDemo extends StatelessWidget {
                   onTap: () => controller.navigateForward(window),
                   child: const Text('forward'),
                 ),
+                GestureDetector(
+                  onTap: () => controller.floatWindow(window,
+                      scope: TabScope(shell.activeTabId)),
+                  child: const Text('float'),
+                ),
+              ]),
+            // The active tab's floating windows, bottom to top: `raise`
+            // lifts the bottom one, `dock` docks the top one.
+            if ([
+              for (final MapEntry(:key, :value) in doc.floating.entries)
+                if (value.scope == TabScope(shell.activeTabId)) key,
+            ]..sort((a, b) =>
+                    doc.floating[a]!.zIndex.compareTo(doc.floating[b]!.zIndex))
+                case [final bottom, ..., final top] || [final bottom && final top])
+              Row(children: [
+                Text('top: ${doc.windows[top]!.history.current.value}'),
+                GestureDetector(
+                  onTap: () => controller.raiseWindow(bottom),
+                  child: const Text('raise'),
+                ),
+                GestureDetector(
+                  onTap: () =>
+                      controller.dockWindow(top, tabId: shell.activeTabId),
+                  child: const Text('dock'),
+                ),
               ]),
           ]);
         },

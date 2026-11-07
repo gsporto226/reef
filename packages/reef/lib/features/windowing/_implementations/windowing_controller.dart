@@ -87,12 +87,12 @@ class CloseTab extends WindowingCommand {
         ? tabIds[index == 0 ? 0 : index - 1]
         : shell.activeTabId;
     final root = doc.tabs[tabId]!.root;
-    return doc.copyWith(
+    return _prune(doc.copyWith(
       shells: {...doc.shells, id: ShellState(tabIds: tabIds, activeTabId: active)},
       tabs: {...doc.tabs}..remove(tabId),
       windows: {...doc.windows}
         ..removeWhere((w, _) => root?.windowIds.contains(w) ?? false),
-    );
+    ));
   }
 }
 
@@ -154,35 +154,110 @@ class CloseWindow extends WindowingCommand {
 
   @override
   WindowingDoc apply(WindowingDoc doc) {
-    final tabId = _tabOf(doc, windowId);
-    if (tabId == null) return doc;
-    final tab = doc.tabs[tabId]!;
-    WindowId? neighbour;
-    final root = _atParent(tab.root!, windowId, (branch, i) {
-      final children = [...branch.children]..removeAt(i);
-      final ratios = [...branch.ratios]..removeAt(i);
-      neighbour = children[i == 0 ? 0 : i - 1].windowIds.first;
-      if (children.length == 1) return children.single;
-      final sum = ratios.fold(0.0, (a, r) => a + r);
-      return WindowBranch(
-        axis: branch.axis,
-        children: children,
-        ratios: [for (final r in ratios) r / sum],
-      );
-    });
-    return doc.copyWith(
-      shells: doc.shells,
-      tabs: {
-        ...doc.tabs,
-        tabId: TabState(
-          root: root,
-          activeWindowId:
-              tab.activeWindowId == windowId ? neighbour : tab.activeWindowId,
-        ),
-      },
-      windows: {...doc.windows}..remove(windowId),
-    );
+    final WindowingDoc out;
+    if (doc.floating.containsKey(windowId)) {
+      out = doc.copyWith(
+          shells: doc.shells,
+          floating: {...doc.floating}..remove(windowId));
+    } else {
+      final detached = _detach(doc, windowId);
+      if (detached == null) return doc;
+      out = detached;
+    }
+    return _prune(out.copyWith(
+        shells: out.shells, windows: {...out.windows}..remove(windowId)));
   }
+}
+
+/// Takes tree window [windowId] out of its tab's tree, which collapses as in
+/// [CloseWindow]. The window stays in `doc.windows`. Null when it is not a
+/// tree window.
+WindowingDoc? _detach(WindowingDoc doc, WindowId windowId) {
+  final tabId = _tabOf(doc, windowId);
+  if (tabId == null) return null;
+  final tab = doc.tabs[tabId]!;
+  WindowId? neighbour;
+  final root = _atParent(tab.root!, windowId, (branch, i) {
+    final children = [...branch.children]..removeAt(i);
+    final ratios = [...branch.ratios]..removeAt(i);
+    neighbour = children[i == 0 ? 0 : i - 1].windowIds.first;
+    if (children.length == 1) return children.single;
+    final sum = ratios.fold(0.0, (a, r) => a + r);
+    return WindowBranch(
+      axis: branch.axis,
+      children: children,
+      ratios: [for (final r in ratios) r / sum],
+    );
+  });
+  return doc.copyWith(
+    shells: doc.shells,
+    tabs: {
+      ...doc.tabs,
+      tabId: TabState(
+        root: root,
+        activeWindowId:
+            tab.activeWindowId == windowId ? neighbour : tab.activeWindowId,
+      ),
+    },
+  );
+}
+
+/// Drops floating windows whose scope no longer exists, transitively.
+WindowingDoc _prune(WindowingDoc doc) {
+  final dead = [
+    for (final MapEntry(:key, :value) in doc.floating.entries)
+      if (!_scopeExists(doc, value.scope)) key,
+  ];
+  if (dead.isEmpty) return doc;
+  return _prune(doc.copyWith(
+    shells: doc.shells,
+    windows: {...doc.windows}..removeWhere((w, _) => dead.contains(w)),
+    floating: {...doc.floating}..removeWhere((w, _) => dead.contains(w)),
+  ));
+}
+
+bool _scopeExists(WindowingDoc doc, FloatScope scope) => switch (scope) {
+      ShellScope(:final id) => doc.shells.containsKey(id),
+      TabScope(:final id) => doc.tabs.containsKey(id),
+      WindowScope(:final id) => doc.windows.containsKey(id),
+    };
+
+/// Which side of the target window a docked window lands on, along the
+/// dock axis.
+enum DockSide { before, after }
+
+/// Puts [windowId] (in `doc.windows`, in no tree) into tab [tabId]: as the
+/// root of an empty tab, else in a new 50/50 branch with [at] along [axis].
+/// The window takes focus.
+WindowingDoc _place(WindowingDoc doc, WindowId windowId, TabId tabId,
+    WindowId? at, Axis axis, DockSide side) {
+  final pair = [WindowLeaf(at ?? windowId), WindowLeaf(windowId)];
+  final placed = at == null
+      ? WindowLeaf(windowId)
+      : _replaceLeaf(
+          doc.tabs[tabId]!.root!,
+          at,
+          WindowBranch(
+            axis: axis,
+            children: side == DockSide.after ? pair : pair.reversed.toList(),
+            ratios: const [0.5, 0.5],
+          ));
+  return ActivateWindow(windowId).apply(doc.copyWith(
+    shells: doc.shells,
+    tabs: {
+      ...doc.tabs,
+      tabId: TabState(root: placed, activeWindowId: windowId),
+    },
+  ));
+}
+
+/// The insertion target in tab [tab] for [windowId]: [target], or the tab's
+/// active window. `(false, _)` when that is [windowId] or not in the tab.
+(bool, WindowId?) _anchor(TabState tab, WindowId windowId, WindowId? target) {
+  final at = target ?? tab.activeWindowId;
+  if (at == windowId) return (false, null);
+  if (at != null && !tab.root!.windowIds.contains(at)) return (false, null);
+  return (true, at);
 }
 
 /// Sets the [ratios] of the branch directly holding [windowId]. Ratios must
@@ -375,13 +450,13 @@ class CloseShell extends WindowingCommand {
     final gone = {
       for (final t in shell.tabIds) ...?doc.tabs[t]!.root?.windowIds,
     };
-    return doc.copyWith(
+    return _prune(doc.copyWith(
       shells: shells,
       tabs: {...doc.tabs}..removeWhere((t, _) => shell.tabIds.contains(t)),
       windows: {...doc.windows}..removeWhere((w, _) => gone.contains(w)),
       focusedShellId:
           doc.focusedShellId == shellId ? shells.keys.first : null,
-    );
+    ));
   }
 }
 
@@ -439,30 +514,98 @@ class MoveWindow extends WindowingCommand {
   WindowingDoc apply(WindowingDoc doc) {
     final tab = doc.tabs[tabId];
     if (tab == null || _tabOf(doc, windowId) == null) return doc;
-    final at = target ?? tab.activeWindowId;
-    if (at == windowId) return doc;
-    if (at != null && !tab.root!.windowIds.contains(at)) return doc;
-    final removed = CloseWindow(windowId).apply(doc);
-    final placed = at == null
-        ? WindowLeaf(windowId)
-        : _replaceLeaf(
-            removed.tabs[tabId]!.root!,
-            at,
-            WindowBranch(
-              axis: axis,
-              children: [WindowLeaf(at), WindowLeaf(windowId)],
-              ratios: const [0.5, 0.5],
-            ));
-    return ActivateWindow(windowId).apply(removed.copyWith(
-      shells: removed.shells,
-      tabs: {
-        ...removed.tabs,
-        tabId: TabState(root: placed, activeWindowId: windowId),
-      },
-      windows: {...removed.windows, windowId: doc.windows[windowId]!},
-    ));
+    final (ok, at) = _anchor(tab, windowId, target);
+    if (!ok) return doc;
+    return _place(
+        _detach(doc, windowId)!, windowId, tabId, at, axis, DockSide.after);
   }
 }
+
+/// Moves tree window [windowId] into the floating overlay of [scope], on top
+/// of that scope's floating windows. Its tab's tree collapses as in
+/// [CloseWindow] and may be left empty. Refused when [scope] is missing, is
+/// the window itself, or floats over it.
+class FloatWindow extends WindowingCommand {
+  const FloatWindow(this.windowId, {required this.scope});
+
+  final WindowId windowId;
+  final FloatScope scope;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    if (!_scopeExists(doc, scope)) return doc;
+    for (var s = scope; s is WindowScope; s = doc.floating[s.id]!.scope) {
+      if (s.id == windowId) return doc;
+      if (!doc.floating.containsKey(s.id)) break;
+    }
+    final detached = _detach(doc, windowId);
+    if (detached == null) return doc;
+    return detached.copyWith(shells: detached.shells, floating: {
+      ...doc.floating,
+      windowId: FloatingState(scope: scope, zIndex: _top(doc, scope, null) + 1),
+    });
+  }
+}
+
+/// Docks floating window [windowId] into tab [tabId]: as the root of an
+/// empty tab, else beside [target] (the tab's active window by default) on
+/// [side] along [axis]. The docked window takes focus.
+class DockWindow extends WindowingCommand {
+  const DockWindow(this.windowId,
+      {required this.tabId,
+      this.target,
+      this.axis = Axis.horizontal,
+      this.side = DockSide.after});
+
+  final WindowId windowId;
+  final TabId tabId;
+  final WindowId? target;
+  final Axis axis;
+  final DockSide side;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    final tab = doc.tabs[tabId];
+    if (tab == null || !doc.floating.containsKey(windowId)) return doc;
+    final (ok, at) = _anchor(tab, windowId, target);
+    if (!ok) return doc;
+    return _place(
+        doc.copyWith(
+            shells: doc.shells,
+            floating: {...doc.floating}..remove(windowId)),
+        windowId,
+        tabId,
+        at,
+        axis,
+        side);
+  }
+}
+
+/// Puts floating window [windowId] above the other floating windows of its
+/// scope.
+class RaiseWindow extends WindowingCommand {
+  const RaiseWindow(this.windowId);
+
+  final WindowId windowId;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    final state = doc.floating[windowId];
+    if (state == null) return doc;
+    final top = _top(doc, state.scope, windowId);
+    if (state.zIndex > top) return doc;
+    return doc.copyWith(shells: doc.shells, floating: {
+      ...doc.floating,
+      windowId: FloatingState(scope: state.scope, zIndex: top + 1),
+    });
+  }
+}
+
+/// The highest zIndex in [scope], ignoring [except]; -1 when none.
+int _top(WindowingDoc doc, FloatScope scope, WindowId? except) =>
+    doc.floating.entries
+        .where((e) => e.value.scope == scope && e.key != except)
+        .fold(-1, (top, e) => e.value.zIndex > top ? e.value.zIndex : top);
 
 TabId? _tabOf(WindowingDoc doc, WindowId window) {
   for (final MapEntry(:key, :value) in doc.tabs.entries) {
@@ -573,6 +716,19 @@ class WindowingController {
   }
 
   void closeWindow(WindowId windowId) => dispatch(CloseWindow(windowId));
+
+  void floatWindow(WindowId windowId, {required FloatScope scope}) =>
+      dispatch(FloatWindow(windowId, scope: scope));
+
+  void dockWindow(WindowId windowId,
+          {required TabId tabId,
+          WindowId? target,
+          Axis axis = Axis.horizontal,
+          DockSide side = DockSide.after}) =>
+      dispatch(DockWindow(windowId,
+          tabId: tabId, target: target, axis: axis, side: side));
+
+  void raiseWindow(WindowId windowId) => dispatch(RaiseWindow(windowId));
 
   void resizeWindow(WindowId windowId, List<double> ratios) =>
       dispatch(ResizeWindow(windowId, ratios));
