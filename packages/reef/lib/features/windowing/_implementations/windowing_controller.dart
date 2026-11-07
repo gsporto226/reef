@@ -71,14 +71,11 @@ class ActivateTab extends WindowingCommand {
 }
 
 /// Closes [tabId] and its windows. A shell's last tab never closes. Closing
-/// the active tab activates its left neighbour, or the next one. With
-/// [keepFloating], windows floating over the tab or its tree windows move to
-/// the shell instead of closing along.
+/// the active tab activates its left neighbour, or the next one.
 class CloseTab extends WindowingCommand {
-  const CloseTab(this.tabId, {this.keepFloating = false});
+  const CloseTab(this.tabId);
 
   final TabId tabId;
-  final bool keepFloating;
 
   @override
   WindowingDoc apply(WindowingDoc doc) {
@@ -90,9 +87,6 @@ class CloseTab extends WindowingCommand {
         ? tabIds[index == 0 ? 0 : index - 1]
         : shell.activeTabId;
     final root = doc.tabs[tabId]!.root;
-    if (keepFloating) {
-      doc = _rehome(doc, {TabScope(tabId), ..._scopes(root)}, ShellScope(id));
-    }
     return _prune(doc.copyWith(
       shells: {...doc.shells, id: ShellState(tabIds: tabIds, activeTabId: active)},
       tabs: {...doc.tabs}..remove(tabId),
@@ -151,30 +145,23 @@ class SplitWindow extends WindowingCommand {
 /// Closes tree window [windowId]. A branch left with one child collapses
 /// into it and the remaining ratios are renormalized. When the window was
 /// active, focus moves to its left neighbour, or the next one. Closing the
-/// last window leaves the tab empty. With [keepFloating], windows floating
-/// over it move to its tab (for a floating window, to its own scope) instead
-/// of closing along.
+/// last window leaves the tab empty.
 class CloseWindow extends WindowingCommand {
-  const CloseWindow(this.windowId, {this.keepFloating = false});
+  const CloseWindow(this.windowId);
 
   final WindowId windowId;
-  final bool keepFloating;
 
   @override
   WindowingDoc apply(WindowingDoc doc) {
-    WindowingDoc out;
-    final FloatScope to;
-    if (doc.floating[windowId] case final state?) {
-      to = state.scope;
+    final WindowingDoc out;
+    if (doc.floating.containsKey(windowId)) {
       out = doc.copyWith(
           floating: {...doc.floating}..remove(windowId));
     } else {
-      final tabId = _tabOf(doc, windowId);
-      if (tabId == null) return doc;
-      to = TabScope(tabId);
-      out = _detach(doc, windowId)!;
+      final detached = _detach(doc, windowId);
+      if (detached == null) return doc;
+      out = detached;
     }
-    if (keepFloating) out = _rehome(out, {WindowScope(windowId)}, to);
     return _prune(
         out.copyWith(windows: {...out.windows}..remove(windowId)));
   }
@@ -208,24 +195,6 @@ WindowingDoc? _detach(WindowingDoc doc, WindowId windowId) {
     },
   );
 }
-
-/// Moves floating windows scoped to any of [from] onto [to], above its
-/// floating windows, keeping their relative z-order.
-WindowingDoc _rehome(WindowingDoc doc, Set<FloatScope> from, FloatScope to) {
-  final moving = [
-    for (final e in doc.floating.entries)
-      if (from.contains(e.value.scope)) e,
-  ]..sort((a, b) => a.value.zIndex.compareTo(b.value.zIndex));
-  var z = _top(doc, to, null);
-  return doc.copyWith(floating: {
-    ...doc.floating,
-    for (final e in moving) e.key: FloatingState(scope: to, zIndex: ++z),
-  });
-}
-
-/// Window scopes of the tree windows under [root].
-Iterable<FloatScope> _scopes(WindowNode? root) =>
-    root?.windowIds.map(WindowScope.new) ?? const [];
 
 /// Drops floating windows whose scope no longer exists, transitively.
 WindowingDoc _prune(WindowingDoc doc) {
@@ -493,14 +462,11 @@ class ActivateShell extends WindowingCommand {
 }
 
 /// Closes [shellId] with its tabs and their windows. The last shell never
-/// closes. Closing the focused shell focuses the first remaining one. With
-/// [keepFloating], windows floating over the shell, its tabs or their tree
-/// windows move to the shell focused afterwards instead of closing along.
+/// closes. Closing the focused shell focuses the first remaining one.
 class CloseShell extends WindowingCommand {
-  const CloseShell(this.shellId, {this.keepFloating = false});
+  const CloseShell(this.shellId);
 
   final ShellId shellId;
-  final bool keepFloating;
 
   @override
   WindowingDoc apply(WindowingDoc doc) {
@@ -510,23 +476,12 @@ class CloseShell extends WindowingCommand {
     final gone = {
       for (final t in shell.tabIds) ...?doc.tabs[t]!.root?.windowIds,
     };
-    final focused =
-        doc.focusedShellId == shellId ? shells.keys.first : doc.focusedShellId;
-    if (keepFloating) {
-      doc = _rehome(
-          doc,
-          {
-            ShellScope(shellId),
-            for (final t in shell.tabIds) TabScope(t),
-            for (final w in gone) WindowScope(w),
-          },
-          ShellScope(focused));
-    }
     return _prune(doc.copyWith(
       shells: shells,
       tabs: {...doc.tabs}..removeWhere((t, _) => shell.tabIds.contains(t)),
       windows: {...doc.windows}..removeWhere((w, _) => gone.contains(w)),
-      focusedShellId: focused,
+      focusedShellId:
+          doc.focusedShellId == shellId ? shells.keys.first : null,
     ));
   }
 }
@@ -752,8 +707,7 @@ class WindowingController {
 
   void activateTab(TabId tabId) => dispatch(ActivateTab(tabId));
 
-  void closeTab(TabId tabId, {bool keepFloating = false}) =>
-      dispatch(CloseTab(tabId, keepFloating: keepFloating));
+  void closeTab(TabId tabId) => dispatch(CloseTab(tabId));
 
   void moveTab(TabId tabId, {required ShellId shellId, required int index}) =>
       dispatch(MoveTab(tabId, shellId: shellId, index: index));
@@ -768,8 +722,7 @@ class WindowingController {
 
   void activateShell(ShellId shellId) => dispatch(ActivateShell(shellId));
 
-  void closeShell(ShellId shellId, {bool keepFloating = false}) =>
-      dispatch(CloseShell(shellId, keepFloating: keepFloating));
+  void closeShell(ShellId shellId) => dispatch(CloseShell(shellId));
 
   void activateWindow(WindowId windowId) => dispatch(ActivateWindow(windowId));
 
@@ -790,8 +743,7 @@ class WindowingController {
     return window;
   }
 
-  void closeWindow(WindowId windowId, {bool keepFloating = false}) =>
-      dispatch(CloseWindow(windowId, keepFloating: keepFloating));
+  void closeWindow(WindowId windowId) => dispatch(CloseWindow(windowId));
 
   void floatWindow(WindowId windowId, {required FloatScope scope}) =>
       dispatch(FloatWindow(windowId, scope: scope));

@@ -19,10 +19,6 @@ class _WindowingDemoState extends State<WindowingDemo> {
   WindowingController get _c => widget.controller;
   int _buffers = 0;
 
-  /// Whether the close buttons rehome floating windows instead of closing
-  /// them along.
-  bool _keepFloating = false;
-
   /// Where each floating window is drawn. Placement is view state, not doc
   /// state (W1 has no geometry).
   final _positions = <WindowId, Offset>{};
@@ -77,7 +73,7 @@ class _WindowingDemoState extends State<WindowingDemo> {
             label: Text('Shell ${i + 1}'),
             selected: id == doc.focusedShellId,
             onPressed: () => _c.activateShell(id),
-            onDeleted: shellIds.length > 1 ? () => _c.closeShell(id, keepFloating: _keepFloating) : null,
+            onDeleted: shellIds.length > 1 ? () => _c.closeShell(id) : null,
             deleteButtonTooltipMessage: 'Close shell ${i + 1}',
           ),
           const SizedBox(width: 4),
@@ -102,7 +98,7 @@ class _WindowingDemoState extends State<WindowingDemo> {
             selected: id == shell.activeTabId,
             selectedColor: scheme.primaryContainer,
             onPressed: () => _c.activateTab(id),
-            onDeleted: () => _c.closeTab(id, keepFloating: _keepFloating),
+            onDeleted: () => _c.closeTab(id),
             deleteButtonTooltipMessage: 'Close tab ${i + 1}',
           ),
           const SizedBox(width: 4),
@@ -252,7 +248,7 @@ class _WindowingDemoState extends State<WindowingDemo> {
           ),
           _moveMenu(doc, id),
         ],
-        _icon(Icons.close, 'Close window', () => _c.closeWindow(id, keepFloating: _keepFloating)),
+        _icon(Icons.close, 'Close window', () => _c.closeWindow(id)),
       ]),
     );
   }
@@ -356,18 +352,9 @@ class _WindowingDemoState extends State<WindowingDemo> {
       width: double.infinity,
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(children: [
-        Expanded(
-          child: Text('Focus: $chain    '
-              'windows in tab: ${tab.root?.windowIds.length ?? 0}    '
-              'floating: ${doc.floating.length}'),
-        ),
-        const Text('Keep floating windows'),
-        Switch(
-          value: _keepFloating,
-          onChanged: (v) => setState(() => _keepFloating = v),
-        ),
-      ]),
+      child: Text('Focus: $chain    '
+          'windows in tab: ${tab.root?.windowIds.length ?? 0}    '
+          'floating: ${doc.floating.length}'),
     );
   }
 

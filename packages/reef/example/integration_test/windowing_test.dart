@@ -62,19 +62,6 @@ void main() {
     expect(find.text('Tab 2'), findsNothing);
   });
 
-  testWidgets('keep floating windows when closing their tab', (tester) async {
-    final c = await pump(tester, buffer: const BufferId.manual('b'));
-    await menu(tester, 'Float', 'Float over tab');
-    await tap(tester, find.byTooltip('New tab'));
-    expect(status('floating: 1'), findsOneWidget);
-
-    await tap(tester, find.byType(Switch));
-    await tap(tester, find.byTooltip('Close tab 1'));
-    expect(status('floating: 1'), findsOneWidget);
-    expect(c.doc.value.floating.values.single.scope,
-        ShellScope(c.doc.value.focusedShellId));
-  });
-
   testWidgets('split, resize, close window', (tester) async {
     final c = await pump(tester, buffer: const BufferId.manual('b'));
 
