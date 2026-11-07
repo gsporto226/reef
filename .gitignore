@@ -11,3 +11,6 @@ pubspec_overrides.yaml
 .idea/
 .vscode/
 *.iml
+
+# Coverage output (tool/coverage.dart)
+coverage/
