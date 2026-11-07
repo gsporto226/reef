@@ -80,7 +80,6 @@ WindowingDoc floating(
   Map<WindowId, WindowState> windows = const {},
 }) =>
     start.copyWith(
-      shells: start.shells,
       windows: {
         ...start.windows,
         for (final w in floats.keys) w: windows[w] ?? showing(b1),
@@ -596,6 +595,40 @@ void main() {
       commands: [const ActivateWindow(w2)],
       expected: null,
     ),
+    (
+      name: 'a floating window is raised; focus follows its scope chain to '
+          'the owning tab',
+      start: floating(
+          doc({s1: ([t1], t1), s2: ([t2, t3], t3)}, windows: {t2: w1}), {
+        w2: (const WindowScope(w1), 0),
+        w3: (const WindowScope(w2), 0),
+        w4: (const WindowScope(w2), 1),
+      }),
+      commands: [const ActivateWindow(w3)],
+      expected: floating(
+          doc({s1: ([t1], t1), s2: ([t2, t3], t2)},
+              focused: s2, windows: {t2: w1}),
+          {
+            w2: (const WindowScope(w1), 0),
+            w3: (const WindowScope(w2), 2),
+            w4: (const WindowScope(w2), 1),
+          }),
+    ),
+    (
+      name: 'a floating window over a tab activates that tab',
+      start: floating(doc({s1: ([t1, t2], t1)}), {w1: (const TabScope(t2), 0)}),
+      commands: [const ActivateWindow(w1)],
+      expected:
+          floating(doc({s1: ([t1, t2], t2)}), {w1: (const TabScope(t2), 0)}),
+    ),
+    (
+      name: 'a floating window over a shell focuses that shell',
+      start: floating(doc({s1: ([t1], t1), s2: ([t2], t2)}),
+          {w1: (const ShellScope(s2), 0)}),
+      commands: [const ActivateWindow(w1)],
+      expected: floating(doc({s1: ([t1], t1), s2: ([t2], t2)}, focused: s2),
+          {w1: (const ShellScope(s2), 0)}),
+    ),
   ]);
 
   runTable('MoveTab', [
@@ -669,6 +702,14 @@ void main() {
       start: tree(h([l1, l2, l3]), w1),
       commands: [const MoveWindow(w3, tabId: t1, target: w1)],
       expected: tree(h([h([l1, l3]), l2], [0.5, 0.5]), w3),
+    ),
+    (
+      name: 'before a target',
+      start: tree(h([l1, l2]), w1),
+      commands: [
+        const MoveWindow(w2, tabId: t1, target: w1, side: DockSide.before),
+      ],
+      expected: tree(h([l2, l1]), w2),
     ),
     (
       name: 'onto itself, a target outside the tab, or unknown ids is '

@@ -39,14 +39,14 @@ class WindowingDoc {
   final Map<WindowId, FloatingState> floating;
 
   WindowingDoc copyWith({
-    required Map<ShellId, ShellState> shells,
+    Map<ShellId, ShellState>? shells,
     Map<TabId, TabState>? tabs,
     Map<WindowId, WindowState>? windows,
     ShellId? focusedShellId,
     Map<WindowId, FloatingState>? floating,
   }) =>
       WindowingDoc(
-        shells: shells,
+        shells: shells ?? this.shells,
         tabs: tabs ?? this.tabs,
         windows: windows ?? this.windows,
         focusedShellId: focusedShellId ?? this.focusedShellId,
@@ -142,6 +142,13 @@ class WindowBranch extends WindowNode {
   final Axis axis;
   final List<WindowNode> children;
   final List<double> ratios;
+
+  WindowBranch copyWith({List<WindowNode>? children, List<double>? ratios}) =>
+      WindowBranch(
+        axis: axis,
+        children: children ?? this.children,
+        ratios: ratios ?? this.ratios,
+      );
 
   @override
   Iterable<WindowId> get windowIds => children.expand((c) => c.windowIds);

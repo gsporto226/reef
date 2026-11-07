@@ -129,7 +129,6 @@ class SplitWindow extends WindowingCommand {
       ratios: const [0.5, 0.5],
     );
     final next = doc.copyWith(
-      shells: doc.shells,
       tabs: {
         ...doc.tabs,
         tabId: TabState(
@@ -157,15 +156,14 @@ class CloseWindow extends WindowingCommand {
     final WindowingDoc out;
     if (doc.floating.containsKey(windowId)) {
       out = doc.copyWith(
-          shells: doc.shells,
           floating: {...doc.floating}..remove(windowId));
     } else {
       final detached = _detach(doc, windowId);
       if (detached == null) return doc;
       out = detached;
     }
-    return _prune(out.copyWith(
-        shells: out.shells, windows: {...out.windows}..remove(windowId)));
+    return _prune(
+        out.copyWith(windows: {...out.windows}..remove(windowId)));
   }
 }
 
@@ -183,14 +181,10 @@ WindowingDoc? _detach(WindowingDoc doc, WindowId windowId) {
     neighbour = children[i == 0 ? 0 : i - 1].windowIds.first;
     if (children.length == 1) return children.single;
     final sum = ratios.fold(0.0, (a, r) => a + r);
-    return WindowBranch(
-      axis: branch.axis,
-      children: children,
-      ratios: [for (final r in ratios) r / sum],
-    );
+    return branch.copyWith(
+        children: children, ratios: [for (final r in ratios) r / sum]);
   });
   return doc.copyWith(
-    shells: doc.shells,
     tabs: {
       ...doc.tabs,
       tabId: TabState(
@@ -210,7 +204,6 @@ WindowingDoc _prune(WindowingDoc doc) {
   ];
   if (dead.isEmpty) return doc;
   return _prune(doc.copyWith(
-    shells: doc.shells,
     windows: {...doc.windows}..removeWhere((w, _) => dead.contains(w)),
     floating: {...doc.floating}..removeWhere((w, _) => dead.contains(w)),
   ));
@@ -220,6 +213,18 @@ bool _scopeExists(WindowingDoc doc, FloatScope scope) => switch (scope) {
       ShellScope(:final id) => doc.shells.containsKey(id),
       TabScope(:final id) => doc.tabs.containsKey(id),
       WindowScope(:final id) => doc.windows.containsKey(id),
+    };
+
+/// Focuses the tab or shell owning [scope], following floating windows'
+/// scopes up to a tree window, tab or shell.
+WindowingDoc _focusScope(WindowingDoc doc, FloatScope scope) =>
+    switch (scope) {
+      ShellScope(:final id) => ActivateShell(id).apply(doc),
+      TabScope(:final id) => ActivateTab(id).apply(doc),
+      WindowScope(:final id) => switch (doc.floating[id]) {
+          final f? => _focusScope(doc, f.scope),
+          null => ActivateTab(_tabOf(doc, id)!).apply(doc),
+        },
     };
 
 /// Which side of the target window a docked window lands on, along the
@@ -243,7 +248,6 @@ WindowingDoc _place(WindowingDoc doc, WindowId windowId, TabId tabId,
             ratios: const [0.5, 0.5],
           ));
   return ActivateWindow(windowId).apply(doc.copyWith(
-    shells: doc.shells,
     tabs: {
       ...doc.tabs,
       tabId: TabState(root: placed, activeWindowId: windowId),
@@ -282,12 +286,10 @@ class ResizeWindow extends WindowingCommand {
       windowId,
       (branch, _) => branch.ratios.length != ratios.length
           ? branch
-          : WindowBranch(
-              axis: branch.axis, children: branch.children, ratios: ratios),
+          : branch.copyWith(ratios: ratios),
     );
     if (root == null || root == tab.root) return doc;
     return doc.copyWith(
-      shells: doc.shells,
       tabs: {
         ...doc.tabs,
         tabId: TabState(root: root, activeWindowId: tab.activeWindowId),
@@ -311,7 +313,6 @@ sealed class _HistoryCommand extends WindowingCommand {
     final next = history == null ? null : edit(history);
     if (next == null || next == history) return doc;
     return doc.copyWith(
-      shells: doc.shells,
       windows: {...doc.windows, windowId: WindowState(history: next)},
     );
   }
@@ -378,7 +379,9 @@ class ReplaceBuffer extends _HistoryCommand {
       back: history.back, current: buffer, forward: history.forward);
 }
 
-/// Activates [windowId] in its tab, then that tab and its shell.
+/// Activates tree window [windowId] in its tab, then that tab and its shell.
+/// A floating window is raised in its scope instead, and focus follows its
+/// scope chain to the owning tab or shell.
 class ActivateWindow extends WindowingCommand {
   const ActivateWindow(this.windowId);
 
@@ -386,12 +389,15 @@ class ActivateWindow extends WindowingCommand {
 
   @override
   WindowingDoc apply(WindowingDoc doc) {
+    if (doc.floating[windowId] case final state?) {
+      return _focusScope(RaiseWindow(windowId).apply(doc), state.scope);
+    }
     final tabId = _tabOf(doc, windowId);
     if (tabId == null) return doc;
     final tab = doc.tabs[tabId]!;
     final next = tab.activeWindowId == windowId
         ? doc
-        : doc.copyWith(shells: doc.shells, tabs: {
+        : doc.copyWith(tabs: {
             ...doc.tabs,
             tabId: TabState(root: tab.root, activeWindowId: windowId),
           });
@@ -432,7 +438,7 @@ class ActivateShell extends WindowingCommand {
   WindowingDoc apply(WindowingDoc doc) =>
       !doc.shells.containsKey(shellId) || doc.focusedShellId == shellId
           ? doc
-          : doc.copyWith(shells: doc.shells, focusedShellId: shellId);
+          : doc.copyWith(focusedShellId: shellId);
 }
 
 /// Closes [shellId] with its tabs and their windows. The last shell never
@@ -498,17 +504,21 @@ class MoveTab extends WindowingCommand {
 
 /// Moves tree window [windowId] into tab [tabId] of any shell, in one step.
 /// An empty tab takes it as its root; otherwise it splits [target] (the
-/// tab's active window by default) along [axis], placed after it. The
-/// source tree collapses as in [CloseWindow] and may be left empty. The
-/// moved window keeps its history and takes focus.
+/// tab's active window by default) along [axis], on [side]. The source tree
+/// collapses as in [CloseWindow] and may be left empty. The moved window
+/// keeps its history and takes focus.
 class MoveWindow extends WindowingCommand {
   const MoveWindow(this.windowId,
-      {required this.tabId, this.target, this.axis = Axis.horizontal});
+      {required this.tabId,
+      this.target,
+      this.axis = Axis.horizontal,
+      this.side = DockSide.after});
 
   final WindowId windowId;
   final TabId tabId;
   final WindowId? target;
   final Axis axis;
+  final DockSide side;
 
   @override
   WindowingDoc apply(WindowingDoc doc) {
@@ -516,8 +526,7 @@ class MoveWindow extends WindowingCommand {
     if (tab == null || _tabOf(doc, windowId) == null) return doc;
     final (ok, at) = _anchor(tab, windowId, target);
     if (!ok) return doc;
-    return _place(
-        _detach(doc, windowId)!, windowId, tabId, at, axis, DockSide.after);
+    return _place(_detach(doc, windowId)!, windowId, tabId, at, axis, side);
   }
 }
 
@@ -540,7 +549,7 @@ class FloatWindow extends WindowingCommand {
     }
     final detached = _detach(doc, windowId);
     if (detached == null) return doc;
-    return detached.copyWith(shells: detached.shells, floating: {
+    return detached.copyWith(floating: {
       ...doc.floating,
       windowId: FloatingState(scope: scope, zIndex: _top(doc, scope, null) + 1),
     });
@@ -571,7 +580,6 @@ class DockWindow extends WindowingCommand {
     if (!ok) return doc;
     return _place(
         doc.copyWith(
-            shells: doc.shells,
             floating: {...doc.floating}..remove(windowId)),
         windowId,
         tabId,
@@ -594,7 +602,7 @@ class RaiseWindow extends WindowingCommand {
     if (state == null) return doc;
     final top = _top(doc, state.scope, windowId);
     if (state.zIndex > top) return doc;
-    return doc.copyWith(shells: doc.shells, floating: {
+    return doc.copyWith(floating: {
       ...doc.floating,
       windowId: FloatingState(scope: state.scope, zIndex: top + 1),
     });
@@ -617,11 +625,8 @@ TabId? _tabOf(WindowingDoc doc, WindowId window) {
 WindowNode _replaceLeaf(WindowNode node, WindowId id, WindowNode with_) =>
     switch (node) {
       WindowLeaf(id: final leaf) => leaf == id ? with_ : node,
-      WindowBranch() => WindowBranch(
-          axis: node.axis,
-          children: [for (final c in node.children) _replaceLeaf(c, id, with_)],
-          ratios: node.ratios,
-        ),
+      WindowBranch() => node.copyWith(
+          children: [for (final c in node.children) _replaceLeaf(c, id, with_)]),
     };
 
 /// Replaces the branch directly holding leaf [id] with `edit(branch, index)`
@@ -633,11 +638,7 @@ WindowNode? _atParent(WindowNode node, WindowId id,
   if (i >= 0) return edit(node, i);
   for (final (j, child) in node.children.indexed) {
     if (_atParent(child, id, edit) case final edited?) {
-      return WindowBranch(
-        axis: node.axis,
-        children: [...node.children]..[j] = edited,
-        ratios: node.ratios,
-      );
+      return node.copyWith(children: [...node.children]..[j] = edited);
     }
   }
   return null;
@@ -666,6 +667,7 @@ class WindowingController {
   /// doc differs from the current one.
   void dispatchAll(Iterable<WindowingCommand> commands) {
     final next = commands.fold(_doc.value, (doc, c) => c.apply(doc));
+    // W2 (undo): record one undo entry per batch here, before publishing.
     if (next != _doc.value) _doc.value = next;
   }
 
@@ -703,8 +705,12 @@ class WindowingController {
   void activateWindow(WindowId windowId) => dispatch(ActivateWindow(windowId));
 
   void moveWindow(WindowId windowId,
-          {required TabId tabId, WindowId? target, Axis axis = Axis.horizontal}) =>
-      dispatch(MoveWindow(windowId, tabId: tabId, target: target, axis: axis));
+          {required TabId tabId,
+          WindowId? target,
+          Axis axis = Axis.horizontal,
+          DockSide side = DockSide.after}) =>
+      dispatch(MoveWindow(windowId,
+          tabId: tabId, target: target, axis: axis, side: side));
 
   /// Splits [windowId] along [axis]. Returns the new window's id.
   WindowId splitWindow(WindowId windowId,
