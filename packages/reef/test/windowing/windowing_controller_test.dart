@@ -14,6 +14,7 @@ const w2 = WindowId.manual('w2');
 const w3 = WindowId.manual('w3');
 const b1 = BufferId.manual('b1');
 const b2 = BufferId.manual('b2');
+const b3 = BufferId.manual('b3');
 const l1 = WindowLeaf(w1);
 const l2 = WindowLeaf(w2);
 const l3 = WindowLeaf(w3);
@@ -339,6 +340,117 @@ void main() {
     ),
   ]);
 
+  WindowState hist(List<BufferId> back, BufferId current,
+          [List<BufferId> forward = const []]) =>
+      WindowState(
+          history:
+              BufferHistory(back: back, current: current, forward: forward));
+
+  runTable('AttachBuffer', [
+    (
+      name: 'points a window at a buffer with a fresh history',
+      start: tree(l1, w1, windows: {w1: history}),
+      commands: [const AttachBuffer(w1, b3)],
+      expected: tree(l1, w1, windows: {w1: showing(b3)}),
+    ),
+    (
+      name: 'two windows can show the same buffer',
+      start: tree(h([l1, l2]), w1, windows: {w2: showing(b2)}),
+      commands: [const AttachBuffer(w2, b1)],
+      expected: tree(h([l1, l2]), w1),
+    ),
+    (
+      name: 'unknown window is unchanged',
+      start: tree(l1, w1),
+      commands: [const AttachBuffer(w2, b2)],
+      expected: null,
+    ),
+  ]);
+
+  runTable('PushBuffer', [
+    (
+      name: 'moves current to back, clears forward, sets the new current',
+      start: tree(l1, w1, windows: {w1: hist([b3], b1, [b2])}),
+      commands: [const PushBuffer(w1, b2)],
+      expected: tree(l1, w1, windows: {w1: hist([b3, b1], b2)}),
+    ),
+    (
+      name: 'unknown window is unchanged',
+      start: tree(l1, w1),
+      commands: [const PushBuffer(w2, b2)],
+      expected: null,
+    ),
+  ]);
+
+  runTable('PopBuffer', [
+    (
+      name: 'moves current to forward and restores the top of back',
+      start: tree(l1, w1, windows: {w1: hist([b3, b2], b1, [b3])}),
+      commands: [const PopBuffer(w1)],
+      expected: tree(l1, w1, windows: {w1: hist([b3], b2, [b3, b1])}),
+    ),
+    (
+      name: 'an empty back stack is unchanged',
+      start: tree(l1, w1, windows: {w1: hist([], b1, [b2])}),
+      commands: [const PopBuffer(w1)],
+      expected: null,
+    ),
+    (
+      name: 'unknown window is unchanged',
+      start: tree(l1, w1),
+      commands: [const PopBuffer(w2)],
+      expected: null,
+    ),
+  ]);
+
+  runTable('NavigateForward', [
+    (
+      name: 'moves current to back and restores the top of forward',
+      start: tree(l1, w1, windows: {w1: hist([b3], b2, [b3, b1])}),
+      commands: [const NavigateForward(w1)],
+      expected: tree(l1, w1, windows: {w1: hist([b3, b2], b1, [b3])}),
+    ),
+    (
+      name: 'undoes a PopBuffer',
+      start: tree(l1, w1, windows: {w1: hist([b2], b1)}),
+      commands: [const PopBuffer(w1), const NavigateForward(w1)],
+      expected: null,
+    ),
+    (
+      name: 'an empty forward stack is unchanged',
+      start: tree(l1, w1, windows: {w1: hist([b2], b1)}),
+      commands: [const NavigateForward(w1)],
+      expected: null,
+    ),
+    (
+      name: 'unknown window is unchanged',
+      start: tree(l1, w1),
+      commands: [const NavigateForward(w2)],
+      expected: null,
+    ),
+  ]);
+
+  runTable('ReplaceBuffer', [
+    (
+      name: 'swaps current and leaves both stacks untouched',
+      start: tree(l1, w1, windows: {w1: hist([b2], b1, [b3])}),
+      commands: [const ReplaceBuffer(w1, b3)],
+      expected: tree(l1, w1, windows: {w1: hist([b2], b3, [b3])}),
+    ),
+    (
+      name: 'the same buffer is unchanged',
+      start: tree(l1, w1),
+      commands: [const ReplaceBuffer(w1, b1)],
+      expected: null,
+    ),
+    (
+      name: 'unknown window is unchanged',
+      start: tree(l1, w1),
+      commands: [const ReplaceBuffer(w2, b2)],
+      expected: null,
+    ),
+  ]);
+
   runTable('dispatchAll', [
     (
       name: 'applies a batch in order',
@@ -410,6 +522,17 @@ void main() {
       expect(controller.doc.value, tree(l1, w1));
       final other = controller.splitWindow(w1, axis: Axis.vertical, buffer: b2);
       expect(controller.doc.value.windows[other]!.history.current, b2);
+    });
+
+    test('navigate window history', () {
+      final controller = WindowingController(initial: tree(l1, w1));
+      controller.pushBuffer(w1, b2);
+      controller.popBuffer(w1);
+      controller.navigateForward(w1);
+      controller.replaceBuffer(w1, b3);
+      expect(controller.doc.value.windows[w1], hist([b1], b3));
+      controller.attachBuffer(w1, b2);
+      expect(controller.doc.value.windows[w1], showing(b2));
     });
 
     test('newTab opens in the given shell', () {

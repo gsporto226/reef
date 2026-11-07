@@ -221,6 +221,88 @@ class ResizeWindow extends WindowingCommand {
   }
 }
 
+/// A command that rewrites one window's history. Unknown windows, and edits
+/// returning null or the same history, leave the doc unchanged.
+sealed class _HistoryCommand extends WindowingCommand {
+  const _HistoryCommand(this.windowId);
+
+  final WindowId windowId;
+
+  BufferHistory? edit(BufferHistory history);
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    final history = doc.windows[windowId]?.history;
+    final next = history == null ? null : edit(history);
+    if (next == null || next == history) return doc;
+    return doc.copyWith(
+      shells: doc.shells,
+      windows: {...doc.windows, windowId: WindowState(history: next)},
+    );
+  }
+}
+
+/// Points [windowId] at [buffer] with a fresh window history.
+class AttachBuffer extends _HistoryCommand {
+  const AttachBuffer(super.windowId, this.buffer);
+
+  final BufferId buffer;
+
+  @override
+  BufferHistory edit(BufferHistory history) => BufferHistory(current: buffer);
+}
+
+/// Moves the current buffer onto back, clears forward and shows [buffer].
+class PushBuffer extends _HistoryCommand {
+  const PushBuffer(super.windowId, this.buffer);
+
+  final BufferId buffer;
+
+  @override
+  BufferHistory edit(BufferHistory history) => BufferHistory(
+      back: [...history.back, history.current], current: buffer);
+}
+
+/// Back: moves the current buffer onto forward and shows the top of back.
+class PopBuffer extends _HistoryCommand {
+  const PopBuffer(super.windowId);
+
+  @override
+  BufferHistory? edit(BufferHistory history) => history.back.isEmpty
+      ? null
+      : BufferHistory(
+          back: history.back.sublist(0, history.back.length - 1),
+          current: history.back.last,
+          forward: [...history.forward, history.current],
+        );
+}
+
+/// Mirror of [PopBuffer]: moves the current buffer onto back and shows the
+/// top of forward.
+class NavigateForward extends _HistoryCommand {
+  const NavigateForward(super.windowId);
+
+  @override
+  BufferHistory? edit(BufferHistory history) => history.forward.isEmpty
+      ? null
+      : BufferHistory(
+          back: [...history.back, history.current],
+          current: history.forward.last,
+          forward: history.forward.sublist(0, history.forward.length - 1),
+        );
+}
+
+/// Shows [buffer] in place of the current one; both stacks stay untouched.
+class ReplaceBuffer extends _HistoryCommand {
+  const ReplaceBuffer(super.windowId, this.buffer);
+
+  final BufferId buffer;
+
+  @override
+  BufferHistory edit(BufferHistory history) => BufferHistory(
+      back: history.back, current: buffer, forward: history.forward);
+}
+
 TabId? _tabOf(WindowingDoc doc, WindowId window) {
   for (final MapEntry(:key, :value) in doc.tabs.entries) {
     if (value.root?.windowIds.contains(window) ?? false) return key;
@@ -312,6 +394,20 @@ class WindowingController {
 
   void resizeWindow(WindowId windowId, List<double> ratios) =>
       dispatch(ResizeWindow(windowId, ratios));
+
+  void attachBuffer(WindowId windowId, BufferId buffer) =>
+      dispatch(AttachBuffer(windowId, buffer));
+
+  void pushBuffer(WindowId windowId, BufferId buffer) =>
+      dispatch(PushBuffer(windowId, buffer));
+
+  void popBuffer(WindowId windowId) => dispatch(PopBuffer(windowId));
+
+  void navigateForward(WindowId windowId) =>
+      dispatch(NavigateForward(windowId));
+
+  void replaceBuffer(WindowId windowId, BufferId buffer) =>
+      dispatch(ReplaceBuffer(windowId, buffer));
 
   void dispose() => _doc.dispose();
 }

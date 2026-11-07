@@ -56,4 +56,26 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.textContaining('windows:'), findsNothing);
   });
+
+  testWidgets('push, back, forward', (tester) async {
+    final controller = WindowingController();
+    controller.newTab(buffer: const BufferId.manual('b'));
+    await tester.pumpWidget(Directionality(
+      textDirection: TextDirection.ltr,
+      child: WindowingDemo(controller: controller),
+    ));
+    expect(find.text('buffer: b'), findsOneWidget);
+
+    await tester.tap(find.text('push'));
+    await tester.pumpAndSettle();
+    expect(find.text('buffer: pushed'), findsOneWidget);
+
+    await tester.tap(find.text('back'));
+    await tester.pumpAndSettle();
+    expect(find.text('buffer: b'), findsOneWidget);
+
+    await tester.tap(find.text('forward'));
+    await tester.pumpAndSettle();
+    expect(find.text('buffer: pushed'), findsOneWidget);
+  });
 }

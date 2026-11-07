@@ -59,4 +59,35 @@ void main() {
     await tester.pump();
     expect(builds, 4);
   });
+
+  testWidgets('history moves rebuild; a move off an empty stack does not',
+      (tester) async {
+    final controller = WindowingController();
+    addTearDown(controller.dispose);
+    controller.newTab(buffer: const BufferId.manual('a'));
+    final window = controller.doc.value.tabs.values.last.activeWindowId!;
+    var builds = 0;
+    await tester.pumpWidget(ValueListenableBuilder<WindowingDoc>(
+      valueListenable: controller.doc,
+      builder: (_, doc, _) {
+        builds++;
+        return const SizedBox();
+      },
+    ));
+
+    controller.navigateForward(window);
+    controller.popBuffer(window);
+    await tester.pump();
+    expect(builds, 1);
+
+    controller.pushBuffer(window, const BufferId.manual('b'));
+    await tester.pump();
+    controller.popBuffer(window);
+    await tester.pump();
+    controller.navigateForward(window);
+    await tester.pump();
+    controller.replaceBuffer(window, const BufferId.manual('c'));
+    await tester.pump();
+    expect(builds, 5);
+  });
 }

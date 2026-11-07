@@ -52,6 +52,20 @@ class WindowingDemo extends StatelessWidget {
                   onTap: () => controller.closeWindow(window),
                   child: const Text('close window'),
                 ),
+                Text('buffer: ${doc.windows[window]!.history.current.value}'),
+                GestureDetector(
+                  onTap: () => controller.pushBuffer(
+                      window, BufferId.manual('pushed')),
+                  child: const Text('push'),
+                ),
+                GestureDetector(
+                  onTap: () => controller.popBuffer(window),
+                  child: const Text('back'),
+                ),
+                GestureDetector(
+                  onTap: () => controller.navigateForward(window),
+                  child: const Text('forward'),
+                ),
               ]),
           ]);
         },
