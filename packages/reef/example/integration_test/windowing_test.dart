@@ -10,16 +10,18 @@ void main() {
 
   Future<WindowingController> pump(WidgetTester tester,
       {BufferId? buffer}) async {
-    final controller = WindowingController();
+    final undo = UndoController();
+    final controller = WindowingController(undo: undo);
     if (buffer != null) {
       final empty = controller.doc.value.shells.values.single.activeTabId;
       controller
         ..newTab(buffer: buffer)
         ..closeTab(empty);
+      undo.clear();
     }
     await tester.binding.setSurfaceSize(const Size(1200, 800));
     await tester.pumpWidget(MaterialApp(
-      home: Scaffold(body: WindowingDemo(controller: controller)),
+      home: Scaffold(body: WindowingDemo(controller: controller, undo: undo)),
     ));
     return controller;
   }
@@ -139,7 +141,7 @@ void main() {
       ..newTab(buffer: const BufferId.manual('b'));
     await tester.binding.setSurfaceSize(const Size(1200, 800));
     await tester.pumpWidget(MaterialApp(
-      home: Scaffold(body: WindowingDemo(controller: c)),
+      home: Scaffold(body: WindowingDemo(controller: c, undo: undo)),
     ));
 
     await tap(tester, find.byTooltip('Split right'));
@@ -153,6 +155,43 @@ void main() {
 
     undo.redo();
     await tester.pumpAndSettle();
+    expect(status('windows in tab: 2'), findsOneWidget);
+  });
+
+  testWidgets('undo/redo buttons: split, close, drag', (tester) async {
+    final c = await pump(tester, buffer: const BufferId.manual('b'));
+    bool enabled(String tooltip) => tester
+            .widget<IconButton>(find.widgetWithIcon(IconButton,
+                tooltip == 'Undo' ? Icons.undo : Icons.redo))
+            .onPressed !=
+        null;
+    expect(enabled('Undo'), isFalse);
+    expect(enabled('Redo'), isFalse);
+
+    await tap(tester, find.byTooltip('Split right'));
+    await tap(tester, find.byTooltip('Close window').first);
+    expect(status('windows in tab: 1'), findsOneWidget);
+
+    await tap(tester, find.byTooltip('Undo'));
+    expect(status('windows in tab: 2'), findsOneWidget);
+    await tap(tester, find.byTooltip('Undo'));
+    expect(status('windows in tab: 1'), findsOneWidget);
+    expect(enabled('Undo'), isFalse);
+    await tap(tester, find.byTooltip('Redo'));
+    expect(status('windows in tab: 2'), findsOneWidget);
+
+    // One drag, many ResizeWindow updates: one undo step.
+    final gesture = await tester
+        .startGesture(tester.getCenter(find.byKey(const ValueKey('divider'))));
+    for (var i = 0; i < 5; i++) {
+      await gesture.moveBy(const Offset(30, 0));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(rootRatios(c).first, greaterThan(0.5));
+    await tap(tester, find.byTooltip('Undo'));
+    expect(rootRatios(c), [0.5, 0.5]);
     expect(status('windows in tab: 2'), findsOneWidget);
   });
 

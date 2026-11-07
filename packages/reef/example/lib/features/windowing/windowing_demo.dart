@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:reef/reef.dart';
 
@@ -7,9 +8,13 @@ import 'package:reef/reef.dart';
 /// control dispatches one controller intent. Drives the windowing integration
 /// flow. Needs a [MaterialApp] above it.
 class WindowingDemo extends StatefulWidget {
-  const WindowingDemo({super.key, required this.controller});
+  const WindowingDemo(
+      {super.key, required this.controller, required this.undo});
 
   final WindowingController controller;
+
+  /// The undo timeline [controller] records on; drives Undo and Redo.
+  final UndoController undo;
 
   @override
   State<WindowingDemo> createState() => _WindowingDemoState();
@@ -83,6 +88,9 @@ class _WindowingDemoState extends State<WindowingDemo> {
           icon: const Icon(Icons.add_to_queue),
           onPressed: _c.attachShell,
         ),
+        const Spacer(),
+        _undoButton('Undo', Icons.undo, widget.undo.$canUndo, widget.undo.undo),
+        _undoButton('Redo', Icons.redo, widget.undo.$canRedo, widget.undo.redo),
       ]),
     );
   }
@@ -151,9 +159,11 @@ class _WindowingDemoState extends State<WindowingDemo> {
               key: const ValueKey('divider'),
               axis: branch.axis,
               ratios: branch.ratios,
-              onDrag: (start, offset) => _c.resizeWindow(
-                  handle, _shift(start, i - 1, offset / extent),
-                  levels: levels),
+              // Keyed per handle so one drag is one undo step (spec §4).
+              onDrag: (start, offset) => _c.dispatchAll([
+                ResizeWindow(handle, _shift(start, i - 1, offset / extent),
+                    levels: levels),
+              ], coalesceKey: 'resize:$handle'),
             ),
           Expanded(
             flex: (branch.ratios[i] * 1000).round(),
@@ -357,6 +367,17 @@ class _WindowingDemoState extends State<WindowingDemo> {
           'floating: ${doc.floating.length}'),
     );
   }
+
+  Widget _undoButton(String tooltip, IconData icon,
+          ValueListenable<bool> enabled, VoidCallback action) =>
+      ValueListenableBuilder<bool>(
+        valueListenable: enabled,
+        builder: (_, on, _) => IconButton(
+          tooltip: tooltip,
+          icon: Icon(icon),
+          onPressed: on ? action : null,
+        ),
+      );
 
   Widget _icon(IconData icon, String tooltip, VoidCallback? onPressed,
           {int quarterTurns = 0}) =>
