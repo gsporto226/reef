@@ -13,6 +13,7 @@ const w1 = WindowId.manual('w1');
 const w2 = WindowId.manual('w2');
 const w3 = WindowId.manual('w3');
 const w4 = WindowId.manual('w4');
+const w5 = WindowId.manual('w5');
 const b1 = BufferId.manual('b1');
 const b2 = BufferId.manual('b2');
 const b3 = BufferId.manual('b3');
@@ -658,6 +659,13 @@ void main() {
       expected: null,
     ),
     (
+      name: 'the same place is unchanged even for an inactive tab in an '
+          'unfocused shell',
+      start: doc({s1: ([t1], t1), s2: ([t2, t3], t2)}),
+      commands: [const MoveTab(t3, shellId: s2, index: 1)],
+      expected: null,
+    ),
+    (
       name: 'the same place is unchanged',
       start: doc({s1: ([t1, t2], t1)}),
       commands: [const MoveTab(t1, shellId: s1, index: 0)],
@@ -873,6 +881,78 @@ void main() {
       commands: [const CloseTab(t2), const CloseShell(s2)],
       expected: floating(doc({s1: ([t1], t1)}, windows: {t1: w1}),
           {w4: (const ShellScope(s1), 0)}),
+    ),
+    (
+      name: 'keepFloating: closing a floating window rehomes its floats to '
+          'its scope, on top, keeping their order and nested floats',
+      start: floating(tree(l1, w1), {
+        w2: (const TabScope(t1), 3),
+        w3: (const WindowScope(w2), 7),
+        w4: (const WindowScope(w2), 2),
+        w5: (const WindowScope(w3), 0),
+      }),
+      commands: [const CloseWindow(w2, keepFloating: true)],
+      expected: floating(tree(l1, w1), {
+        w3: (const TabScope(t1), 1),
+        w4: (const TabScope(t1), 0),
+        w5: (const WindowScope(w3), 0),
+      }),
+    ),
+    (
+      name: 'keepFloating: closing a tree window rehomes its floats to its tab',
+      start: floating(tree(h([l1, l2]), w1), {
+        w3: (const WindowScope(w2), 0),
+        w4: (const TabScope(t1), 5),
+      }),
+      commands: [const CloseWindow(w2, keepFloating: true)],
+      expected: floating(tree(l1, w1), {
+        w3: (const TabScope(t1), 6),
+        w4: (const TabScope(t1), 5),
+      }),
+    ),
+    (
+      name: 'keepFloating: closing a tab rehomes its floats to its shell',
+      start: floating(
+          doc({s1: ([t1, t2], t1)}, windows: {t1: w1, t2: w2}), {
+        w3: (const TabScope(t2), 4),
+        w4: (const WindowScope(w2), 1),
+        w5: (const ShellScope(s1), 2),
+      }),
+      commands: [const CloseTab(t2, keepFloating: true)],
+      expected: floating(doc({s1: ([t1], t1)}, windows: {t1: w1}), {
+        w3: (const ShellScope(s1), 4),
+        w4: (const ShellScope(s1), 3),
+        w5: (const ShellScope(s1), 2),
+      }),
+    ),
+    (
+      name: 'keepFloating: closing a shell rehomes its floats to the shell '
+          'that takes focus',
+      start: floating(
+          doc({s1: ([t1], t1), s2: ([t2, t3], t2)},
+              focused: s2, windows: {t2: w1}), {
+        w2: (const ShellScope(s2), 0),
+        w3: (const TabScope(t3), 1),
+        w4: (const WindowScope(w1), 2),
+        w5: (const WindowScope(w4), 0),
+      }),
+      commands: [const CloseShell(s2, keepFloating: true)],
+      expected: floating(doc({s1: ([t1], t1)}), {
+        w2: (const ShellScope(s1), 0),
+        w3: (const ShellScope(s1), 1),
+        w4: (const ShellScope(s1), 2),
+        w5: (const WindowScope(w4), 0),
+      }),
+    ),
+    (
+      name: 'keepFloating: an invalid close is unchanged',
+      start: floating(doc({s1: ([t1], t1)}), {w1: (const TabScope(t1), 0)}),
+      commands: [
+        const CloseTab(t1, keepFloating: true),
+        const CloseShell(s1, keepFloating: true),
+        const CloseWindow(w4, keepFloating: true),
+      ],
+      expected: null,
     ),
     (
       name: 'moving a tree window keeps windows floating over it',
