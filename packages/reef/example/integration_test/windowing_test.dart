@@ -88,17 +88,18 @@ void main() {
 
     await tap(tester, find.byTooltip('Split down').first);
     await tester.drag(
-        find.byKey(const ValueKey('divider')).last, const Offset(0, 100));
+        find.byKey(const ValueKey('divider')).first, const Offset(0, 100));
     await tester.pumpAndSettle();
     expect(status('windows in tab: 3'), findsOneWidget);
 
-    // Root children all branches: its divider has no window to resize by.
+    // Root children all branches: its divider resizes through a nested leaf.
     await tap(tester, find.byTooltip('Split down').last);
-    final before = rootRatios(c);
+    final before = rootRatios(c).first;
+    // Depth-first order: left branch's divider, root's divider, right's.
     await tester.drag(
-        find.byKey(const ValueKey('divider')).first, const Offset(80, 0));
+        find.byKey(const ValueKey('divider')).at(1), const Offset(80, 0));
     await tester.pumpAndSettle();
-    expect(rootRatios(c), before);
+    expect(rootRatios(c).first, greaterThan(before));
 
     for (var n = 4; n > 0; n--) {
       await tap(tester, find.byTooltip('Close window').first);

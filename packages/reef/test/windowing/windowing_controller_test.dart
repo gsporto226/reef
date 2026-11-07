@@ -20,6 +20,7 @@ const b3 = BufferId.manual('b3');
 const l1 = WindowLeaf(w1);
 const l2 = WindowLeaf(w2);
 const l3 = WindowLeaf(w3);
+const l4 = WindowLeaf(w4);
 
 WindowState showing(BufferId buffer) =>
     WindowState(history: BufferHistory(current: buffer));
@@ -346,6 +347,22 @@ void main() {
       commands: [const ResizeWindow(w3, [0.25, 0.75])],
       expected: tree(h([l1, v([l2, l3], [0.25, 0.75])]), w1),
     ),
+    (
+      name: 'levels 1 sets the ratios of the branch one level up',
+      start: tree(h([v([l1, l2]), v([l3, l4])]), w1),
+      commands: [const ResizeWindow(w3, [0.25, 0.75], levels: 1)],
+      expected: tree(h([v([l1, l2]), v([l3, l4])], [0.25, 0.75]), w1),
+    ),
+    for (final (name, levels) in [
+      ('negative levels', -1),
+      ('levels past the root', 2),
+    ])
+      (
+        name: '$name is unchanged',
+        start: tree(h([l1, v([l2, l3])]), w1),
+        commands: [ResizeWindow(w3, const [0.25, 0.75], levels: levels)],
+        expected: null,
+      ),
     for (final (name, ratios) in [
       ('a zero ratio', [0.0, 1.0]),
       ('a negative ratio', [-0.5, 1.5]),
@@ -1037,7 +1054,7 @@ void main() {
       final controller = WindowingController(initial: tree(l1, w1));
       final w = controller.splitWindow(w1, axis: Axis.horizontal);
       expect(controller.doc.value, tree(h([l1, WindowLeaf(w)]), w));
-      controller.resizeWindow(w, [0.25, 0.75]);
+      controller.resizeWindow(w, [0.25, 0.75], levels: 0);
       expect(
           controller.doc.value, tree(h([l1, WindowLeaf(w)], [0.25, 0.75]), w));
       controller.closeWindow(w);

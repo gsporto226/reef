@@ -295,13 +295,15 @@ WindowingDoc _place(WindowingDoc doc, WindowId windowId, TabId tabId,
   return (true, at);
 }
 
-/// Sets the [ratios] of the branch directly holding [windowId]. Ratios must
-/// be positive, one per child, and sum to one.
+/// Sets the [ratios] of the branch [levels] above the one directly holding
+/// [windowId] (0 is that branch). Ratios must be positive, one per child,
+/// and sum to one; negative levels or levels past the root are no-ops.
 class ResizeWindow extends WindowingCommand {
-  const ResizeWindow(this.windowId, this.ratios);
+  const ResizeWindow(this.windowId, this.ratios, {this.levels = 0});
 
   final WindowId windowId;
   final List<double> ratios;
+  final int levels;
 
   @override
   WindowingDoc apply(WindowingDoc doc) {
@@ -312,13 +314,7 @@ class ResizeWindow extends WindowingCommand {
       return doc;
     }
     final tab = doc.tabs[tabId]!;
-    final root = _atParent(
-      tab.root!,
-      windowId,
-      (branch, _) => branch.ratios.length != ratios.length
-          ? branch
-          : branch.copyWith(ratios: ratios),
-    );
+    final root = _resize(tab.root!)?.$1;
     if (root == null || root == tab.root) return doc;
     return doc.copyWith(
       tabs: {
@@ -326,6 +322,30 @@ class ResizeWindow extends WindowingCommand {
         tabId: TabState(root: root, activeWindowId: tab.activeWindowId),
       },
     );
+  }
+
+  /// [node] rebuilt with the target branch resized, and its height above
+  /// [windowId]'s leaf; null when the window is not under [node].
+  (WindowNode, int)? _resize(WindowNode node) {
+    if (node is! WindowBranch) {
+      return node == WindowLeaf(windowId) ? (node, 0) : null;
+    }
+    for (final (j, child) in node.children.indexed) {
+      if (_resize(child) case (final edited, final below)?) {
+        final height = below + 1;
+        final branch =
+            height == levels + 1 && ratios.length == node.ratios.length
+                ? node.copyWith(ratios: ratios)
+                : node;
+        return (
+          edited == child
+              ? branch
+              : branch.copyWith(children: [...branch.children]..[j] = edited),
+          height,
+        );
+      }
+    }
+    return null;
   }
 }
 
@@ -786,8 +806,9 @@ class WindowingController {
 
   void raiseWindow(WindowId windowId) => dispatch(RaiseWindow(windowId));
 
-  void resizeWindow(WindowId windowId, List<double> ratios) =>
-      dispatch(ResizeWindow(windowId, ratios));
+  void resizeWindow(WindowId windowId, List<double> ratios,
+          {int levels = 0}) =>
+      dispatch(ResizeWindow(windowId, ratios, levels: levels));
 
   void attachBuffer(WindowId windowId, BufferId buffer) =>
       dispatch(AttachBuffer(windowId, buffer));

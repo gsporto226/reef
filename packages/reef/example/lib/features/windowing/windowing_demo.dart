@@ -136,8 +136,15 @@ class _WindowingDemoState extends State<WindowingDemo> {
       };
 
   Widget _branch(WindowingDoc doc, TabState tab, WindowBranch branch) {
-    // ResizeWindow addresses a branch through a window directly inside it.
-    final handle = branch.children.whereType<WindowLeaf>().firstOrNull?.id;
+    // ResizeWindow addresses a branch through any window under it: descend
+    // first children to a leaf, counting the branches passed below this one.
+    var levels = 0;
+    var first = branch.children.first;
+    while (first is WindowBranch) {
+      first = first.children.first;
+      levels++;
+    }
+    final handle = (first as WindowLeaf).id;
     return LayoutBuilder(builder: (context, box) {
       final extent =
           branch.axis == Axis.horizontal ? box.maxWidth : box.maxHeight;
@@ -148,10 +155,9 @@ class _WindowingDemoState extends State<WindowingDemo> {
               key: const ValueKey('divider'),
               axis: branch.axis,
               ratios: branch.ratios,
-              onDrag: handle == null
-                  ? null
-                  : (start, offset) => _c.resizeWindow(
-                      handle, _shift(start, i - 1, offset / extent)),
+              onDrag: (start, offset) => _c.resizeWindow(
+                  handle, _shift(start, i - 1, offset / extent),
+                  levels: levels),
             ),
           Expanded(
             flex: (branch.ratios[i] * 1000).round(),
@@ -401,7 +407,7 @@ class _Divider extends StatefulWidget {
 
   final Axis axis;
   final List<double> ratios;
-  final void Function(List<double> start, double offset)? onDrag;
+  final void Function(List<double> start, double offset) onDrag;
 
   @override
   State<_Divider> createState() => _DividerState();
@@ -416,26 +422,21 @@ class _DividerState extends State<_Divider> {
     _offset = 0;
   }
 
-  void _update(double delta) => widget.onDrag!(_start, _offset += delta);
+  void _update(double delta) => widget.onDrag(_start, _offset += delta);
 
   @override
   Widget build(BuildContext context) {
     final horizontal = widget.axis == Axis.horizontal;
-    final drag = widget.onDrag != null;
     return MouseRegion(
-      cursor: !drag
-          ? MouseCursor.defer
-          : horizontal
-              ? SystemMouseCursors.resizeColumn
-              : SystemMouseCursors.resizeRow,
+      cursor: horizontal
+          ? SystemMouseCursors.resizeColumn
+          : SystemMouseCursors.resizeRow,
       child: GestureDetector(
         behavior: HitTestBehavior.opaque,
-        onHorizontalDragStart: horizontal && drag ? _begin : null,
-        onHorizontalDragUpdate:
-            horizontal && drag ? (d) => _update(d.delta.dx) : null,
-        onVerticalDragStart: !horizontal && drag ? _begin : null,
-        onVerticalDragUpdate:
-            !horizontal && drag ? (d) => _update(d.delta.dy) : null,
+        onHorizontalDragStart: horizontal ? _begin : null,
+        onHorizontalDragUpdate: horizontal ? (d) => _update(d.delta.dx) : null,
+        onVerticalDragStart: horizontal ? null : _begin,
+        onVerticalDragUpdate: horizontal ? null : (d) => _update(d.delta.dy),
         child: SizedBox(
           width: horizontal ? 8 : null,
           height: horizontal ? null : 8,
