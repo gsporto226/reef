@@ -132,6 +132,30 @@ void main() {
     expect(find.text('buffer 1'), findsOneWidget);
   });
 
+  testWidgets('undo and redo a split, focus changes not recorded',
+      (tester) async {
+    final undo = UndoController();
+    final c = WindowingController(undo: undo)
+      ..newTab(buffer: const BufferId.manual('b'));
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: WindowingDemo(controller: c)),
+    ));
+
+    await tap(tester, find.byTooltip('Split right'));
+    expect(status('windows in tab: 2'), findsOneWidget);
+    await tap(tester, find.text('Tab 1'));
+    await tap(tester, find.text('Tab 2'));
+
+    undo.undo();
+    await tester.pumpAndSettle();
+    expect(status('windows in tab: 1'), findsOneWidget);
+
+    undo.redo();
+    await tester.pumpAndSettle();
+    expect(status('windows in tab: 2'), findsOneWidget);
+  });
+
   testWidgets('float, drag, raise, dock', (tester) async {
     final c = await pump(tester, buffer: const BufferId.manual('b'));
     await tap(tester, find.byTooltip('Split right'));
