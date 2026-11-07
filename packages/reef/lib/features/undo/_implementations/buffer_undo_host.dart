@@ -47,14 +47,12 @@ class BufferUndoHost implements UndoHost<BufferSnapshot> {
 /// Focused text fields consume Ctrl+Z first; field-level undo stays
 /// Flutter's. Reef binds no shell shortcut to [UndoController.undo] (W2).
 mixin UndoableModel<M> on ViewModel<M> {
-  BufferUndoHost? _host;
-  late BufferId _bufferId;
+  (BufferUndoHost, BufferId)? _undoTarget;
 
   /// Records later publishes under [bufferId]. The latest view model attached
   /// for a buffer receives its undo and redo. Call from the constructor.
   void attachUndo(BufferUndoHost host, BufferId bufferId) {
-    _host = host;
-    _bufferId = bufferId;
+    _undoTarget = (host, bufferId);
     host._models[bufferId] = this;
     registerDisposal(() {
       if (host._models[bufferId] == this) host._models.remove(bufferId);
@@ -64,12 +62,15 @@ mixin UndoableModel<M> on ViewModel<M> {
   @override
   void publish(M newModel) {
     final before = model;
-    if (_host case final host? when newModel != before) {
-      host._undo.record(UndoEntry<BufferSnapshot>(
-        label: const BufferEdit(),
-        snapshotBefore: BufferSnapshot(_bufferId, before),
-        snapshotAfter: BufferSnapshot(_bufferId, newModel),
-      ));
+    if (_undoTarget case (final host, final bufferId)?
+        when newModel != before) {
+      host._undo.record(
+        UndoEntry<BufferSnapshot>(
+          label: const BufferEdit(),
+          snapshotBefore: BufferSnapshot(bufferId, before),
+          snapshotAfter: BufferSnapshot(bufferId, newModel),
+        ),
+      );
     }
     super.publish(newModel);
   }

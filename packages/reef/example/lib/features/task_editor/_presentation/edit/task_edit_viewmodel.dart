@@ -2,15 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:formularium/features/forms/_data_types/form_field_status.dart';
 import 'package:formularium/features/forms/_implementations/formularium_form_field.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart' show Provider;
 import 'package:listenable_plus/listenable_plus.dart';
 import 'package:reef/features/formularium_bridge/_implementations/result_validation.dart';
 import 'package:reef/features/hibernation/_implementations/lifecycle.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/undo/_implementations/buffer_undo_host.dart';
-import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/view_model/_implementations/view_model.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_model.dart';
+import 'package:reef_example/undo_providers.dart';
 import 'package:reef_fp/async.dart';
 import 'package:reef_fp/result.dart';
 import 'package:reef_fp/unit.dart';
@@ -43,13 +42,6 @@ TaskEditViewModel taskEditViewModel(
   ref.onDispose(vm.dispose);
   return vm;
 }
-
-/// The app's one undo timeline (spec §4), keepAlive.
-final undoControllerProvider = Provider((ref) => UndoController());
-
-/// Buffer content undo on [undoControllerProvider], keepAlive.
-final bufferUndoHostProvider =
-    Provider((ref) => BufferUndoHost(ref.watch(undoControllerProvider)));
 
 class TaskEditViewModel extends ViewModel<TaskEditModel>
     with UndoableModel<TaskEditModel> {

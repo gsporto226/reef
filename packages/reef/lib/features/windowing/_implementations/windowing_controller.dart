@@ -6,7 +6,7 @@ import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 
-/// A windowing mutation (spec Ã‚Â§3). Commands carry pre-generated ids for what
+/// A windowing mutation (spec §3). Commands carry pre-generated ids for what
 /// they create, so the reducer stays pure. A command invalid in the current
 /// doc returns that same doc instance.
 sealed class WindowingCommand {
@@ -679,7 +679,7 @@ WindowNode? _atParent(WindowNode node, WindowId id,
 /// intent methods; [dispatch] and [dispatchAll] take commands directly.
 class WindowingController {
   /// With [undo], each layout-changing batch records one entry on it
-  /// (spec Ã‚Â§4), published back through a [WindowingUndoHost].
+  /// (spec §4), published back through a [WindowingUndoHost].
   WindowingController({WindowingDoc? initial, UndoController? undo})
       : _doc = ValueNotifier(initial ?? WindowingDoc.initial()),
         _undo = undo {
@@ -705,7 +705,7 @@ class WindowingController {
     if (_undo case final undo?) {
       if (!setEquals(next.shells.keys.toSet(), before.shells.keys.toSet())) {
         undo.clear();
-      } else if (_withFocusOf(next, before) != before) {
+      } else if (_withFocusFrom(next, focusSource: before) != before) {
         undo.record(UndoEntry<WindowingDoc>(
           label: const WindowingLayoutEdit(),
           snapshotBefore: before,
@@ -803,21 +803,22 @@ class WindowingController {
   void dispose() => _doc.dispose();
 }
 
-/// [doc] with [focus]'s focused shell, active tabs and active windows, so
-/// comparing it to [focus] ignores focus-only changes.
-WindowingDoc _withFocusOf(WindowingDoc doc, WindowingDoc focus) =>
+/// [doc] with [focusSource]'s focused shell, active tabs and active windows, so
+/// comparing it to [focusSource] ignores focus-only changes.
+WindowingDoc _withFocusFrom(WindowingDoc doc,
+        {required WindowingDoc focusSource}) =>
     doc.copyWith(
-      focusedShellId: focus.focusedShellId,
+      focusedShellId: focusSource.focusedShellId,
       shells: doc.shells.map((id, s) => MapEntry(
           id,
           ShellState(
               tabIds: s.tabIds,
-              activeTabId: focus.shells[id]?.activeTabId ?? s.activeTabId))),
+              activeTabId: focusSource.shells[id]?.activeTabId ?? s.activeTabId))),
       tabs: doc.tabs.map((id, t) => MapEntry(
           id,
           TabState(
               root: t.root,
-              activeWindowId: focus.tabs[id]?.activeWindowId ??
+              activeWindowId: focusSource.tabs[id]?.activeWindowId ??
                   t.activeWindowId))),
     );
 

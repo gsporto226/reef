@@ -45,18 +45,28 @@ class UndoController {
 
   void record<S>(UndoEntry<S> entry) {
     assert(_hosts.containsKey(S), 'No UndoHost registered for $S');
+    // Coalesce only onto the newest entry: after an undo, the entry before
+    // the cursor is a finished step.
+    final last = _cursor == _entries.length ? _entries.lastOrNull : null;
     _entries.removeRange(_cursor, _entries.length);
-    final last = _entries.lastOrNull;
     if (last != null &&
         entry.coalesceKey != null &&
         last.$1 == S &&
         last.$2.coalesceKey == entry.coalesceKey) {
-      _entries.last = (S, UndoEntry<S>(
-        label: entry.label,
-        snapshotBefore: last.$2.snapshotBefore as S,
-        snapshotAfter: entry.snapshotAfter,
-        coalesceKey: entry.coalesceKey,
-      ));
+      final before = last.$2.snapshotBefore as S;
+      if (before == entry.snapshotAfter) {
+        _entries.removeLast(); // the merged step changes nothing
+      } else {
+        _entries.last = (
+          S,
+          UndoEntry<S>(
+            label: entry.label,
+            snapshotBefore: before,
+            snapshotAfter: entry.snapshotAfter,
+            coalesceKey: entry.coalesceKey,
+          ),
+        );
+      }
     } else {
       _entries.add((S, entry));
       if (_entries.length > maxEntries) _entries.removeAt(0);

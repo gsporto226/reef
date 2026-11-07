@@ -18,10 +18,11 @@ class _Host<S> implements UndoHost<S> {
 }
 
 UndoEntry<S> _e<S>(S before, S after, {Object? key}) => UndoEntry<S>(
-    label: const _Label(),
-    snapshotBefore: before,
-    snapshotAfter: after,
-    coalesceKey: key);
+  label: const _Label(),
+  snapshotBefore: before,
+  snapshotAfter: after,
+  coalesceKey: key,
+);
 
 void main() {
   late UndoController c;
@@ -58,7 +59,10 @@ void main() {
   });
 
   test('recording for an unregistered type asserts', () {
-    expect(() => c.record<double>(_e(0.0, 1.0)), throwsA(isA<AssertionError>()));
+    expect(
+      () => c.record<double>(_e(0.0, 1.0)),
+      throwsA(isA<AssertionError>()),
+    );
   });
 
   test('record truncates the redo tail', () {
@@ -82,6 +86,23 @@ void main() {
     c.undo();
     c.redo();
     expect(ints.calls, ['undo 3', 'undo 2', 'undo 0', 'redo 2']);
+  });
+
+  test('after an undo, a same-key entry does not merge into the applied '
+      'entry before the cursor', () {
+    c.record<int>(_e(0, 1, key: 'a'));
+    c.record<int>(_e(1, 2, key: 'r'));
+    c.undo(); // cursor after the a entry, which is applied
+    c.record<int>(_e(1, 3, key: 'a'));
+    c.undo();
+    c.undo();
+    expect(ints.calls, ['undo 1', 'undo 1', 'undo 0']);
+  });
+
+  test('coalescing back to the start drops the entry', () {
+    c.record<int>(_e(0, 1, key: 'r'));
+    c.record<int>(_e(1, 0, key: 'r'));
+    expect(c.$canUndo.value, isFalse);
   });
 
   test('keeps at most 64 entries, dropping the oldest', () {
@@ -116,13 +137,15 @@ void main() {
   });
 
   testWidgets('widget listens to canUndo', (tester) async {
-    await tester.pumpWidget(Directionality(
-      textDirection: TextDirection.ltr,
-      child: ValueListenableBuilder<bool>(
-        valueListenable: c.$canUndo,
-        builder: (_, can, _) => Text(can ? 'can' : 'cannot'),
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: ValueListenableBuilder<bool>(
+          valueListenable: c.$canUndo,
+          builder: (_, can, _) => Text(can ? 'can' : 'cannot'),
+        ),
       ),
-    ));
+    );
     expect(find.text('cannot'), findsOneWidget);
     c.record<int>(_e(0, 1));
     await tester.pump();

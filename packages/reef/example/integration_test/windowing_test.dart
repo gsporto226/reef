@@ -11,14 +11,9 @@ void main() {
   Future<WindowingController> pump(WidgetTester tester,
       {BufferId? buffer}) async {
     final undo = UndoController();
-    final controller = WindowingController(undo: undo);
-    if (buffer != null) {
-      final empty = controller.doc.value.shells.values.single.activeTabId;
-      controller
-        ..newTab(buffer: buffer)
-        ..closeTab(empty);
-      undo.clear();
-    }
+    final controller = WindowingController(
+        initial: buffer == null ? null : playground.startingLayout(buffer),
+        undo: undo);
     await tester.binding.setSurfaceSize(const Size(1200, 800));
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(body: WindowingDemo(controller: controller, undo: undo)),

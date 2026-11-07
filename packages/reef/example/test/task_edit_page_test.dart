@@ -131,6 +131,21 @@ void main() {
     );
   });
 
+  testWidgets('hibernate bar: snapshot, edit, restore', (tester) async {
+    final vm = await pumpPage(tester);
+    expect(find.text('No snapshot'), findsOneWidget);
+
+    await tester.enterText(find.byType(EditableText), 'Kept');
+    await tester.tap(find.text('Hibernate'));
+    await tester.pump();
+    expect(find.text('Snapshot stored'), findsOneWidget);
+
+    await tester.enterText(find.byType(EditableText), 'Changed');
+    await tester.tap(find.text('Restore'));
+    await tester.pump();
+    expect(vm.model.title, 'Kept');
+  });
+
   testWidgets(
       'closing the window auto-hibernates; reopening the buffer id '
       'rematerializes the state', (tester) async {

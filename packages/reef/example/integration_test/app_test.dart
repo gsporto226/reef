@@ -2,7 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:integration_test/integration_test.dart';
-import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_viewmodel.dart';
+import 'package:reef_example/undo_providers.dart';
 import 'package:reef_example/main.dart' as app;
 
 void main() {
