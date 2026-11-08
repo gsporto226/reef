@@ -13,9 +13,15 @@ import 'package:reef_example/undo_providers.dart';
 import 'package:reef_fp/async.dart';
 import 'package:reef_fp/result.dart';
 import 'package:reef_fp/unit.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart' show Provider;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'task_edit_viewmodel.g.dart';
+
+/// Route seeds for fresh buffers, keyed by buffer id. Kept out of the family
+/// key so any widget holding only the id (via `ReefBufferScope`) reaches the
+/// same viewmodel. Consumed once, on first materialization.
+final taskEditSeedsProvider = Provider((ref) => <BufferId, TaskEditModel>{});
 
 /// The page's viewmodel: owns the model, exposes out-bindings (`$`-prefixed)
 /// and in-bindings (intents), owns ephemeral UI objects and mediates every
@@ -30,12 +36,12 @@ part 'task_edit_viewmodel.g.dart';
 TaskEditViewModel taskEditViewModel(
   Ref ref, {
   required BufferId bufferId,
-  TaskEditModel? initial,
 }) {
   trackBuffer(ref, bufferId);
   // Hibernation wins over the route seed (§10.2): a rematerialized buffer
   // restores its hibernated model; the seed only matters for fresh buffers.
-  final seed = hibernatedSeed<TaskEditModel>(ref, bufferId, TaskEditModel.fromJson) ?? initial;
+  final seed = hibernatedSeed<TaskEditModel>(ref, bufferId, TaskEditModel.fromJson) ??
+      ref.read(taskEditSeedsProvider).remove(bufferId);
   final vm = TaskEditViewModel(initialModel: seed)
     ..attachUndo(ref.watch(bufferUndoHostProvider), bufferId);
   hibernateOnDispose(ref, bufferId, () => vm.model.toJson());

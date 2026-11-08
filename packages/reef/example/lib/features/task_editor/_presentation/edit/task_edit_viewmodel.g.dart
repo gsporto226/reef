@@ -14,6 +14,9 @@ part of 'task_edit_viewmodel.dart';
 ///
 /// Family-keyed by [bufferId] — the buffer materializer (§4.4): one provider
 /// member per buffer; windows sharing a buffer id share the viewmodel.
+/// Hibernation lifecycle (§10.2): registers in the buffer registry,
+/// auto-hibernates the model JSON on dispose and rematerializes from it when
+/// the same buffer id is reopened.
 
 @ProviderFor(taskEditViewModel)
 final taskEditViewModelProvider = TaskEditViewModelFamily._();
@@ -24,6 +27,9 @@ final taskEditViewModelProvider = TaskEditViewModelFamily._();
 ///
 /// Family-keyed by [bufferId] — the buffer materializer (§4.4): one provider
 /// member per buffer; windows sharing a buffer id share the viewmodel.
+/// Hibernation lifecycle (§10.2): registers in the buffer registry,
+/// auto-hibernates the model JSON on dispose and rematerializes from it when
+/// the same buffer id is reopened.
 
 final class TaskEditViewModelProvider
     extends
@@ -39,9 +45,12 @@ final class TaskEditViewModelProvider
   ///
   /// Family-keyed by [bufferId] — the buffer materializer (§4.4): one provider
   /// member per buffer; windows sharing a buffer id share the viewmodel.
+  /// Hibernation lifecycle (§10.2): registers in the buffer registry,
+  /// auto-hibernates the model JSON on dispose and rematerializes from it when
+  /// the same buffer id is reopened.
   TaskEditViewModelProvider._({
     required TaskEditViewModelFamily super.from,
-    required ({BufferId bufferId, TaskEditModel? initial}) super.argument,
+    required BufferId super.argument,
   }) : super(
          retry: null,
          name: r'taskEditViewModelProvider',
@@ -57,7 +66,7 @@ final class TaskEditViewModelProvider
   String toString() {
     return r'taskEditViewModelProvider'
         ''
-        '$argument';
+        '($argument)';
   }
 
   @$internal
@@ -68,13 +77,8 @@ final class TaskEditViewModelProvider
 
   @override
   TaskEditViewModel create(Ref ref) {
-    final argument =
-        this.argument as ({BufferId bufferId, TaskEditModel? initial});
-    return taskEditViewModel(
-      ref,
-      bufferId: argument.bufferId,
-      initial: argument.initial,
-    );
+    final argument = this.argument as BufferId;
+    return taskEditViewModel(ref, bufferId: argument);
   }
 
   /// {@macro riverpod.override_with_value}
@@ -96,7 +100,7 @@ final class TaskEditViewModelProvider
   }
 }
 
-String _$taskEditViewModelHash() => r'840ee5b2201dd9ba30e348e139f683e341ee3aa4';
+String _$taskEditViewModelHash() => r'd8184592a2be7b943f6c87dea7abfc79dc7da925';
 
 /// The page's viewmodel: owns the model, exposes out-bindings (`$`-prefixed)
 /// and in-bindings (intents), owns ephemeral UI objects and mediates every
@@ -104,13 +108,12 @@ String _$taskEditViewModelHash() => r'840ee5b2201dd9ba30e348e139f683e341ee3aa4';
 ///
 /// Family-keyed by [bufferId] — the buffer materializer (§4.4): one provider
 /// member per buffer; windows sharing a buffer id share the viewmodel.
+/// Hibernation lifecycle (§10.2): registers in the buffer registry,
+/// auto-hibernates the model JSON on dispose and rematerializes from it when
+/// the same buffer id is reopened.
 
 final class TaskEditViewModelFamily extends $Family
-    with
-        $FunctionalFamilyOverride<
-          TaskEditViewModel,
-          ({BufferId bufferId, TaskEditModel? initial})
-        > {
+    with $FunctionalFamilyOverride<TaskEditViewModel, BufferId> {
   TaskEditViewModelFamily._()
     : super(
         retry: null,
@@ -126,14 +129,12 @@ final class TaskEditViewModelFamily extends $Family
   ///
   /// Family-keyed by [bufferId] — the buffer materializer (§4.4): one provider
   /// member per buffer; windows sharing a buffer id share the viewmodel.
+  /// Hibernation lifecycle (§10.2): registers in the buffer registry,
+  /// auto-hibernates the model JSON on dispose and rematerializes from it when
+  /// the same buffer id is reopened.
 
-  TaskEditViewModelProvider call({
-    required BufferId bufferId,
-    TaskEditModel? initial,
-  }) => TaskEditViewModelProvider._(
-    argument: (bufferId: bufferId, initial: initial),
-    from: this,
-  );
+  TaskEditViewModelProvider call({required BufferId bufferId}) =>
+      TaskEditViewModelProvider._(argument: bufferId, from: this);
 
   @override
   String toString() => r'taskEditViewModelProvider';

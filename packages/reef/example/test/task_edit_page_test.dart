@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
+import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_model.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_page.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_provider.dart';
 import 'package:reef_example/undo_providers.dart';
@@ -65,6 +66,47 @@ void main() {
 
     expect(vm.model.dueDate, isNull);
     expect(find.text('Pick a due date'), findsOneWidget);
+  });
+
+  testWidgets('quick picks: Today, +1 week and Clear set the due date',
+      (tester) async {
+    final vm = await pumpPage(tester);
+
+    await tester.tap(find.text('+1 week'));
+    await tester.pump();
+    expect(vm.model.dueDate, isNotNull);
+
+    await tester.tap(find.text('Clear'));
+    await tester.pump();
+    expect(vm.model.dueDate, isNull);
+
+    await tester.tap(find.text('Today'));
+    await tester.pump();
+    expect(find.text('Pick a due date'), findsNothing);
+  });
+
+  testWidgets('route seed reaches the one viewmodel the scope resolves',
+      (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      child: WidgetsApp(
+        color: const Color(0xFF00695C),
+        builder: (_, _) => const TaskEditPage(
+          bufferId: testBufferId,
+          initial: TaskEditModel(title: 'Seeded'),
+        ),
+      ),
+    ));
+    final container = ProviderScope.containerOf(
+        tester.element(find.byType(EditableText)),
+        listen: false);
+
+    expect(
+        container.read(taskEditViewModelProvider(bufferId: testBufferId))
+            .model
+            .title,
+        'Seeded');
+    expect(container.read(taskEditSeedsProvider), isEmpty,
+        reason: 'the seed is consumed on first materialization');
   });
 
   testWidgets('in-channel: typing into the field mutates the model through the viewmodel',
