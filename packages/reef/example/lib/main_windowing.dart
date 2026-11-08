@@ -1,8 +1,10 @@
 // The windowing playground: a WindowingController driven by the controls of
 // WindowingDemo. Run: fvm flutter run -t lib/main_windowing.dart -d windows
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_example/features/windowing/windowing_demo.dart';
+import 'package:reef_example/undo_providers.dart';
 
 /// One shell with one tab showing [buffer]. Built on a throwaway controller so
 /// the starting layout is not an undo step.
@@ -18,12 +20,16 @@ WindowingDoc startingLayout(BufferId buffer) {
 }
 
 void main() {
-  final undo = UndoController();
+  final container = ProviderContainer();
   final controller = WindowingController(
-      initial: startingLayout(const BufferId.manual('welcome')), undo: undo);
-  runApp(MaterialApp(
-    title: 'Reef windowing',
-    theme: ThemeData(useMaterial3: true),
-    home: Scaffold(body: WindowingDemo(controller: controller, undo: undo)),
+      initial: startingLayout(const BufferId.manual('welcome')),
+      undo: container.read(undoControllerProvider));
+  runApp(UncontrolledProviderScope(
+    container: container,
+    child: MaterialApp(
+      title: 'Reef windowing',
+      theme: ThemeData(useMaterial3: true),
+      home: Scaffold(body: WindowingDemo(controller: controller)),
+    ),
   ));
 }

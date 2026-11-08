@@ -1,27 +1,27 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reef/reef.dart';
+import 'package:reef_example/undo_providers.dart';
 
 /// A playground over a [WindowingController]: shells and tabs across the top,
 /// the active tab's window tree in the middle (drag the dividers to resize),
 /// its floating windows on top, and the focus chain in the status bar. Every
 /// control dispatches one controller intent. Drives the windowing integration
-/// flow. Needs a [MaterialApp] above it.
-class WindowingDemo extends StatefulWidget {
-  const WindowingDemo(
-      {super.key, required this.controller, required this.undo});
+/// flow. Needs a [MaterialApp] and a [ProviderScope] above it; Undo and Redo
+/// drive [undoControllerProvider], which [controller] must record on.
+class WindowingDemo extends ConsumerStatefulWidget {
+  const WindowingDemo({super.key, required this.controller});
 
   final WindowingController controller;
 
-  /// The undo timeline [controller] records on; drives Undo and Redo.
-  final UndoController undo;
-
   @override
-  State<WindowingDemo> createState() => _WindowingDemoState();
+  ConsumerState<WindowingDemo> createState() => _WindowingDemoState();
 }
 
-class _WindowingDemoState extends State<WindowingDemo> {
+class _WindowingDemoState extends ConsumerState<WindowingDemo> {
   WindowingController get _c => widget.controller;
+  UndoController get _undo => ref.read(undoControllerProvider);
   int _buffers = 0;
 
   /// Where each floating window is drawn. Placement is view state, not doc
@@ -89,8 +89,8 @@ class _WindowingDemoState extends State<WindowingDemo> {
           onPressed: _c.attachShell,
         ),
         const Spacer(),
-        _undoButton('Undo', Icons.undo, widget.undo.$canUndo, widget.undo.undo),
-        _undoButton('Redo', Icons.redo, widget.undo.$canRedo, widget.undo.redo),
+        _undoButton('Undo', Icons.undo, _undo.$canUndo, _undo.undo),
+        _undoButton('Redo', Icons.redo, _undo.$canRedo, _undo.redo),
       ]),
     );
   }
@@ -159,11 +159,12 @@ class _WindowingDemoState extends State<WindowingDemo> {
               key: const ValueKey('divider'),
               axis: branch.axis,
               ratios: branch.ratios,
-              // Keyed per handle so one drag is one undo step (spec §4).
-              onDrag: (start, offset) => _c.dispatchAll([
-                ResizeWindow(handle, _shift(start, i - 1, offset / extent),
-                    levels: levels),
-              ], coalesceKey: 'resize:$handle'),
+              // Keyed per handle so one drag is one undo step (spec §4);
+              // sealed on release so the next drag is its own step.
+              onDrag: (start, offset) => _c.resizeWindow(
+                  handle, _shift(start, i - 1, offset / extent),
+                  levels: levels, coalesceKey: (#resize, handle)),
+              onDragEnd: _undo.sealCoalescing,
             ),
           Expanded(
             flex: (branch.ratios[i] * 1000).round(),
@@ -411,11 +412,13 @@ class _Divider extends StatefulWidget {
       {super.key,
       required this.axis,
       required this.ratios,
-      required this.onDrag});
+      required this.onDrag,
+      required this.onDragEnd});
 
   final Axis axis;
   final List<double> ratios;
   final void Function(List<double> start, double offset) onDrag;
+  final VoidCallback onDragEnd;
 
   @override
   State<_Divider> createState() => _DividerState();
@@ -443,8 +446,10 @@ class _DividerState extends State<_Divider> {
         behavior: HitTestBehavior.opaque,
         onHorizontalDragStart: horizontal ? _begin : null,
         onHorizontalDragUpdate: horizontal ? (d) => _update(d.delta.dx) : null,
+        onHorizontalDragEnd: horizontal ? (_) => widget.onDragEnd() : null,
         onVerticalDragStart: horizontal ? null : _begin,
         onVerticalDragUpdate: horizontal ? null : (d) => _update(d.delta.dy),
+        onVerticalDragEnd: horizontal ? null : (_) => widget.onDragEnd(),
         child: SizedBox(
           width: horizontal ? 8 : null,
           height: horizontal ? null : 8,

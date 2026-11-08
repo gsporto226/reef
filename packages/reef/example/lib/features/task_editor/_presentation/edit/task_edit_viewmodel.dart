@@ -77,6 +77,7 @@ class TaskEditViewModel extends ViewModel<TaskEditModel>
       $title,
       apply: (value) => Ok<TaskError, TaskEditModel>(model.withTitle(value)),
       via: titleOp,
+      coalesceKey: #title, // the undo host scopes keys per buffer
     );
     bindField<DateTime?, TaskError>(
       field: dueDateField,
@@ -135,8 +136,6 @@ class TaskEditViewModel extends ViewModel<TaskEditModel>
   // ---- Hibernation contract: the model is serializable; restoring is just a
   // publish — the out-channel re-seeds every UI object (transient-unsub keeps
   // it echo-free). ----
-
-  String hibernate() => model.toJson().toString();
 
   void restore(Map<String, dynamic> json) => publish(TaskEditModel.fromJson(json));
 }

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_page.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_provider.dart';
+import 'package:reef_example/undo_providers.dart';
 
 /// Fixed buffer id so tests read the same viewmodel the page renders.
 const testBufferId = BufferId.manual('test');
@@ -74,6 +75,21 @@ void main() {
     await tester.pump();
 
     expect(vm.model.title, 'Buy milk');
+  });
+
+  testWidgets('typing a run into the title is one undo step', (tester) async {
+    final vm = await pumpPage(tester);
+    final undo = ProviderScope.containerOf(tester.element(find.byType(EditableText)))
+        .read(undoControllerProvider);
+
+    for (final text in ['B', 'Bu', 'Buy']) {
+      await tester.enterText(find.byType(EditableText), text);
+    }
+    undo.undo();
+    await tester.pump();
+
+    expect(vm.model.title, '');
+    expect(undo.$canUndo.value, isFalse);
   });
 
   testWidgets('submit style: save runs full validation, applies and reports the operation',

@@ -1,12 +1,19 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_example/features/windowing/windowing_demo.dart';
 import 'package:reef_example/main_windowing.dart' as playground;
+import 'package:reef_example/undo_providers.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+
+  Widget demo(WindowingController c, UndoController undo) => ProviderScope(
+        overrides: [undoControllerProvider.overrideWithValue(undo)],
+        child: MaterialApp(home: Scaffold(body: WindowingDemo(controller: c))),
+      );
 
   Future<WindowingController> pump(WidgetTester tester,
       {BufferId? buffer}) async {
@@ -15,9 +22,7 @@ void main() {
         initial: buffer == null ? null : playground.startingLayout(buffer),
         undo: undo);
     await tester.binding.setSurfaceSize(const Size(1200, 800));
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(body: WindowingDemo(controller: controller, undo: undo)),
-    ));
+    await tester.pumpWidget(demo(controller, undo));
     return controller;
   }
 
@@ -135,9 +140,7 @@ void main() {
     final c = WindowingController(undo: undo)
       ..newTab(buffer: const BufferId.manual('b'));
     await tester.binding.setSurfaceSize(const Size(1200, 800));
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(body: WindowingDemo(controller: c, undo: undo)),
-    ));
+    await tester.pumpWidget(demo(c, undo));
 
     await tap(tester, find.byTooltip('Split right'));
     expect(status('windows in tab: 2'), findsOneWidget);
