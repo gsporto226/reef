@@ -22,6 +22,16 @@ class UndoEntry<S> {
   void _redo(Object host) => (host as UndoHost<S>).redo(snapshotAfter);
 }
 
+/// A fixed, untranslated [UndoEntry.label].
+class UndoLabel implements ILocalizable {
+  const UndoLabel(this._text);
+
+  final String _text;
+
+  @override
+  String localize() => _text;
+}
+
 /// Publishes a snapshot back into the state its subsystem owns.
 abstract interface class UndoHost<S> {
   void undo(S snapshotBefore);
@@ -35,19 +45,25 @@ class UndoController {
   final _hosts = <Type, Object>{};
   final _entries = <(Type, UndoEntry<dynamic>)>[];
   int _cursor = 0; // entries before the cursor are undoable
+  bool _sealed = false;
   final _canUndo = ValueNotifier(false);
   final _canRedo = ValueNotifier(false);
 
   ValueListenable<bool> get $canUndo => _canUndo;
   ValueListenable<bool> get $canRedo => _canRedo;
 
+  /// Every entry's label, oldest first, redo tail included (audit log).
+  List<ILocalizable> get labels => [for (final (_, e) in _entries) e.label];
+
   void registerHost<S>(UndoHost<S> host) => _hosts[S] = host;
 
   void record<S>(UndoEntry<S> entry) {
     assert(_hosts.containsKey(S), 'No UndoHost registered for $S');
     // Coalesce only onto the newest entry: after an undo, the entry before
-    // the cursor is a finished step.
-    final last = _cursor == _entries.length ? _entries.lastOrNull : null;
+    // the cursor is a finished step; so is a sealed one.
+    final last =
+        !_sealed && _cursor == _entries.length ? _entries.lastOrNull : null;
+    _sealed = false;
     _entries.removeRange(_cursor, _entries.length);
     if (last != null &&
         entry.coalesceKey != null &&
@@ -89,9 +105,13 @@ class UndoController {
     _publish();
   }
 
-  void clear() {
-    _entries.clear();
-    _cursor = 0;
+  /// Ends the current coalescing run: the next entry starts a new step.
+  void sealCoalescing() => _sealed = true;
+
+  /// Drops every entry of snapshot type [S], keeping the rest in order.
+  void clearHost<S>() {
+    _cursor = _entries.take(_cursor).where((e) => e.$1 != S).length;
+    _entries.removeWhere((e) => e.$1 == S);
     _publish();
   }
 

@@ -8,12 +8,12 @@ class _Vm extends ViewModel<String> with UndoableModel<String> {
   _Vm(BufferUndoHost host, BufferId id, [super.initial = '']) {
     attachUndo(host, id);
     bindText(controller, $model,
-        apply: (v) => Ok<Never, String>(v), via: op);
+        apply: (v) => Ok<Never, String>(v), via: op, coalesceKey: #text);
   }
 
   final controller = TextEditingController();
   late final op = operation<Unit, Never>();
-  void set(String v) => publish(v);
+  void set(String v, [Object? key]) => publish(v, coalesceKey: key);
 }
 
 void main() {
@@ -26,10 +26,39 @@ void main() {
     host = BufferUndoHost(undo);
   });
 
-  test('BufferSnapshot carries buffer id and model', () {
+  test('BufferSnapshot carries buffer id and model; equal by value', () {
     const s = BufferSnapshot(id, 'x');
     expect((s.bufferId, s.model), (id, 'x'));
-    expect(const BufferEdit().localize(), 'Edit');
+    expect(BufferSnapshot(id, 'x'.toString()), s);
+    expect(BufferSnapshot(id, 'x').hashCode, s.hashCode);
+    expect(s, isNot(const BufferSnapshot(id, 'y')));
+  });
+
+  test('entries are labelled Edit', () {
+    _Vm(host, id).set('a');
+    expect(undo.labels.single.localize(), 'Edit');
+  });
+
+  test('same-key edits of one buffer coalesce; a new key breaks the run', () {
+    final vm = _Vm(host, id)
+      ..set('a', #f)
+      ..set('ab', #f)
+      ..set('abc', #g);
+    // Same key, other buffer: no merge.
+    _Vm(host, const BufferId.manual('other')).set('o', #g);
+    undo
+      ..undo()
+      ..undo();
+    expect(vm.model, 'ab');
+    undo.undo();
+    expect(vm.model, '');
+  });
+
+  test('a coalesced run that returns to its start drops the entry', () {
+    _Vm(host, id)
+      ..set('a', #f)
+      ..set('', #f);
+    expect(undo.$canUndo.value, isFalse);
   });
 
   test('records each change; undo and redo restore without recording', () {
@@ -65,18 +94,25 @@ void main() {
     expect(live.model, '');
   });
 
-  test('undo for a buffer with no live view model is a no-op', () {
+  test('undo and redo while hibernated are adopted on re-attach', () {
     _Vm(host, id)
       ..set('x')
+      ..set('xy')
       ..dispose();
-    undo.undo();
-    expect(undo.$canRedo.value, isTrue);
+    undo
+      ..undo()
+      ..undo()
+      ..redo();
+    expect(_Vm(host, id, 'xy').model, 'x');
+    expect(_Vm(host, id, 'xy').model, 'xy', reason: 'adopted only once');
   });
 
-  testWidgets('typing records; undo rewrites the text field', (tester) async {
+  testWidgets('typing records one step; undo rewrites the text field',
+      (tester) async {
     final vm = _Vm(host, id);
     await tester.pumpWidget(MaterialApp(
         home: Material(child: TextField(controller: vm.controller))));
+    await tester.enterText(find.byType(TextField), 'h');
     await tester.enterText(find.byType(TextField), 'hi');
     undo.undo();
     await tester.pump();

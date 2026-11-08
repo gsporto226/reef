@@ -41,7 +41,34 @@ void main() {
   });
 
   test('entries carry a layout label', () {
-    expect(const WindowingLayoutEdit().localize(), 'Change layout');
+    c.newTab();
+    expect(undo.labels.single.localize(), 'Change layout');
+  });
+
+  test('a shell-set change keeps buffer entries on the timeline', () {
+    final host = BufferUndoHost(undo);
+    final vm = _Vm(host);
+    c.newTab();
+    vm.set('x');
+    c.attachShell();
+    undo.undo();
+    expect(vm.model, '');
+    expect(undo.$canUndo.value, isFalse, reason: 'layout entry dropped');
+  });
+
+  test('resizeWindow coalesces under its key until the run is sealed', () {
+    final tab = c.newTab(buffer: const BufferId.manual('a'));
+    final window = c.doc.value.tabs[tab]!.activeWindowId!;
+    final split = c.splitWindow(window, axis: Axis.horizontal);
+    final before = c.doc.value;
+    c.resizeWindow(split, [0.4, 0.6], coalesceKey: (#resize, split));
+    c.resizeWindow(split, [0.3, 0.7], coalesceKey: (#resize, split));
+    undo.sealCoalescing();
+    c.resizeWindow(split, [0.2, 0.8], coalesceKey: (#resize, split));
+    undo
+      ..undo()
+      ..undo();
+    expect(c.doc.value, before);
   });
 
   test('unchanged batches record nothing', () {
@@ -54,7 +81,7 @@ void main() {
     final second = c.newTab(buffer: const BufferId.manual('a'));
     final window = c.doc.value.tabs[second]!.activeWindowId!;
     c.splitWindow(window, axis: Axis.horizontal);
-    undo.clear();
+    undo.clearHost<WindowingDoc>();
 
     c.activateTab(first);
     c.activateWindow(window);
@@ -66,7 +93,7 @@ void main() {
     final other = c.attachShell();
     final first = c.doc.value.shells.keys.first;
     c.newTab(shellId: other);
-    undo.clear();
+    undo.clearHost<WindowingDoc>();
     c.activateShell(first);
     expect(c.doc.value.focusedShellId, first);
     expect(undo.$canUndo.value, isFalse);
@@ -110,4 +137,12 @@ void main() {
     await tester.pump();
     expect(builds, 3);
   });
+}
+
+class _Vm extends ViewModel<String> with UndoableModel<String> {
+  _Vm(BufferUndoHost host) : super('') {
+    attachUndo(host, const BufferId.manual('b'));
+  }
+
+  void set(String v) => publish(v);
 }

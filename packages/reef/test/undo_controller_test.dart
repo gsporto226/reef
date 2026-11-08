@@ -116,12 +116,38 @@ void main() {
     expect(ints.calls.last, 'undo 6');
   });
 
-  test('clear empties the timeline', () {
+  test('clearHost drops only that type and keeps the cursor in place', () {
     c.record<int>(_e(0, 1));
+    c.record<String>(_e('a', 'b'));
+    c.record<int>(_e(1, 2));
+    c.record<String>(_e('b', 'c'));
+    c.undo(); // undo b
+    c.clearHost<int>();
     c.undo();
-    c.clear();
-    expect(c.$canUndo.value, isFalse);
-    expect(c.$canRedo.value, isFalse);
+    c.redo();
+    c.redo();
+    expect(strings.calls, ['undo b', 'undo a', 'redo b', 'redo c']);
+    expect(ints.calls, isEmpty);
+    c.clearHost<String>();
+    expect((c.$canUndo.value, c.$canRedo.value), (false, false));
+  });
+
+  test('sealCoalescing ends a run: the next same-key entry is a new step', () {
+    c.record<int>(_e(0, 1, key: (#r, 1)));
+    c.sealCoalescing();
+    c.record<int>(_e(1, 2, key: (#r, 1)));
+    c.record<int>(_e(2, 3, key: (#r, 1)));
+    c.undo();
+    c.undo();
+    expect(ints.calls, ['undo 1', 'undo 0']);
+  });
+
+  test('labels lists every entry label, oldest first', () {
+    c.record<int>(_e(0, 1));
+    c.record<String>(_e('a', 'b'));
+    c.undo();
+    expect(c.labels.map((l) => l.localize()), ['edit', 'edit']);
+    expect(const UndoLabel('Edit').localize(), 'Edit');
   });
 
   test('canUndo/canRedo publish only on change', () {

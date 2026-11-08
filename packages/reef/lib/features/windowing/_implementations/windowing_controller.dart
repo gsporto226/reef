@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show Axis;
-import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
@@ -683,7 +682,7 @@ class WindowingController {
   WindowingController({WindowingDoc? initial, UndoController? undo})
       : _doc = ValueNotifier(initial ?? WindowingDoc.initial()),
         _undo = undo {
-    undo?.registerHost<WindowingDoc>(WindowingUndoHost(this));
+    undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
   }
 
   final ValueNotifier<WindowingDoc> _doc;
@@ -704,10 +703,10 @@ class WindowingController {
     if (next == before) return;
     if (_undo case final undo?) {
       if (!setEquals(next.shells.keys.toSet(), before.shells.keys.toSet())) {
-        undo.clear();
+        undo.clearHost<WindowingDoc>(); // layout undo never crosses a pop-out
       } else if (_withFocusFrom(next, focusSource: before) != before) {
         undo.record(UndoEntry<WindowingDoc>(
-          label: const WindowingLayoutEdit(),
+          label: const UndoLabel('Change layout'),
           snapshotBefore: before,
           snapshotAfter: next,
           coalesceKey: coalesceKey,
@@ -783,8 +782,9 @@ class WindowingController {
   void raiseWindow(WindowId windowId) => dispatch(RaiseWindow(windowId));
 
   void resizeWindow(WindowId windowId, List<double> ratios,
-          {int levels = 0}) =>
-      dispatch(ResizeWindow(windowId, ratios, levels: levels));
+          {int levels = 0, Object? coalesceKey}) =>
+      dispatchAll([ResizeWindow(windowId, ratios, levels: levels)],
+          coalesceKey: coalesceKey);
 
   void attachBuffer(WindowId windowId, BufferId buffer) =>
       dispatch(AttachBuffer(windowId, buffer));
@@ -822,26 +822,16 @@ WindowingDoc _withFocusFrom(WindowingDoc doc,
                   t.activeWindowId))),
     );
 
-/// The label on every windowing undo entry.
-class WindowingLayoutEdit implements ILocalizable {
-  const WindowingLayoutEdit();
-
-  @override
-  String localize() => 'Change layout';
-}
-
-/// Publishes [WindowingDoc] snapshots back into its controller without
+/// Publishes [WindowingDoc] snapshots into a controller's doc without
 /// recording them.
 class WindowingUndoHost implements UndoHost<WindowingDoc> {
-  WindowingUndoHost(this._controller);
+  WindowingUndoHost(this._doc);
 
-  final WindowingController _controller;
-
-  @override
-  void undo(WindowingDoc snapshotBefore) =>
-      _controller._doc.value = snapshotBefore;
+  final ValueNotifier<WindowingDoc> _doc;
 
   @override
-  void redo(WindowingDoc snapshotAfter) =>
-      _controller._doc.value = snapshotAfter;
+  void undo(WindowingDoc snapshotBefore) => _doc.value = snapshotBefore;
+
+  @override
+  void redo(WindowingDoc snapshotAfter) => _doc.value = snapshotAfter;
 }

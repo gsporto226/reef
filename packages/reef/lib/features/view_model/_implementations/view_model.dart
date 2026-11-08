@@ -45,8 +45,9 @@ abstract class ViewModel<M> {
   }
 
   /// Replaces the model and notifies listeners. Sole mutation point.
+  /// [coalesceKey] is for undo-aware mixins (`UndoableModel`); ignored here.
   @protected
-  void publish(M newModel) {
+  void publish(M newModel, {Object? coalesceKey}) {
     _model = newModel;
     _$model.value = newModel;
   }
@@ -61,6 +62,7 @@ abstract class ViewModel<M> {
     Result<E, M> result, {
     required Operation<Unit, E> via,
     List<VoidCallback> onFail = const [],
+    Object? coalesceKey,
   }) {
     result.fold(
       (e) {
@@ -71,7 +73,7 @@ abstract class ViewModel<M> {
       },
       (m) {
         via.reset();
-        publish(m);
+        publish(m, coalesceKey: coalesceKey);
       },
     );
   }
@@ -97,6 +99,7 @@ abstract class ViewModel<M> {
     required void Function(Ui value) writeUi,
     required Result<E, M> Function(Field value) apply,
     required Operation<Unit, E> via,
+    Object? coalesceKey,
   }) {
     late final void Function() onUi;
     late final void Function() onModel;
@@ -117,7 +120,8 @@ abstract class ViewModel<M> {
     onUi = () {
       modelValue.removeListener(onModel);
       try {
-        edit(apply(fromUi(uiValue.value)), via: via, onFail: [onModel]);
+        edit(apply(fromUi(uiValue.value)),
+            via: via, onFail: [onModel], coalesceKey: coalesceKey);
       } finally {
         modelValue.addListener(onModel);
       }
@@ -139,6 +143,7 @@ abstract class ViewModel<M> {
     ValueListenable<String> modelValue, {
     required Result<E, M> Function(String value) apply,
     required Operation<Unit, E> via,
+    Object? coalesceKey,
   }) {
     bind(
       modelValue: modelValue,
@@ -148,6 +153,7 @@ abstract class ViewModel<M> {
       writeUi: (value) => controller.value = value,
       apply: apply,
       via: via,
+      coalesceKey: coalesceKey,
     );
   }
 
