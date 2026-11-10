@@ -206,6 +206,8 @@ void main() {
     // 'b' floated first, so it sits below; tapping it raises it.
     await tester.drag(find.text('buffer 1'), const Offset(300, 200));
     await tester.pumpAndSettle();
+    expect(c.doc.value.floating.values.where((f) => f.geometry != null),
+        hasLength(1));
     await tap(tester, find.text('b'));
     expect(c.doc.value.floating.values.map((f) => f.zIndex), contains(2));
 

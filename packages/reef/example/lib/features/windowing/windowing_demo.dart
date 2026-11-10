@@ -24,10 +24,6 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
   UndoController get _undo => ref.read(undoControllerProvider);
   int _buffers = 0;
 
-  /// Where each floating window is drawn. Placement is view state, not doc
-  /// state (W1 has no geometry).
-  final _positions = <WindowId, Offset>{};
-
   BufferId _nextBuffer() => BufferId.manual('buffer ${++_buffers}');
 
   @override
@@ -38,13 +34,15 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     delegate: WindowingDelegate(
       windowChrome: _chrome,
       tabStrip: (context, shellId) => _tabBar(_c.doc.value, shellId),
+      emptyBuilder: (_, _) => const Center(
+        child: Text('Empty tab: dock a floating window here, or close it'),
+      ),
     ),
     child: ValueListenableBuilder<WindowingDoc>(
       valueListenable: _c.doc,
       builder: (context, doc, _) {
         final shellIds = doc.shells.keys.toList();
         final shell = doc.shells[doc.focusedShellId]!;
-        final tab = doc.tabs[shell.activeTabId]!;
         return Column(
           children: [
             _shellBar(doc, shellIds),
@@ -55,26 +53,9 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
             ),
             const Divider(height: 1),
             Expanded(
-              child: LayoutBuilder(
-                builder: (context, box) => Stack(
-                  children: [
-                    Positioned.fill(
-                      child: tab.root == null
-                          ? const Center(
-                              child: Text(
-                                'Empty tab: dock a floating window '
-                                'here, or close it',
-                              ),
-                            )
-                          : Padding(
-                              padding: const EdgeInsets.all(4),
-                              child: TabCanvas(shell.activeTabId),
-                            ),
-                    ),
-                    for (final (i, w) in _visibleFloating(doc, shell).indexed)
-                      _floating(doc, shell, w, i, box.biggest),
-                  ],
-                ),
+              child: Padding(
+                padding: const EdgeInsets.all(4),
+                child: ShellHost(doc.focusedShellId),
               ),
             ),
             _statusBar(doc, shellIds, shell),
@@ -169,26 +150,37 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
   }
 
   /// The delegate's window chrome: the window's header over its page, inside
-  /// the default focus border.
+  /// the default focus border; floating windows on a raised card.
   Widget _chrome(
     BuildContext context,
     WindowId id,
     bool focused,
     Widget page,
-  ) => const WindowingDelegate().windowChrome(
-    context,
-    id,
-    focused,
-    Padding(
-      padding: const EdgeInsets.all(2),
-      child: Column(
-        children: [
-          _windowHeader(_c.doc.value, id, floating: false),
-          Expanded(child: page),
-        ],
+  ) {
+    final floating = _c.doc.value.floating.containsKey(id);
+    final window = const WindowingDelegate().windowChrome(
+      context,
+      id,
+      focused,
+      Padding(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          children: [
+            _windowHeader(_c.doc.value, id, floating: floating),
+            Expanded(child: page),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+    if (!floating) return window;
+    return Material(
+      elevation: 8,
+      borderRadius: BorderRadius.circular(8),
+      clipBehavior: Clip.antiAlias,
+      color: Theme.of(context).colorScheme.surface,
+      child: window,
+    );
+  }
 
   Widget _windowHeader(
     WindowingDoc doc,
@@ -313,75 +305,6 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
         'forward: ${h.forward.map((b) => b.value).join(', ')}',
         textAlign: TextAlign.center,
         style: style,
-      ),
-    );
-  }
-
-  /// Floating windows over the focused shell, its active tab, or a window
-  /// already on screen; bottom to top within each scope.
-  List<WindowId> _visibleFloating(WindowingDoc doc, ShellState shell) {
-    final visible = <Object>{
-      ShellScope(doc.focusedShellId),
-      TabScope(shell.activeTabId),
-      ...?doc.tabs[shell.activeTabId]!.root?.windowIds.map(WindowScope.new),
-    };
-    final out = <WindowId>[];
-    for (var grew = true; grew;) {
-      final next =
-          [
-            for (final MapEntry(:key, :value) in doc.floating.entries)
-              if (!out.contains(key) && visible.contains(value.scope)) key,
-          ]..sort(
-            (a, b) =>
-                doc.floating[a]!.zIndex.compareTo(doc.floating[b]!.zIndex),
-          );
-      out.addAll(next);
-      visible.addAll(next.map(WindowScope.new));
-      grew = next.isNotEmpty;
-    }
-    return out;
-  }
-
-  Widget _floating(
-    WindowingDoc doc,
-    ShellState shell,
-    WindowId id,
-    int i,
-    Size area,
-  ) {
-    final scheme = Theme.of(context).colorScheme;
-    const size = Size(280, 160);
-    final max = Offset(
-      (area.width - size.width).clamp(0, double.infinity),
-      (area.height - size.height).clamp(0, double.infinity),
-    );
-    Offset clamp(Offset p) =>
-        Offset(p.dx.clamp(0, max.dx), p.dy.clamp(0, max.dy));
-    final pos = clamp(_positions[id] ?? Offset(40 + 32.0 * i, 40 + 32.0 * i));
-    return Positioned(
-      left: pos.dx,
-      top: pos.dy,
-      width: size.width,
-      height: size.height,
-      child: GestureDetector(
-        onTap: () => _c.activateWindow(id),
-        // Read the stored position, not the build-time one, so several pan
-        // events in one frame all count.
-        onPanUpdate: (d) => setState(
-          () => _positions[id] = clamp((_positions[id] ?? pos) + d.delta),
-        ),
-        child: Material(
-          elevation: 8,
-          borderRadius: BorderRadius.circular(8),
-          clipBehavior: Clip.antiAlias,
-          color: scheme.surface,
-          child: Column(
-            children: [
-              _windowHeader(doc, id, floating: true),
-              Expanded(child: _windowBody(doc, id)),
-            ],
-          ),
-        ),
       ),
     );
   }
