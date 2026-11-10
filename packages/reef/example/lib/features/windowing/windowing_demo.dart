@@ -4,8 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_example/undo_providers.dart';
 
-/// A playground over a [WindowingController]: shells and tabs across the top,
-/// the active tab's window tree in the middle (drag the dividers to resize),
+/// A playground over a [WindowingController]: shells, the projection switch
+/// and tabs across the top, the active tab's windows in the middle as the
+/// projection lays them out (drag the dividers to resize),
 /// its floating windows on top, and the focus chain in the status bar. Every
 /// control dispatches one controller intent. Drives the windowing integration
 /// flow. Needs a [MaterialApp] and a [ProviderScope] above it; Undo and Redo
@@ -23,6 +24,9 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
   WindowingController get _c => widget.controller;
   UndoController get _undo => ref.read(undoControllerProvider);
   int _buffers = 0;
+
+  /// The projection switch: by screen class, or forced.
+  WindowingProjectionPolicy _policy = defaultWindowingProjection;
 
   BufferId _nextBuffer() => BufferId.manual('buffer ${++_buffers}');
 
@@ -49,16 +53,17 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
           return Column(
             children: [
               _shellBar(doc, shellIds),
-              Builder(
-                builder: (context) =>
-                    WindowingDelegateScope.of(context)
-                        .tabStrip(context, doc.focusedShellId),
-              ),
               const Divider(height: 1),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(4),
-                  child: ShellHost(doc.focusedShellId),
+                  child: Builder(
+                    builder: (context) => _policy(
+                      context,
+                      _c,
+                      doc.focusedShellId,
+                    )(context, _c, doc.focusedShellId),
+                  ),
                 ),
               ),
               _statusBar(doc, shellIds, shell),
@@ -68,6 +73,18 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     ),
     ),
   );
+
+  static WindowingProjection _desktop(
+    BuildContext _,
+    WindowingController _,
+    ShellId _,
+  ) => (_, _, shellId) => DesktopProjection(shellId);
+
+  static WindowingProjection _tabbed(
+    BuildContext _,
+    WindowingController _,
+    ShellId _,
+  ) => (_, _, shellId) => TabbedProjection(shellId);
 
   Widget _shellBar(WindowingDoc doc, List<ShellId> shellIds) {
     final scheme = Theme.of(context).colorScheme;
@@ -94,6 +111,20 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
             onPressed: _c.attachShell,
           ),
           const Spacer(),
+          PopupMenuButton<WindowingProjectionPolicy>(
+            tooltip: 'Projection',
+            icon: const Icon(Icons.view_quilt_outlined),
+            initialValue: _policy,
+            onSelected: (policy) => setState(() => _policy = policy),
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: defaultWindowingProjection,
+                child: Text('Auto'),
+              ),
+              PopupMenuItem(value: _desktop, child: Text('Desktop')),
+              PopupMenuItem(value: _tabbed, child: Text('Tabbed')),
+            ],
+          ),
           _undoButton('Undo', Icons.undo, _undo.$canUndo, _undo.undo),
           _undoButton('Redo', Icons.redo, _undo.$canRedo, _undo.redo),
         ],

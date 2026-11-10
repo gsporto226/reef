@@ -15,8 +15,9 @@ void main() {
     c = WindowingController(
         initial: playground.startingLayout(const BufferId.manual('b')),
         undo: undo);
-    await tester.binding.setSurfaceSize(const Size(1200, 800));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.view.physicalSize =
+        const Size(1200, 800) * tester.view.devicePixelRatio;
+    addTearDown(tester.view.reset);
     await tester.pumpWidget(ProviderScope(
       overrides: [undoControllerProvider.overrideWithValue(undo)],
       child: MaterialApp(
@@ -66,5 +67,30 @@ void main() {
     expect(c.doc.value, afterFirst);
     undo.undo();
     expect(c.doc.value, split);
+  });
+
+  testWidgets('the projection switch forces tabs or desktop over the screen '
+      'class', (tester) async {
+    await pump(tester);
+    await tester.tap(find.byTooltip('Split right'));
+    await tester.pumpAndSettle();
+    Finder windows() => find.byTooltip('Close window');
+    Future<void> project(String item) async {
+      await tester.tap(find.byTooltip('Projection'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(item).last);
+      await tester.pumpAndSettle();
+    }
+
+    expect(windows(), findsNWidgets(2));
+    await project('Tabbed');
+    expect(windows(), findsOneWidget);
+
+    tester.view.physicalSize =
+        const Size(700, 800) * tester.view.devicePixelRatio;
+    await project('Desktop');
+    expect(windows(), findsNWidgets(2));
+    await project('Auto');
+    expect(windows(), findsOneWidget);
   });
 }

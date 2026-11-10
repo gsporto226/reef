@@ -256,4 +256,26 @@ void main() {
     expect(status('floating: 0'), findsOneWidget);
     expect(status('windows in tab: 2'), findsOneWidget);
   });
+
+  testWidgets('resizing across the breakpoint switches projection and back',
+      (tester) async {
+    final c = await pump(tester, buffer: const BufferId.manual('b'));
+    addTearDown(tester.view.reset);
+    await tap(tester, find.byTooltip('Split right'));
+    final doc = c.doc.value;
+    Finder windows() => find.byTooltip('Close window');
+    Future<void> resize(double width) async {
+      tester.view.physicalSize =
+          Size(width, 800) * tester.view.devicePixelRatio;
+      await tester.pumpAndSettle();
+    }
+
+    expect(windows(), findsNWidgets(2));
+    await resize(700);
+    expect(windows(), findsOneWidget);
+    expect(c.doc.value, doc);
+    await resize(1200);
+    expect(windows(), findsNWidgets(2));
+    expect(c.doc.value, doc);
+  });
 }
