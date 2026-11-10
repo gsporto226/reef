@@ -11,12 +11,14 @@ void main() {
       ..physicalSize = const Size(1200, 800)
       ..devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    await tester.pumpWidget(const ReefExampleApp());
+    await tester.pumpWidget(wrapWithView: false, const ReefExampleApp());
     await tester.pumpAndSettle();
 
     expect(find.byType(WindowingRoot), findsOneWidget);
     expect(find.byType(ListView), findsOneWidget);
     expect(find.text('Buy milk'), findsOneWidget);
+    expect(find.text('New shell'), findsNothing,
+        reason: 'windowing is off: no pop-out controls');
 
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();

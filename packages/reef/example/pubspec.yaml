@@ -19,6 +19,7 @@ dependencies:
     path: ../../../../formularium/packages/formularium
   reef: ^0.1.0
   reef_fp: ^0.1.0
+  reef_multi_window: ^0.1.0
   reef_widgets: ^0.1.0
 
 dev_dependencies:

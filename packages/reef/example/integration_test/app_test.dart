@@ -8,7 +8,8 @@ import 'package:reef_example/main.dart' as app;
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('the app boots on a real device and opens a task in an editor',
+  testWidgets('without the windowing flag the app boots inline, with no pop-out '
+      'controls, and opens a task in an editor',
       (tester) async {
     app.main();
     await tester.pumpAndSettle();
@@ -19,6 +20,15 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(EditableText), findsWidgets);
+    for (final label in [
+      'Open in window',
+      'New shell',
+      'Pop out tab',
+      'Close shell',
+    ]) {
+      expect(find.text(label), findsNothing,
+          reason: 'windowing is off: no pop-out controls');
+    }
   });
 
   testWidgets('undo and redo a title edit', (tester) async {
