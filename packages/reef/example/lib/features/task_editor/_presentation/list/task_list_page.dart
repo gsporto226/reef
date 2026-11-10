@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:reef/features/page/_implementations/reef_window.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
-import 'package:reef_auto_route/reef_auto_route.dart';
+import 'package:reef/reef.dart' show WindowHost, WindowingScope;
 import 'package:reef_example/_kit/kit.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_model.dart'
     show TaskError;
@@ -49,12 +49,13 @@ class _TaskListLayout extends StatelessWidget {
               footerBuilder: (_) => const Center(child: KitSpinner(size: 14)),
               itemBuilder: (context, task, index) => _TaskRow(
                 task: task,
-                // The `:split` intent — pages inside a workspace open
-                // buffers through the scope (§10.3); the router URL follows.
-                onTap: () => WorkspaceScope.of(context).split(
-                  BufferId.manual('task-edit:$task'),
-                  axis: Axis.horizontal,
-                ),
+                // Opens the task in a new window beside this one.
+                onTap: () =>
+                    WindowingScope.of(context).controller.splitWindow(
+                          WindowHost.of(context),
+                          axis: Axis.horizontal,
+                          buffer: BufferId.manual('task-edit:$task'),
+                        ),
               ),
             ),
           ),

@@ -1,23 +1,15 @@
-import 'package:auto_route/auto_route.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
-import 'package:reef_auto_route/reef_auto_route.dart';
+import 'package:reef/reef.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_model.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_page.dart';
 import 'package:reef_example/features/task_editor/_presentation/list/task_list_page.dart';
 import 'package:reef_example/features/windowing/window_host.dart';
+import 'package:reef_example/main_windowing.dart' show startingLayout;
+import 'package:reef_example/undo_providers.dart';
 
-/// The app's routing (blueprint §10.3): one workspace route hosting the
-/// split workspace; buffers are deep-linkable through the `?b=` query
-/// (`kind:token` ids — `task-edit:<task>`). Codegen-free via
-/// [RootStackRouter.build] + [NamedRouteDef].
-///
-/// The app is design-free (§5) — [WidgetsApp], no Material — so routes use
-/// [RouteType.custom]: Material routes require MaterialLocalizations, which
-/// a WidgetsApp doesn't provide.
-/// The kind→page mapping, shared by the workspace registry (panes) and
-/// popped-out OS windows (§10.4) — one mapping, two hosts.
+/// The kind→page mapping, shared by the app's [WindowingRoot] (its buffer
+/// builder) and popped-out OS windows (§10.4) — one mapping, two hosts.
 final Map<String, Widget Function(BuildContext, BufferId)> bufferPages = {
   'task-list': (_, id) => TaskListPage(bufferId: id),
   'task-edit': (_, id) => TaskEditPage(
@@ -27,28 +19,9 @@ final Map<String, Widget Function(BuildContext, BufferId)> bufferPages = {
       ),
 };
 
-/// Builds the page for any routable buffer id (windowed pop-outs; panes go
-/// through [bufferPages] via the registry's own lookup).
+/// Builds the page for any buffer id the app knows.
 Widget bufferPageFor(BuildContext context, BufferId id) =>
-    bufferPages[id.kind]?.call(context, id) ?? const SizedBox.shrink();
-
-final appRouter = RootStackRouter.build(
-  defaultRouteType: RouteType.custom(
-    transitionsBuilder: (_, _, _, child) => child,
-  ),
-  routes: [
-    // The default tab is a deep link: the workspace opens with the list buffer.
-    RedirectRoute(path: '/', redirectTo: '/w/main?b=task-list:all'),
-    NamedRouteDef(
-      name: 'WorkspaceRoute',
-      path: '/w/:tabId',
-      builder: (context, data) => WorkspaceShell(
-        tabId: data.params.getString('tabId'),
-        registry: WorkspaceRegistry(kinds: bufferPages),
-      ),
-    ),
-  ],
-);
+    bufferPages[id.id.split(':').first]?.call(context, id) ?? const SizedBox.shrink();
 
 void main() => runApp(const ReefExampleApp());
 
@@ -57,18 +30,41 @@ class ReefExampleApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) =>
-      const ProviderScope(child: ReefExampleRoutedApp());
+      const ProviderScope(child: ReefExampleShellApp());
 }
 
-/// The routed app without the root [ProviderScope] — the windowed entrypoint
-/// puts one above the window manager so every view shares it (§10.4).
-class ReefExampleRoutedApp extends StatelessWidget {
-  const ReefExampleRoutedApp({super.key});
+/// The app without the root [ProviderScope] — the windowed entrypoint puts
+/// one above the window manager so every view shares it (§10.4). Opens one
+/// shell on the task list, drawn by the default projection policy.
+///
+/// The app is design-free (§5) — [WidgetsApp], no Material.
+class ReefExampleShellApp extends StatefulWidget {
+  const ReefExampleShellApp({super.key});
 
   @override
-  Widget build(BuildContext context) => WidgetsApp.router(
+  State<ReefExampleShellApp> createState() => _ReefExampleShellAppState();
+}
+
+class _ReefExampleShellAppState extends State<ReefExampleShellApp> {
+  late final _controller = WindowingController(
+    initial: startingLayout(const BufferId.manual('task-list:all')),
+    undo: ProviderScope.containerOf(context, listen: false)
+        .read(undoControllerProvider),
+  );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => WidgetsApp(
         title: 'Reef example',
         color: const Color(0xFF00695C),
-        routerConfig: appRouter.config(),
+        builder: (_, _) => WindowingRoot(
+          controller: _controller,
+          bufferBuilder: bufferPageFor,
+        ),
       );
 }

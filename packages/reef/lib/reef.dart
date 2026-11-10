@@ -23,8 +23,5 @@ export 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 export 'package:reef/features/windowing/_implementations/windowing_projection.dart';
 export 'package:reef/features/windowing/_implementations/windowing_root.dart';
 export 'package:reef/features/windowing/_implementations/windowing_shortcuts.dart';
-export 'package:reef/features/workspace/_implementations/split_tree.dart';
-export 'package:reef/features/workspace/_implementations/split_tree_controller.dart';
-export 'package:reef/features/workspace/_implementations/split_workspace.dart';
 export 'package:reef/features/undo/_implementations/undo_controller.dart';
 export 'package:reef/features/undo/_implementations/buffer_undo_host.dart';
