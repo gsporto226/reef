@@ -3,12 +3,14 @@ import 'package:flutter/widgets.dart';
 import 'package:listenable_plus/listenable_plus.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/windowing_controller.dart';
+import 'package:reef/features/windowing/_implementations/windowing_delegate.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 
 /// Turns a buffer id into the page that shows it: the app's kind-to-page
-/// mapping.
-typedef BufferBuilder = Widget Function(BuildContext context, BufferId buffer);
+/// mapping. Returns null while the buffer is not ready yet; the window then
+/// shows the delegate's [WindowingDelegate.hibernatingBuilder].
+typedef BufferBuilder = Widget? Function(BuildContext context, BufferId buffer);
 
 /// Wraps a shell's active tab canvas in the app's chrome (title bar, tab
 /// strip).
@@ -18,31 +20,37 @@ typedef ShellSurfaceBuilder = Widget Function(
   Widget canvas,
 );
 
-/// The top of a windowing UI: installs [WindowingScope] over [child]. Without
+/// The top of a windowing UI: installs [WindowingScope] and [delegate] over
+/// [child]. Without
 /// a [child] it draws the focused shell through a [ShellHost].
 class WindowingRoot extends StatelessWidget {
   const WindowingRoot({
     super.key,
     required this.controller,
     required this.bufferBuilder,
+    this.delegate = const WindowingDelegate(),
     this.child,
   });
 
   final WindowingController controller;
   final BufferBuilder bufferBuilder;
+  final WindowingDelegate delegate;
   final Widget? child;
 
   @override
   Widget build(BuildContext context) => WindowingScope(
     controller: controller,
     bufferBuilder: bufferBuilder,
-    child:
-        child ??
-        _Select<ShellId>(
-          id: #focusedShell,
-          selector: (doc) => doc.focusedShellId,
-          builder: (_, shellId) => ShellHost(shellId),
-        ),
+    child: WindowingDelegateScope(
+      delegate: delegate,
+      child:
+          child ??
+          _Select<ShellId>(
+            id: #focusedShell,
+            selector: (doc) => doc.focusedShellId,
+            builder: (_, shellId) => ShellHost(shellId),
+          ),
+    ),
   );
 }
 
@@ -94,9 +102,10 @@ class ShellHost extends StatelessWidget {
   );
 }
 
-/// Renders tab [tabId]'s window tree: branch children sized by their ratios
-/// along the branch axis, a [WindowHost] per tree window. An empty tab is
-/// blank.
+/// Renders tab [tabId]'s windows through the delegate's
+/// [WindowingDelegate.windowArrangement]; the default flex tree sizes branch
+/// children by their ratios along the branch axis, a [WindowHost] per tree
+/// window. An empty tab shows the delegate's [WindowingDelegate.emptyBuilder].
 class TabCanvas extends StatelessWidget {
   const TabCanvas(this.tabId, {super.key, this.dividerBuilder});
 
@@ -112,8 +121,12 @@ class TabCanvas extends StatelessWidget {
   Widget build(BuildContext context) => _Select<WindowNode?>(
     id: tabId.value,
     selector: (doc) => doc.tabs[tabId]?.root,
-    builder: (context, root) =>
-        root == null ? const SizedBox.expand() : _node(context, root),
+    builder: (context, root) {
+      final delegate = WindowingDelegateScope.of(context);
+      if (root == null) return delegate.emptyBuilder(context, tabId);
+      return delegate.windowArrangement.builder?.call(context, tabId) ??
+          _node(context, root);
+    },
   );
 
   Widget _node(BuildContext context, WindowNode node) => switch (node) {
@@ -135,8 +148,8 @@ class TabCanvas extends StatelessWidget {
 }
 
 /// Shows window [windowId]'s current buffer through the scope's buffer
-/// builder, outlined while it is its tab's active window. A pointer down on it
-/// activates it.
+/// builder inside the delegate's [WindowingDelegate.windowChrome]. A pointer
+/// down on it activates it.
 class WindowHost extends StatelessWidget {
   const WindowHost(this.windowId, {super.key});
 
@@ -149,6 +162,7 @@ class WindowHost extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final scope = WindowingScope.of(context);
+    final delegate = WindowingDelegateScope.of(context);
     return _Select<(BufferId?, bool)>(
       id: windowId.value,
       selector: (doc) => (
@@ -161,27 +175,77 @@ class WindowHost extends StatelessWidget {
         return Listener(
           behavior: HitTestBehavior.translucent,
           onPointerDown: (_) => scope.controller.activateWindow(windowId),
-          child: DecoratedBox(
-            position: DecorationPosition.foreground,
-            decoration: BoxDecoration(
-              border: active
-                  ? Border.all(color: const Color(0xFF2196F3), width: 2)
-                  : null,
-            ),
-            child: _WindowIdScope(
-              windowId: windowId,
+          child: _WindowIdScope(
+            windowId: windowId,
+            child: delegate.windowChrome(
+              context,
+              windowId,
+              active,
               // Global so a layout change around the window reparents its
               // page instead of remounting it.
-              child: KeyedSubtree(
+              KeyedSubtree(
                 key: _PageKey(windowId, buffer),
                 child: Builder(
-                  builder: (context) => scope.bufferBuilder(context, buffer),
+                  builder: (context) =>
+                      scope.bufferBuilder(context, buffer) ??
+                      delegate.hibernatingBuilder(context, windowId, buffer),
                 ),
               ),
             ),
           ),
         );
       },
+    );
+  }
+}
+
+/// What a [TabStripSlot] hands its builder: a shell's tabs and the intents
+/// over them.
+class TabStripState {
+  const TabStripState({
+    required this.tabIds,
+    required this.activeTabId,
+    required this.activate,
+    required this.close,
+    required this.reorder,
+  });
+
+  final List<TabId> tabIds;
+  final TabId activeTabId;
+  final void Function(TabId tabId) activate;
+  final void Function(TabId tabId) close;
+
+  /// Moves a tab to `index` within the shell.
+  final void Function(TabId tabId, int index) reorder;
+}
+
+/// Headless tab strip of shell [shellId]: [builder] draws it from a
+/// [TabStripState].
+class TabStripSlot extends StatelessWidget {
+  const TabStripSlot(this.shellId, {super.key, required this.builder});
+
+  final ShellId shellId;
+  final Widget Function(BuildContext context, TabStripState strip) builder;
+
+  @override
+  Widget build(BuildContext context) {
+    final c = WindowingScope.of(context).controller;
+    return _Select<ShellState?>(
+      id: shellId.value,
+      selector: (doc) => doc.shells[shellId],
+      builder: (context, shell) => shell == null
+          ? const SizedBox.shrink()
+          : builder(
+              context,
+              TabStripState(
+                tabIds: shell.tabIds,
+                activeTabId: shell.activeTabId,
+                activate: c.activateTab,
+                close: c.closeTab,
+                reorder: (tabId, index) =>
+                    c.moveTab(tabId, shellId: shellId, index: index),
+              ),
+            ),
     );
   }
 }

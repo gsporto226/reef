@@ -34,7 +34,12 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
   @override
   Widget build(BuildContext context) => WindowingRoot(
     controller: _c,
-    bufferBuilder: (context, _) => _page(WindowHost.of(context)),
+    bufferBuilder: (context, _) =>
+        _windowBody(_c.doc.value, WindowHost.of(context)),
+    delegate: WindowingDelegate(
+      windowChrome: _chrome,
+      tabStrip: (context, shellId) => _tabBar(_c.doc.value, shellId),
+    ),
     child: ValueListenableBuilder<WindowingDoc>(
       valueListenable: _c.doc,
       builder: (context, doc, _) {
@@ -44,7 +49,11 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
         return Column(
           children: [
             _shellBar(doc, shellIds),
-            _tabBar(doc, shellIds, shell),
+            Builder(
+              builder: (context) =>
+                  WindowingDelegateScope.of(context)
+                      .tabStrip(context, doc.focusedShellId),
+            ),
             const Divider(height: 1),
             Expanded(
               child: LayoutBuilder(
@@ -111,45 +120,54 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     );
   }
 
-  Widget _tabBar(WindowingDoc doc, List<ShellId> shellIds, ShellState shell) {
+  /// The delegate's tab strip: chips over [TabStripSlot], plus new-tab and
+  /// move-to-shell controls.
+  Widget _tabBar(WindowingDoc doc, ShellId shellId) {
     final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(
-        children: [
-          for (final (i, id) in shell.tabIds.indexed) ...[
-            InputChip(
-              label: Text('Tab ${i + 1}'),
-              selected: id == shell.activeTabId,
-              selectedColor: scheme.primaryContainer,
-              onPressed: () => _c.activateTab(id),
-              onDeleted: () => _c.closeTab(id),
-              deleteButtonTooltipMessage: 'Close tab ${i + 1}',
-            ),
-            const SizedBox(width: 4),
-          ],
-          IconButton(
-            tooltip: 'New tab',
-            icon: const Icon(Icons.add),
-            onPressed: () => _c.newTab(buffer: _nextBuffer()),
-          ),
-          const Spacer(),
-          if (shellIds.length > 1)
-            PopupMenuButton<ShellId>(
-              tooltip: 'Move tab to shell',
-              icon: const Icon(Icons.drive_file_move_outline),
-              onSelected: (to) => _c.moveTab(
-                shell.activeTabId,
-                shellId: to,
-                index: doc.shells[to]!.tabIds.length,
+    final shellIds = doc.shells.keys.toList();
+    return TabStripSlot(
+      shellId,
+      builder: (context, strip) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          children: [
+            for (final (i, id) in strip.tabIds.indexed) ...[
+              InputChip(
+                label: Text('Tab ${i + 1}'),
+                selected: id == strip.activeTabId,
+                selectedColor: scheme.primaryContainer,
+                onPressed: () => strip.activate(id),
+                onDeleted: () => strip.close(id),
+                deleteButtonTooltipMessage: 'Close tab ${i + 1}',
               ),
-              itemBuilder: (_) => [
-                for (final (i, id) in shellIds.indexed)
-                  if (id != doc.focusedShellId)
-                    PopupMenuItem(value: id, child: Text('To shell ${i + 1}')),
-              ],
+              const SizedBox(width: 4),
+            ],
+            IconButton(
+              tooltip: 'New tab',
+              icon: const Icon(Icons.add),
+              onPressed: () => _c.newTab(buffer: _nextBuffer()),
             ),
-        ],
+            const Spacer(),
+            if (shellIds.length > 1)
+              PopupMenuButton<ShellId>(
+                tooltip: 'Move tab to shell',
+                icon: const Icon(Icons.drive_file_move_outline),
+                onSelected: (to) => _c.moveTab(
+                  strip.activeTabId,
+                  shellId: to,
+                  index: doc.shells[to]!.tabIds.length,
+                ),
+                itemBuilder: (_) => [
+                  for (final (i, id) in shellIds.indexed)
+                    if (id != shellId)
+                      PopupMenuItem(
+                        value: id,
+                        child: Text('To shell ${i + 1}'),
+                      ),
+                ],
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -181,19 +199,27 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     );
   }
 
-  /// A tree window's page: its header over its history.
-  Widget _page(WindowId id) {
-    final doc = _c.doc.value;
-    return Padding(
+  /// The delegate's window chrome: the window's header over its page, inside
+  /// the default focus border.
+  Widget _chrome(
+    BuildContext context,
+    WindowId id,
+    bool focused,
+    Widget page,
+  ) => const WindowingDelegate().windowChrome(
+    context,
+    id,
+    focused,
+    Padding(
       padding: const EdgeInsets.all(2),
       child: Column(
         children: [
-          _windowHeader(doc, id, floating: false),
-          Expanded(child: _windowBody(doc, id)),
+          _windowHeader(_c.doc.value, id, floating: false),
+          Expanded(child: page),
         ],
       ),
-    );
-  }
+    ),
+  );
 
   Widget _windowHeader(
     WindowingDoc doc,

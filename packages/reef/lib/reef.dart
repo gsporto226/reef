@@ -16,6 +16,7 @@ export 'package:reef/features/page_identity/_providers/reef_scope_provider.dart'
 export 'package:reef/features/responsive/_implementations/screen_type_layout.dart';
 export 'package:reef/features/view_model/_implementations/view_model.dart';
 export 'package:reef/features/windowing/_implementations/windowing_controller.dart';
+export 'package:reef/features/windowing/_implementations/windowing_delegate.dart';
 export 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 export 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 export 'package:reef/features/windowing/_implementations/windowing_root.dart';
