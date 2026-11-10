@@ -37,9 +37,9 @@ consumes `formularium` untouched.
 
 | Package | Role |
 |---|---|
-| **reef** (this framework) | `ViewModel` base, `Operation`, `bind()`, formularium bridge, `ReefWindow` scaffold, buffer identity & scope, hibernation lifecycle, split-tree workspace, async/result builders, responsive layouts, riverpod composition helpers |
+| **reef** (this framework) | `ViewModel` base, `Operation`, `bind()`, formularium bridge, `ReefWindow` scaffold, buffer identity & scope, hibernation lifecycle, windowing (shells, tabs, windows; see the windowing design spec), async/result builders, responsive layouts, riverpod composition helpers |
 | **reef_widgets** | Widget-layer features over listenables — currently the infinite-scroll behavior (`InfiniteScrollController`/`InfiniteScrollWidget`); design-system-agnostic (§5.7) |
-| **reef_auto_route** | The auto_route adapter (§10.3): `WorkspaceRegistry`, `WorkspaceShell`, per-tab controller provider, `WorkspaceScope`, deep links + two-way URL sync |
+| **reef_auto_route** | The auto_route adapter (§10.3): empty until W5 rebuilds routing on the windowing model |
 | **reef_fp** | Sync value types: `Either`, `Result`, `Optional`, `Async` (`Idle`/`Pending`/`Ready`) |
 | **listenable_plus** | Pure reactive combinators over `ValueListenable` (`map`, `select`, `where`, `distinct`, `debounceTime`, `combineWith`, `switchListen`) |
 | **task_graph** | DAG bootstrap scheduler (pre-init / post-init), Zig-inspired |
@@ -426,36 +426,12 @@ tabs arrange windows, OS windows host tabs. Decided 2026-09.
   any fresh-construction seed (`hibernatedSeed ?? initial`) — a
   rematerialized buffer restores its hibernated model.
 
-### 10.3 Layering — on top of navigation (shipped for auto_route)
+### 10.3 Layering — on top of navigation (W5)
 
-Tabs/windows build **on top of** navigation packages: a shell route hosts the
-workspace widget; the router decides which workspace/tab is visible; reef owns
-only the split-tree inside. The core stays router-agnostic
-(`SplitWorkspace.buildWindow` is the adapter seam). `reef_auto_route` is the
-reference adapter (auto_route 11, codegen-free via `RootStackRouter.build` +
-`NamedRouteDef`):
-
-- **`WorkspaceRegistry`** — buffer kinds (`kind:token` ids, e.g.
-  `task-edit:Buy milk`) map to page builders; unroutable ids (plain uuids)
-  render but never appear in URLs; `notFoundBuilder` is the fallback.
-- **The controller is app state, the router is a projection** —
-  `workspaceControllerProvider` is an autoDispose family keyed by `tabId`;
-  the tree hibernates through the `HibernationStore` under the reserved
-  `workspace:` key (empty workspace deletes the record). Route replaces
-  reattach to the same controller — pane state survives URL rewrites.
-- **`WorkspaceShell`** — the route page: reads `:tabId` + `?b=` from
-  `RouteData`, applies the deep link (buffer already in the tree → focus,
-  else open), renders through the registry.
-- **Two-way URL sync** — focus changes rewrite the route's `?b=` (replace —
-  no stack growth), guarded by comparing against the focus read at callback
-  time (deep links applied in the same post-frame phase never echo).
-  Unroutable focus drops the param.
-- **`WorkspaceScope.of(context)`** — the `ReefBufferScope` counterpart: pages
-  inside panes fire workspace intents (open/split — the `:e`/`:split`
-  equivalents) without constructor threading.
-
-A go_router counterpart would implement the same seam; drag-resizing panes
-remains open.
+Windowing is router-agnostic: `WindowingRoot` renders the windowing doc
+through the app's buffer builder (windowing design spec §5). The old
+split-tree router adapter was deleted in W0; `reef_auto_route` is an empty
+package until W5 rebuilds deep links (spec §9) on the windowing model.
 
 ### 10.4 Multi-window (OS) — spiked (Phase D)
 
@@ -465,7 +441,7 @@ window is a `View` in the same `ViewCollection`. The §7 serializable model
 stays what it already was: persistence/hibernation only, *not* a cross-window
 protocol. The buffer/window split makes the rest trivial — the same buffer in
 two OS windows is the same family viewmodel, live sync comes free from the
-contract (§5), exactly like two panes (§10.1).
+contract (§5), exactly like two windows (§10.1).
 
 **API surface today** (all `@internal` in `flutter/lib/src/widgets/_window.dart`;
 breaking changes even in patch releases — keep it out of reef's public API):
@@ -502,14 +478,14 @@ implementation_imports`); `FakeWindowHost` makes the intent testable and is
 the future reef-adapter boundary. `runWidget(ProviderScope(WindowManager(...)))`
 — one scope above the manager, so inherited lookups cross view boundaries and
 every window shares the providers. Popped-out buffers reuse the same kind→page
-mapping as the workspace registry (`bufferPages` in `main.dart`), wrapped in a
+mapping as the app's buffer builder (`bufferPages` in `main.dart`), wrapped in a
 design-free `BufferWindowPage` (a raw `View` has no `Directionality` — it owns
 one). Verified: Windows build + boot; the interactive checklist (open, live
 edit across windows, close, reopen) is a manual demo.
 
 **When it stabilizes:** promote the seam to a `reef_multi_window`-style
 adapter package (the `reef_auto_route` pattern), revisit close-requested
-hibernation once upstream adds a veto-able hook, and fold in whole-workspace
+hibernation once upstream adds a veto-able hook, and fold in whole-tab
 pop-outs (a tab leaves the tree as a window).
 
 ### 10.5 Roadmap
@@ -518,11 +494,9 @@ pop-outs (a tab leaves the tree as a window).
   `ReefWindow` + `ReefBufferScope`, family-keyed buffer providers.
 - **Phase B — shipped.** Hibernation store (in-memory default, overridable),
   pinned flag, alive-buffer registry (`:ls`), auto-hibernate + restore.
-- **Phase C — core + auto_route adapter shipped.** The serializable
-  split-tree (`SplitNode`), `SplitTreeController` (open/split/close/focus
-  intents, focus-aware serialization), the router-agnostic `SplitWorkspace`
-  and the `reef_auto_route` adapter (§10.3) exist. Open: the go_router
-  counterpart and drag-resizing panes.
+- **Phase C — replaced.** The split-tree layout and its auto_route adapter
+  were superseded by the windowing model (shells, tabs, windows; see the
+  windowing design spec) and deleted. Router deep links return in W5.
 - **Phase D — spiked.** OS multi-window on Flutter master (§10.4): buffers as
   plain shared state across windows, `WindowHost` seam proven in the example
   app. Adapter package waits for API stabilization.

@@ -1,26 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_example/features/windowing/windowing_demo.dart';
 import 'package:reef_example/main_windowing.dart' as playground;
+import 'package:reef_example/undo_providers.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
+  Widget demo(WindowingController c, UndoController undo) => ProviderScope(
+        overrides: [undoControllerProvider.overrideWithValue(undo)],
+        child: MaterialApp(home: Scaffold(body: WindowingDemo(controller: c))),
+      );
+
   Future<WindowingController> pump(WidgetTester tester,
       {BufferId? buffer}) async {
-    final controller = WindowingController();
-    if (buffer != null) {
-      final empty = controller.doc.value.shells.values.single.activeTabId;
-      controller
-        ..newTab(buffer: buffer)
-        ..closeTab(empty);
-    }
+    final undo = UndoController();
+    final controller = WindowingController(
+        initial: buffer == null ? null : playground.startingLayout(buffer),
+        undo: undo);
     await tester.binding.setSurfaceSize(const Size(1200, 800));
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(body: WindowingDemo(controller: controller)),
-    ));
+    await tester.pumpWidget(demo(controller, undo));
     return controller;
   }
 
@@ -69,13 +72,13 @@ void main() {
     expect(status('windows in tab: 2'), findsOneWidget);
     expect(rootRatios(c), [0.5, 0.5]);
 
-    await tester.drag(find.byKey(const ValueKey('divider')), const Offset(120, 0));
+    await tester.drag(find.byType(WindowResizeHandle), const Offset(120, 0));
     await tester.pumpAndSettle();
     expect(rootRatios(c).first, greaterThan(0.5));
 
     await tap(tester, find.byTooltip('Split down').first);
     await tester.drag(
-        find.byKey(const ValueKey('divider')).first, const Offset(0, 100));
+        find.byType(WindowResizeHandle).first, const Offset(0, 100));
     await tester.pumpAndSettle();
     expect(status('windows in tab: 3'), findsOneWidget);
 
@@ -84,7 +87,7 @@ void main() {
     final before = rootRatios(c).first;
     // Depth-first order: left branch's divider, root's divider, right's.
     await tester.drag(
-        find.byKey(const ValueKey('divider')).at(1), const Offset(80, 0));
+        find.byType(WindowResizeHandle).at(1), const Offset(80, 0));
     await tester.pumpAndSettle();
     expect(rootRatios(c).first, greaterThan(before));
 
@@ -92,6 +95,19 @@ void main() {
       await tap(tester, find.byTooltip('Close window').first);
     }
     expect(find.textContaining('Empty tab'), findsOneWidget);
+  });
+
+  testWidgets('a fifth window is vetoed with its reason', (tester) async {
+    await pump(tester, buffer: const BufferId.manual('b'));
+    await tap(tester, find.byTooltip('Split right'));
+    await tap(tester, find.byTooltip('Split down').first);
+    await tap(tester, find.byTooltip('Split down').last);
+    expect(status('windows in tab: 4'), findsOneWidget);
+    expect(find.textContaining('Vetoed'), findsNothing);
+
+    await tap(tester, find.byTooltip('Split down').first);
+    expect(status('windows in tab: 4'), findsOneWidget);
+    expect(find.text('Vetoed: At most 4 windows per tab'), findsOneWidget);
   });
 
   testWidgets('activate, push, back, forward', (tester) async {
@@ -132,6 +148,91 @@ void main() {
     expect(find.text('buffer 1'), findsOneWidget);
   });
 
+  testWidgets('undo and redo a split, focus changes not recorded',
+      (tester) async {
+    final undo = UndoController();
+    final c = WindowingController(undo: undo)
+      ..newTab(buffer: const BufferId.manual('b'));
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    await tester.pumpWidget(demo(c, undo));
+
+    await tap(tester, find.byTooltip('Split right'));
+    expect(status('windows in tab: 2'), findsOneWidget);
+    await tap(tester, find.text('Tab 1'));
+    await tap(tester, find.text('Tab 2'));
+
+    undo.undo();
+    await tester.pumpAndSettle();
+    expect(status('windows in tab: 1'), findsOneWidget);
+
+    undo.redo();
+    await tester.pumpAndSettle();
+    expect(status('windows in tab: 2'), findsOneWidget);
+  });
+
+  testWidgets('keyboard: split, close and undo', (tester) async {
+    final c = await pump(tester, buffer: const BufferId.manual('b'));
+    await tester.pumpAndSettle();
+    final primary = WindowingShortcuts.primaryModifier;
+    Future<void> chord(LogicalKeyboardKey key, {bool shift = false}) async {
+      await tester.sendKeyDownEvent(primary);
+      if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(key);
+      if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(primary);
+      await tester.pumpAndSettle();
+    }
+
+    await chord(LogicalKeyboardKey.backslash);
+    expect(status('windows in tab: 2'), findsOneWidget);
+    await chord(LogicalKeyboardKey.backslash, shift: true);
+    expect(status('windows in tab: 3'), findsOneWidget);
+    await chord(LogicalKeyboardKey.keyW);
+    expect(status('windows in tab: 2'), findsOneWidget);
+    await chord(LogicalKeyboardKey.keyZ);
+    expect(status('windows in tab: 3'), findsOneWidget);
+    await chord(LogicalKeyboardKey.keyZ, shift: true);
+    expect(status('windows in tab: 2'), findsOneWidget);
+    expect(c.doc.value.windows, hasLength(2));
+  });
+
+  testWidgets('undo/redo buttons: split, close, drag', (tester) async {
+    final c = await pump(tester, buffer: const BufferId.manual('b'));
+    bool enabled(String tooltip) => tester
+            .widget<IconButton>(find.widgetWithIcon(IconButton,
+                tooltip == 'Undo' ? Icons.undo : Icons.redo))
+            .onPressed !=
+        null;
+    expect(enabled('Undo'), isFalse);
+    expect(enabled('Redo'), isFalse);
+
+    await tap(tester, find.byTooltip('Split right'));
+    await tap(tester, find.byTooltip('Close window').first);
+    expect(status('windows in tab: 1'), findsOneWidget);
+
+    await tap(tester, find.byTooltip('Undo'));
+    expect(status('windows in tab: 2'), findsOneWidget);
+    await tap(tester, find.byTooltip('Undo'));
+    expect(status('windows in tab: 1'), findsOneWidget);
+    expect(enabled('Undo'), isFalse);
+    await tap(tester, find.byTooltip('Redo'));
+    expect(status('windows in tab: 2'), findsOneWidget);
+
+    // One drag, many ResizeWindow updates: one undo step.
+    final gesture = await tester
+        .startGesture(tester.getCenter(find.byType(WindowResizeHandle)));
+    for (var i = 0; i < 5; i++) {
+      await gesture.moveBy(const Offset(30, 0));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(rootRatios(c).first, greaterThan(0.5));
+    await tap(tester, find.byTooltip('Undo'));
+    expect(rootRatios(c), [0.5, 0.5]);
+    expect(status('windows in tab: 2'), findsOneWidget);
+  });
+
   testWidgets('float, drag, raise, dock', (tester) async {
     final c = await pump(tester, buffer: const BufferId.manual('b'));
     await tap(tester, find.byTooltip('Split right'));
@@ -145,6 +246,8 @@ void main() {
     // 'b' floated first, so it sits below; tapping it raises it.
     await tester.drag(find.text('buffer 1'), const Offset(300, 200));
     await tester.pumpAndSettle();
+    expect(c.doc.value.floating.values.where((f) => f.geometry != null),
+        hasLength(1));
     await tap(tester, find.text('b'));
     expect(c.doc.value.floating.values.map((f) => f.zIndex), contains(2));
 
@@ -152,5 +255,27 @@ void main() {
     await menu(tester, 'Dock', 'Dock bottom');
     expect(status('floating: 0'), findsOneWidget);
     expect(status('windows in tab: 2'), findsOneWidget);
+  });
+
+  testWidgets('resizing across the breakpoint switches projection and back',
+      (tester) async {
+    final c = await pump(tester, buffer: const BufferId.manual('b'));
+    addTearDown(tester.view.reset);
+    await tap(tester, find.byTooltip('Split right'));
+    final doc = c.doc.value;
+    Finder windows() => find.byTooltip('Close window');
+    Future<void> resize(double width) async {
+      tester.view.physicalSize =
+          Size(width, 800) * tester.view.devicePixelRatio;
+      await tester.pumpAndSettle();
+    }
+
+    expect(windows(), findsNWidgets(2));
+    await resize(700);
+    expect(windows(), findsOneWidget);
+    expect(c.doc.value, doc);
+    await resize(1200);
+    expect(windows(), findsNWidgets(2));
+    expect(c.doc.value, doc);
   });
 }

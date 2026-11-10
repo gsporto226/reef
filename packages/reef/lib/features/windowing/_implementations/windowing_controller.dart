@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/painting.dart' show Axis;
+import 'package:flutter/painting.dart' show Axis, Rect;
+import 'package:formularium/features/localization/localizable_interface.dart';
+import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
@@ -626,7 +628,26 @@ class RaiseWindow extends WindowingCommand {
     if (state.zIndex > top) return doc;
     return doc.copyWith(floating: {
       ...doc.floating,
-      windowId: FloatingState(scope: state.scope, zIndex: top + 1),
+      windowId: state.copyWith(zIndex: top + 1),
+    });
+  }
+}
+
+/// Sets floating window [windowId]'s advisory geometry hint to [geometry], a
+/// rectangle in its scope's space. Refused for windows that are not floating.
+class MoveFloating extends WindowingCommand {
+  const MoveFloating(this.windowId, this.geometry);
+
+  final WindowId windowId;
+  final Rect geometry;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    final state = doc.floating[windowId];
+    if (state == null || state.geometry == geometry) return doc;
+    return doc.copyWith(floating: {
+      ...doc.floating,
+      windowId: state.copyWith(geometry: geometry),
     });
   }
 }
@@ -673,24 +694,118 @@ WindowNode? _atParent(WindowNode node, WindowId id,
   return null;
 }
 
+/// Sees each command before the reducer, against the doc as folded so far.
+typedef WindowingInterceptor = CommandDecision Function(
+    WindowingDoc doc, WindowingCommand command);
+
+/// A [WindowingInterceptor]'s verdict on one command (spec §6).
+sealed class CommandDecision {
+  const CommandDecision();
+
+  const factory CommandDecision.approve() = _Approve;
+
+  /// Skips the command and publishes [reason] through
+  /// [WindowingController.vetoes].
+  const factory CommandDecision.veto(ILocalizable reason) = _Veto;
+
+  /// Applies [command] instead, without intercepting it again.
+  const factory CommandDecision.replace(WindowingCommand command) = _Replace;
+}
+
+class _Approve extends CommandDecision {
+  const _Approve();
+}
+
+class _Veto extends CommandDecision {
+  const _Veto(this.reason);
+  final ILocalizable reason;
+}
+
+class _Replace extends CommandDecision {
+  const _Replace(this.command);
+  final WindowingCommand command;
+}
+
+/// A [command] an interceptor vetoed, with its [reason].
+class CommandVeto {
+  const CommandVeto(this.command, this.reason);
+
+  final WindowingCommand command;
+  final ILocalizable reason;
+}
+
 /// Owns the [WindowingDoc] and publishes it through [doc]. Pages call the
 /// intent methods; [dispatch] and [dispatchAll] take commands directly.
 class WindowingController {
-  WindowingController({WindowingDoc? initial})
-      : _doc = ValueNotifier(initial ?? WindowingDoc.initial());
+  /// With [undo], each layout-changing batch records one entry on it
+  /// (spec §4), published back through a [WindowingUndoHost].
+  /// With [interceptor], every dispatched command is decided on first.
+  WindowingController(
+      {WindowingDoc? initial, UndoController? undo, this.interceptor})
+      : _doc = ValueNotifier(initial ?? WindowingDoc.initial()),
+        _undo = undo {
+    undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
+  }
 
   final ValueNotifier<WindowingDoc> _doc;
+  final UndoController? _undo;
 
   ValueListenable<WindowingDoc> get doc => _doc;
+
+  /// Decides on each dispatched command; undo and redo bypass it.
+  WindowingInterceptor? interceptor;
+
+  final _vetoes = ValueNotifier<CommandVeto?>(null);
+
+  /// The latest vetoed command; notifies on every veto.
+  ValueListenable<CommandVeto?> get vetoes => _vetoes;
 
   void dispatch(WindowingCommand command) => dispatchAll([command]);
 
   /// Applies [commands] in order and publishes once, only when the resulting
-  /// doc differs from the current one.
-  void dispatchAll(Iterable<WindowingCommand> commands) {
-    final next = commands.fold(_doc.value, (doc, c) => c.apply(doc));
-    // W2 (undo): record one undo entry per batch here, before publishing.
-    if (next != _doc.value) _doc.value = next;
+  /// doc differs from the current one. Records one undo entry for the batch
+  /// unless only focus changed; a changed shell set clears the timeline.
+  /// Consecutive batches with an equal [coalesceKey] merge into one entry.
+  void dispatchAll(Iterable<WindowingCommand> commands,
+      {Object? coalesceKey}) {
+    final before = _doc.value;
+    final vetoes = <CommandVeto>[];
+    final next =
+        commands.fold(before, (doc, c) => _intercepted(doc, c, vetoes));
+    if (next != before) _publish(before, next, coalesceKey);
+    // After the doc, so veto listeners read the batch result.
+    for (final veto in vetoes) {
+      _vetoes.value = veto;
+    }
+  }
+
+  void _publish(WindowingDoc before, WindowingDoc next, Object? coalesceKey) {
+    if (_undo case final undo?) {
+      if (!setEquals(next.shells.keys.toSet(), before.shells.keys.toSet())) {
+        undo.clearHost<WindowingDoc>(); // layout undo never crosses a pop-out
+      } else if (_withFocusFrom(next, focusSource: before) != before) {
+        undo.record(UndoEntry<WindowingDoc>(
+          label: const UndoLabel('Change layout'),
+          snapshotBefore: before,
+          snapshotAfter: next,
+          coalesceKey: coalesceKey,
+        ));
+      }
+    }
+    _doc.value = next;
+  }
+
+  WindowingDoc _intercepted(WindowingDoc doc, WindowingCommand command,
+      List<CommandVeto> vetoes) {
+    switch (interceptor?.call(doc, command)) {
+      case null || _Approve():
+        return command.apply(doc);
+      case _Replace(:final command):
+        return command.apply(doc);
+      case _Veto(:final reason):
+        vetoes.add(CommandVeto(command, reason));
+        return doc;
+    }
   }
 
   /// Opens a tab in [shellId] (the focused shell by default), showing
@@ -758,9 +873,19 @@ class WindowingController {
 
   void raiseWindow(WindowId windowId) => dispatch(RaiseWindow(windowId));
 
+  void moveFloating(WindowId windowId, Rect geometry,
+          {Object? coalesceKey}) =>
+      dispatchAll([MoveFloating(windowId, geometry)],
+          coalesceKey: coalesceKey);
+
   void resizeWindow(WindowId windowId, List<double> ratios,
-          {int levels = 0}) =>
-      dispatch(ResizeWindow(windowId, ratios, levels: levels));
+          {int levels = 0, Object? coalesceKey}) =>
+      dispatchAll([ResizeWindow(windowId, ratios, levels: levels)],
+          coalesceKey: coalesceKey);
+
+  /// Ends the current coalescing run on the undo timeline, if any: the next
+  /// batch is its own undo step.
+  void sealCoalescing() => _undo?.sealCoalescing();
 
   void attachBuffer(WindowId windowId, BufferId buffer) =>
       dispatch(AttachBuffer(windowId, buffer));
@@ -776,5 +901,41 @@ class WindowingController {
   void replaceBuffer(WindowId windowId, BufferId buffer) =>
       dispatch(ReplaceBuffer(windowId, buffer));
 
-  void dispose() => _doc.dispose();
+  void dispose() {
+    _doc.dispose();
+    _vetoes.dispose();
+  }
+}
+
+/// [doc] with [focusSource]'s focused shell, active tabs and active windows, so
+/// comparing it to [focusSource] ignores focus-only changes.
+WindowingDoc _withFocusFrom(WindowingDoc doc,
+        {required WindowingDoc focusSource}) =>
+    doc.copyWith(
+      focusedShellId: focusSource.focusedShellId,
+      shells: doc.shells.map((id, s) => MapEntry(
+          id,
+          ShellState(
+              tabIds: s.tabIds,
+              activeTabId: focusSource.shells[id]?.activeTabId ?? s.activeTabId))),
+      tabs: doc.tabs.map((id, t) => MapEntry(
+          id,
+          TabState(
+              root: t.root,
+              activeWindowId: focusSource.tabs[id]?.activeWindowId ??
+                  t.activeWindowId))),
+    );
+
+/// Publishes [WindowingDoc] snapshots into a controller's doc without
+/// recording them.
+class WindowingUndoHost implements UndoHost<WindowingDoc> {
+  WindowingUndoHost(this._doc);
+
+  final ValueNotifier<WindowingDoc> _doc;
+
+  @override
+  void undo(WindowingDoc snapshotBefore) => _doc.value = snapshotBefore;
+
+  @override
+  void redo(WindowingDoc snapshotAfter) => _doc.value = snapshotAfter;
 }

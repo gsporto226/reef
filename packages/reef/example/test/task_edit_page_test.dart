@@ -2,8 +2,10 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
+import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_model.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_page.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_provider.dart';
+import 'package:reef_example/undo_providers.dart';
 
 /// Fixed buffer id so tests read the same viewmodel the page renders.
 const testBufferId = BufferId.manual('test');
@@ -66,6 +68,47 @@ void main() {
     expect(find.text('Pick a due date'), findsOneWidget);
   });
 
+  testWidgets('quick picks: Today, +1 week and Clear set the due date',
+      (tester) async {
+    final vm = await pumpPage(tester);
+
+    await tester.tap(find.text('+1 week'));
+    await tester.pump();
+    expect(vm.model.dueDate, isNotNull);
+
+    await tester.tap(find.text('Clear'));
+    await tester.pump();
+    expect(vm.model.dueDate, isNull);
+
+    await tester.tap(find.text('Today'));
+    await tester.pump();
+    expect(find.text('Pick a due date'), findsNothing);
+  });
+
+  testWidgets('route seed reaches the one viewmodel the scope resolves',
+      (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      child: WidgetsApp(
+        color: const Color(0xFF00695C),
+        builder: (_, _) => const TaskEditPage(
+          bufferId: testBufferId,
+          initial: TaskEditModel(title: 'Seeded'),
+        ),
+      ),
+    ));
+    final container = ProviderScope.containerOf(
+        tester.element(find.byType(EditableText)),
+        listen: false);
+
+    expect(
+        container.read(taskEditViewModelProvider(bufferId: testBufferId))
+            .model
+            .title,
+        'Seeded');
+    expect(container.read(taskEditSeedsProvider), isEmpty,
+        reason: 'the seed is consumed on first materialization');
+  });
+
   testWidgets('in-channel: typing into the field mutates the model through the viewmodel',
       (tester) async {
     final vm = await pumpPage(tester);
@@ -74,6 +117,21 @@ void main() {
     await tester.pump();
 
     expect(vm.model.title, 'Buy milk');
+  });
+
+  testWidgets('typing a run into the title is one undo step', (tester) async {
+    final vm = await pumpPage(tester);
+    final undo = ProviderScope.containerOf(tester.element(find.byType(EditableText)))
+        .read(undoControllerProvider);
+
+    for (final text in ['B', 'Bu', 'Buy']) {
+      await tester.enterText(find.byType(EditableText), text);
+    }
+    undo.undo();
+    await tester.pump();
+
+    expect(vm.model.title, '');
+    expect(undo.$canUndo.value, isFalse);
   });
 
   testWidgets('submit style: save runs full validation, applies and reports the operation',
@@ -129,6 +187,21 @@ void main() {
       'Restored',
       reason: 'out-channel re-seeded the controller from the published model',
     );
+  });
+
+  testWidgets('hibernate bar: snapshot, edit, restore', (tester) async {
+    final vm = await pumpPage(tester);
+    expect(find.text('No snapshot'), findsOneWidget);
+
+    await tester.enterText(find.byType(EditableText), 'Kept');
+    await tester.tap(find.text('Hibernate'));
+    await tester.pump();
+    expect(find.text('Snapshot stored'), findsOneWidget);
+
+    await tester.enterText(find.byType(EditableText), 'Changed');
+    await tester.tap(find.text('Restore'));
+    await tester.pump();
+    expect(vm.model.title, 'Kept');
   });
 
   testWidgets(

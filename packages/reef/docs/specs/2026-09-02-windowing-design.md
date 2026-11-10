@@ -1,8 +1,8 @@
 # Reef windowing design
 
-Status: accepted design, 2026-09-02. Vocabulary per ADR 0002 (2026-11-07). Supersedes the split-tree workspace feature
-(`features/workspace/`) and the per-tab workspace projection in `reef_auto_route`;
-both are discarded, not migrated (§12).
+Status: accepted design, 2026-09-02. Vocabulary per ADR 0002 (2026-11-07). Replaced the earlier split-tree feature
+and the per-tab router projection in `reef_auto_route`; both were deleted in
+W0, not migrated (§12).
 
 ## 1. Vocabulary and goals
 
@@ -92,7 +92,7 @@ ids.
 |---|---|
 | Tabs | `NewTab` (optional initial buffer, creates the tab's first window), `CloseTab`, `MoveTab`, `ActivateTab` |
 | Tree windows | `SplitWindow` (optional buffer, defaulting to the split window's; the new window copies the window history and takes focus), `CloseWindow`, `MoveWindow` (to any tab tree in any shell), `ResizeWindow` |
-| Floating | `FloatWindow`, `DockWindow` (target window + axis + side; becomes the tree root in an empty tab), `RaiseWindow` |
+| Floating | `FloatWindow`, `DockWindow` (target window + axis + side; becomes the tree root in an empty tab; drops the geometry hint), `RaiseWindow`, `MoveFloating` (sets the advisory geometry hint, a rectangle in the scope's space) |
 | Buffer content | `AttachBuffer`, `PushBuffer`, `PopBuffer`, `ReplaceBuffer`, `NavigateForward` |
 | Focus | `ActivateWindow`, `ActivateShell` |
 | shells | `AttachShell`, `CloseShell` |
@@ -184,20 +184,34 @@ field-level undo stays Flutter-owned.
 ## 5. Rendering
 
 Design-free units over `package:flutter/widgets.dart`. State flows down
-through `WindowingScope` (inherited lookup of the controller); mutations go
-back through controller intents. Units take ids, never objects, so the same
+through `WindowingScope` (inherited lookup of the controller and the buffer
+builder); mutations go back through controller intents.
+
+`WindowingRoot(controller:, bufferBuilder:, delegate:, child:)` is the entry
+point. The buffer builder is the app's buffer-to-page mapping:
+
+```dart
+typedef BufferBuilder = Widget? Function(BuildContext context, BufferId buffer);
+```
+
+`WindowHost` calls it for its window's current buffer; the page reads its
+window id with `WindowHost.of(context)`. Returning null means the buffer is
+not ready, and the window shows the delegate's `hibernatingBuilder`. The
+example app passes its kind-to-page mapping (`bufferPageFor`: the `kind`
+prefix of a `kind:token` id picks the page). Units take ids, never objects, so the same
 widget renders whatever the doc says and projection switches re-run
 assembly over an unchanged doc.
 
-Containers. Each container renders its content plus its own `Overlay`.
+Containers. Each container renders its content with its own `FloatingLayer`
+stacked above it.
 
-| Unit | Renders | Overlay hosts |
+| Unit | Renders | Floating layer hosts |
 |---|---|---|
-| `ShellHost` | active tab's canvas; dev supplies shell chrome via `surfaceBuilder` | shell-scoped floating windows |
+| `ShellHost` | active tab's canvas; dev supplies shell chrome via `surfaceBuilder` | shell-scoped floating windows, above the chrome too |
 | `TabCanvas` | the tab's window tree (Flex recursion), resize handles, `windowArrangement` | tab-scoped floating windows |
 | `WindowHost` | the window's `ReefWindow`, focus ring slot | window-scoped floating content |
 | `TabStripSlot` | headless tab data: tabIds, activeTabId, activate/close/reorder callbacks | dev renders the look |
-| `FloatingLayer` | a container's floating windows in an `Overlay`, ordered by `zIndex`, each wrapped in the dev's positioning widget | |
+| `FloatingLayer` | a container's floating windows in a `Stack` layer above the container's content, ordered by `zIndex`, each wrapped in the dev's positioning widget | |
 
 `windowArrangement` decides how a tab's windows manifest: `flexTree` (desktop
 default), `focusedOnly` (compact default), or a custom builder. Drag-resize
@@ -208,9 +222,9 @@ Projections:
 
 ```dart
 typedef WindowingProjection = Widget Function(
-    BuildContext context, WindowingController controller, ShellId windowId);
+    BuildContext context, WindowingController controller, ShellId shellId);
 typedef WindowingProjectionPolicy = WindowingProjection Function(
-    BuildContext context, WindowingController controller, ShellId windowId);
+    BuildContext context, WindowingController controller, ShellId shellId);
 ```
 
 Two reference assemblies ship as widgets: `DesktopProjection` (one
@@ -427,9 +441,9 @@ them.
 
 ## 12. Migration and phasing
 
-Clean slate. Discarded, removed, no shims: `features/workspace/`
-(`SplitNode`, `SplitTreeController`, `SplitWorkspace`), the per-tab
-workspace projection in `reef_auto_route`, the old `workspace:` hibernation
+Clean slate. Discarded, removed, no shims (done in W0): the old split-tree
+feature in reef core, the per-tab router projection in `reef_auto_route`
+(the package is an empty shell until W5), the old split-tree hibernation
 records. The kind:token registry concept is reimplemented inside the new
 adapter. Breaking change; reef's version bumps.
 
@@ -439,7 +453,7 @@ the quartet machinery, `ScreenTypeLayout`, listenable_plus, reef_fp.
 
 | Phase | Delivers |
 |---|---|
-| W0 | Discard: remove the workspace feature, the old adapter projection, stale hibernation key handling |
+| W0 | Discard: remove the old split-tree feature, the old adapter projection, stale hibernation key handling |
 | W1 | `WindowingDoc` (with per-window `BufferHistory`) + full command set + pure reducer + controller + `dispatchAll`; headless, exhaustive table tests |
 | W2 | `UndoController`, `UndoEntry<S>`, `UndoHost<S>`, `WindowingUndoHost`, `UndoableModel` mixin, `BufferUndoHost` |
 | W3 | Render: `WindowingScope`, containers, overlay layers, `WindowingDelegate`, reference projections + default policy, drag-resize, `WindowingShortcuts` |

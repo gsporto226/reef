@@ -4,7 +4,7 @@ import 'package:reef_example/_kit/kit.dart';
 
 /// The content of a popped-out OS window (blueprint §10.4): a header with the
 /// buffer id and the buffer's page, built by the same kind→page mapping the
-/// workspace registry uses. Design-free — a raw `View` has no [Directionality]
+/// app's buffer builder uses. Design-free — a raw `View` has no [Directionality]
 /// ancestor, so this page owns one.
 class BufferWindowPage extends StatelessWidget {
   const BufferWindowPage({
