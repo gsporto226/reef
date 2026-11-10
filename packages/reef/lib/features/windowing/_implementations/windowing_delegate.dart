@@ -101,6 +101,7 @@ class WindowingDelegate {
     this.tabStrip = _defaultTabStrip,
     this.splitter = _thinDivider,
     this.floating = _floatingFrame,
+    this.interceptor,
   });
 
   /// Default: a border on the focused window only.
@@ -130,6 +131,10 @@ class WindowingDelegate {
   /// step per drag.
   final FloatingBuilder floating;
 
+  /// Handed to the controller by [WindowingRoot]. Default: none, every
+  /// command applies.
+  final WindowingInterceptor? interceptor;
+
   WindowingDelegate copyWith({
     WindowChromeBuilder? windowChrome,
     EmptyTabBuilder? emptyBuilder,
@@ -139,6 +144,7 @@ class WindowingDelegate {
     TabStripBuilder? tabStrip,
     SplitterBuilder? splitter,
     FloatingBuilder? floating,
+    WindowingInterceptor? interceptor,
   }) => WindowingDelegate(
     windowChrome: windowChrome ?? this.windowChrome,
     emptyBuilder: emptyBuilder ?? this.emptyBuilder,
@@ -148,6 +154,7 @@ class WindowingDelegate {
     tabStrip: tabStrip ?? this.tabStrip,
     splitter: splitter ?? this.splitter,
     floating: floating ?? this.floating,
+    interceptor: interceptor ?? this.interceptor,
   );
 
   static Widget _floatingFrame(

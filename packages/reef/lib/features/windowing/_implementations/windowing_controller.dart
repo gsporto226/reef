@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show Axis, Rect;
+import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
@@ -693,12 +694,54 @@ WindowNode? _atParent(WindowNode node, WindowId id,
   return null;
 }
 
+/// Sees each command before the reducer, against the doc as folded so far.
+typedef WindowingInterceptor = CommandDecision Function(
+    WindowingDoc doc, WindowingCommand command);
+
+/// A [WindowingInterceptor]'s verdict on one command (spec §6).
+sealed class CommandDecision {
+  const CommandDecision();
+
+  const factory CommandDecision.approve() = _Approve;
+
+  /// Skips the command and publishes [reason] through
+  /// [WindowingController.vetoes].
+  const factory CommandDecision.veto(ILocalizable reason) = _Veto;
+
+  /// Applies [command] instead, without intercepting it again.
+  const factory CommandDecision.replace(WindowingCommand command) = _Replace;
+}
+
+class _Approve extends CommandDecision {
+  const _Approve();
+}
+
+class _Veto extends CommandDecision {
+  const _Veto(this.reason);
+  final ILocalizable reason;
+}
+
+class _Replace extends CommandDecision {
+  const _Replace(this.command);
+  final WindowingCommand command;
+}
+
+/// A [command] an interceptor vetoed, with its [reason].
+class CommandVeto {
+  const CommandVeto(this.command, this.reason);
+
+  final WindowingCommand command;
+  final ILocalizable reason;
+}
+
 /// Owns the [WindowingDoc] and publishes it through [doc]. Pages call the
 /// intent methods; [dispatch] and [dispatchAll] take commands directly.
 class WindowingController {
   /// With [undo], each layout-changing batch records one entry on it
   /// (spec §4), published back through a [WindowingUndoHost].
-  WindowingController({WindowingDoc? initial, UndoController? undo})
+  /// With [interceptor], every dispatched command is decided on first.
+  WindowingController(
+      {WindowingDoc? initial, UndoController? undo, this.interceptor})
       : _doc = ValueNotifier(initial ?? WindowingDoc.initial()),
         _undo = undo {
     undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
@@ -709,6 +752,14 @@ class WindowingController {
 
   ValueListenable<WindowingDoc> get doc => _doc;
 
+  /// Decides on each dispatched command; undo and redo bypass it.
+  WindowingInterceptor? interceptor;
+
+  final _vetoes = ValueNotifier<CommandVeto?>(null);
+
+  /// The latest vetoed command; notifies on every veto.
+  ValueListenable<CommandVeto?> get vetoes => _vetoes;
+
   void dispatch(WindowingCommand command) => dispatchAll([command]);
 
   /// Applies [commands] in order and publishes once, only when the resulting
@@ -718,7 +769,7 @@ class WindowingController {
   void dispatchAll(Iterable<WindowingCommand> commands,
       {Object? coalesceKey}) {
     final before = _doc.value;
-    final next = commands.fold(before, (doc, c) => c.apply(doc));
+    final next = commands.fold(before, _intercepted);
     if (next == before) return;
     if (_undo case final undo?) {
       if (!setEquals(next.shells.keys.toSet(), before.shells.keys.toSet())) {
@@ -733,6 +784,19 @@ class WindowingController {
       }
     }
     _doc.value = next;
+  }
+
+  WindowingDoc _intercepted(WindowingDoc doc, WindowingCommand command) =>
+      switch (interceptor?.call(doc, command)) {
+        null || _Approve() => command.apply(doc),
+        _Replace(:final command) => command.apply(doc),
+        _Veto(:final reason) => _veto(doc, command, reason),
+      };
+
+  WindowingDoc _veto(
+      WindowingDoc doc, WindowingCommand command, ILocalizable reason) {
+    _vetoes.value = CommandVeto(command, reason);
+    return doc;
   }
 
   /// Opens a tab in [shellId] (the focused shell by default), showing
@@ -828,7 +892,10 @@ class WindowingController {
   void replaceBuffer(WindowId windowId, BufferId buffer) =>
       dispatch(ReplaceBuffer(windowId, buffer));
 
-  void dispose() => _doc.dispose();
+  void dispose() {
+    _doc.dispose();
+    _vetoes.dispose();
+  }
 }
 
 /// [doc] with [focusSource]'s focused shell, active tabs and active windows, so

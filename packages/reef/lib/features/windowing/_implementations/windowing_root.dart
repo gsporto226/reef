@@ -39,7 +39,9 @@ class WindowingRoot extends StatelessWidget {
   final Widget? child;
 
   @override
-  Widget build(BuildContext context) => WindowingScope(
+  Widget build(BuildContext context) {
+    controller.interceptor = delegate.interceptor;
+    return WindowingScope(
     controller: controller,
     bufferBuilder: bufferBuilder,
     child: WindowingDelegateScope(
@@ -53,6 +55,7 @@ class WindowingRoot extends StatelessWidget {
           ),
     ),
   );
+  }
 }
 
 /// Inherited lookup of the [controller] and [bufferBuilder] for every

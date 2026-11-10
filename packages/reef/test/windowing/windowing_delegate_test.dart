@@ -216,6 +216,22 @@ void main() {
     expect(labels.buffer(const BufferId.manual('A')), isNull);
   });
 
+  testWidgets('WindowingRoot hands the interceptor to the controller', (
+    tester,
+  ) async {
+    final controller = await _pump(
+      tester,
+      delegate: WindowingDelegate(
+        interceptor: (_, _) =>
+            const CommandDecision.veto(UndoLabel('read only')),
+      ),
+    );
+    final before = controller.doc.value;
+    controller.newTab();
+    expect(controller.doc.value, same(before));
+    expect(controller.vetoes.value!.reason.localize(), 'read only');
+  });
+
   test('copyWith replaces only the given hooks', () {
     Widget chrome(BuildContext _, WindowId _, bool _, Widget page) => page;
     Widget empty(BuildContext _, TabId _) => const SizedBox();
@@ -223,6 +239,8 @@ void main() {
     Widget strip(BuildContext _, ShellId _) => const SizedBox();
     Widget splitter(BuildContext _, Axis _) => const SizedBox();
     Widget floating(BuildContext _, WindowId _, Rect? _, int _, Widget w) => w;
+    CommandDecision interceptor(WindowingDoc _, WindowingCommand _) =>
+        const CommandDecision.approve();
     const labels = WindowingLabels();
     final arrangement = WindowArrangement.custom((_, _) => const SizedBox());
     const base = WindowingDelegate();
@@ -236,6 +254,7 @@ void main() {
       tabStrip: strip,
       splitter: splitter,
       floating: floating,
+      interceptor: interceptor,
     );
     expect(
       (
@@ -247,8 +266,19 @@ void main() {
         d.tabStrip,
         d.splitter,
         d.floating,
+        d.interceptor,
       ),
-      (chrome, empty, waking, labels, arrangement, strip, splitter, floating),
+      (
+        chrome,
+        empty,
+        waking,
+        labels,
+        arrangement,
+        strip,
+        splitter,
+        floating,
+        interceptor,
+      ),
     );
     expect(base.copyWith().windowChrome, base.windowChrome);
   });
