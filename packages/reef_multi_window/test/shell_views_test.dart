@@ -108,7 +108,78 @@ void main() {
   _WindowingTestBinding();
 
   group('windowing on', () {
-    setUp(() => isWindowingEnabled = true);
+    late _RecordingOwner owner;
+    setUp(() {
+      isWindowingEnabled = true;
+      final binding = WidgetsBinding.instance;
+      final inner = binding.windowingOwner;
+      addTearDown(() => binding.windowingOwner = inner);
+      binding.windowingOwner = owner = _RecordingOwner(inner);
+    });
+
+    windowing.WindowController windowOf(_App app, ShellId shell) =>
+        windowing.WindowScope.of(app.contexts[shell]!)
+            as windowing.WindowController;
+
+    void requestClose(_App app, ShellId shell) {
+      final window = windowOf(app, shell);
+      owner.delegates[window]!.onWindowCloseRequested(window);
+    }
+
+    testWidgets('a native close request on one of several shells closes it '
+        'in the doc and its view goes away', (tester) async {
+      final app = await _pump(tester);
+      final window = windowOf(app, _s2);
+      requestClose(app, _s2);
+      await tester.pump();
+      expect(app.controller.doc.value.shells.keys, [_s1]);
+      expect(find.byType(View), findsOneWidget);
+      expect(window.isDestroyed, isTrue);
+    });
+
+    testWidgets('a vetoed native close request keeps the doc and the view, '
+        'and publishes the veto', (tester) async {
+      final app = await _pump(tester);
+      app.controller.interceptor = (doc, command) => command is CloseShell
+          ? const CommandDecision.veto(UndoLabel('Unsaved'))
+          : const CommandDecision.approve();
+      final before = app.controller.doc.value;
+      final window = windowOf(app, _s2);
+      requestClose(app, _s2);
+      await tester.pump();
+      expect(app.controller.doc.value, same(before));
+      expect(
+        app.controller.vetoes.value!.command,
+        isA<CloseShell>().having((c) => c.shellId, 'shellId', _s2),
+      );
+      expect(find.byType(View), findsNWidgets(2));
+      expect(window.isDestroyed, isFalse);
+    });
+
+    testWidgets('a native close request on the last shell destroys the real '
+        'shell and leaves the doc alone', (tester) async {
+      final app = await _pump(tester);
+      app.controller.closeShell(_s2);
+      await tester.pump();
+      final before = app.controller.doc.value;
+      final window = windowOf(app, _s1);
+      requestClose(app, _s1);
+      await tester.pump();
+      expect(app.controller.doc.value, same(before));
+      expect(window.isDestroyed, isTrue);
+      expect(find.byType(View), findsNothing);
+    });
+
+    testWidgets('activating a real shell focuses it in the doc', (
+      tester,
+    ) async {
+      final app = await _pump(tester);
+      expect(app.controller.doc.value.focusedShellId, _s1);
+      windowOf(app, _s2).activate();
+      expect(app.controller.doc.value.focusedShellId, _s2);
+      windowOf(app, _s1).activate();
+      expect(app.controller.doc.value.focusedShellId, _s1);
+    });
 
     testWidgets('a doc with two shells mounts two views, each showing its '
         'own buffers', (tester) async {
@@ -223,4 +294,37 @@ class _BrokenOwner implements windowing.WindowingOwner {
   @override
   Object? noSuchMethod(Invocation invocation) =>
       throw UnsupportedError('no windows here');
+}
+
+/// flutter_test's owner, recording each window's delegate: nothing in the
+/// test owner raises a native close request, so tests raise it themselves.
+class _RecordingOwner implements windowing.WindowingOwner {
+  _RecordingOwner(this.inner);
+
+  final windowing.WindowingOwner inner;
+  final delegates =
+      <windowing.WindowController, windowing.WindowControllerDelegate>{};
+
+  @override
+  windowing.WindowController createWindowController({
+    required windowing.WindowControllerDelegate delegate,
+    Size? size,
+    BoxConstraints? constraints,
+    required bool resizable,
+    String? title,
+  }) {
+    final window = inner.createWindowController(
+      delegate: delegate,
+      size: size,
+      constraints: constraints,
+      resizable: resizable,
+      title: title,
+    );
+    delegates[window] = delegate;
+    return window;
+  }
+
+  @override
+  Object? noSuchMethod(Invocation invocation) =>
+      throw UnsupportedError('not used');
 }

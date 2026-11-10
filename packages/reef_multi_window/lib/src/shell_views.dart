@@ -27,6 +27,10 @@ class RealShellPlatform extends ChangeNotifier implements ShellPlatform {
 
   final _windows = <ShellId, windowing.WindowController>{};
 
+  /// The doc that native close requests and activations go to; set by
+  /// [ShellViews].
+  WindowingController? _controller;
+
   /// The windowing feature flag.
   @override
   bool get isSupported => isWindowingEnabled;
@@ -34,12 +38,25 @@ class RealShellPlatform extends ChangeNotifier implements ShellPlatform {
   @override
   Future<Result<ShellError, Unit>> open(ShellId id) async {
     try {
-      _windows[id] = windowing.WindowController(size: size, title: title);
+      final window = windowing.WindowController(
+        size: size,
+        title: title,
+        delegate: _ShellDelegate(this, id),
+      );
+      _windows[id] = window..addListener(() => _activated(id, window));
     } on UnsupportedError catch (e) {
       return Err(ShellError(ShellErrorKind.platformFailure, cause: e));
     }
     notifyListeners();
     return const Ok(Unit.unit);
+  }
+
+  void _activated(ShellId id, windowing.WindowController window) {
+    final controller = _controller;
+    if (controller == null || !window.isActivated) return;
+    if (controller.doc.value.focusedShellId != id) {
+      controller.activateShell(id);
+    }
   }
 
   @override
@@ -48,6 +65,26 @@ class RealShellPlatform extends ChangeNotifier implements ShellPlatform {
     if (window == null) return;
     notifyListeners();
     window.destroy();
+  }
+}
+
+/// Native close requests go through the doc, so an interceptor can veto
+/// them; the doc-first close then destroys the window. The last shell is
+/// destroyed directly (app exit), leaving the doc as it is.
+class _ShellDelegate with windowing.WindowControllerDelegate {
+  _ShellDelegate(this.platform, this.id);
+
+  final RealShellPlatform platform;
+  final ShellId id;
+
+  @override
+  void onWindowCloseRequested(windowing.WindowController controller) {
+    final doc = platform._controller;
+    if (doc != null && doc.doc.value.shells.length > 1) {
+      doc.closeShell(id);
+    } else {
+      platform.close(id);
+    }
   }
 }
 
@@ -83,7 +120,7 @@ class _ShellViewsState extends State<ShellViews> {
   @override
   void initState() {
     super.initState();
-    final platform = widget.platform;
+    final platform = widget.platform.._controller = widget.controller;
     if (!platform.isSupported) return;
     for (final id in widget.controller.doc.value.shells.keys) {
       if (!platform._windows.containsKey(id)) platform.open(id);
