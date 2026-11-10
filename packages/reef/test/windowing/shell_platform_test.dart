@@ -1,3 +1,4 @@
+import 'package:flutter/painting.dart' show Axis;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reef/reef.dart';
 
@@ -112,6 +113,107 @@ void main() {
         expect(c.doc.value, same(before));
       },
     );
+  });
+
+  group('popOutTab', () {
+    // A source shell with tabs [a, b, third], b active and holding a split,
+    // a floating window and a history.
+    late ShellId source;
+    late TabId a, b, third;
+    late WindowId w1, w2;
+
+    setUp(() {
+      source = c.doc.value.focusedShellId;
+      a = c.doc.value.shells[source]!.tabIds.single;
+      b = c.newTab(buffer: BufferId.manual('one'));
+      w1 = c.doc.value.tabs[b]!.activeWindowId!;
+      c.pushBuffer(w1, BufferId.manual('two'));
+      w2 = c.splitWindow(w1, axis: Axis.horizontal);
+      c.resizeWindow(w1, [0.3, 0.7]);
+      final w3 = c.splitWindow(w2, axis: Axis.vertical);
+      c.floatWindow(w3, scope: TabScope(b));
+      third = c.newTab();
+      c.activateTab(b);
+    });
+
+    test("moves the tab, intact, as the new shell's only tab", () async {
+      final tabBefore = c.doc.value.tabs[b]!;
+      final windowsBefore = {...c.doc.value.windows};
+      final id = (await c.popOutTab(b)).getOrNull()!;
+      final doc = c.doc.value;
+      expect(doc.shells[id]!.tabIds, [b]);
+      expect(doc.shells[id]!.activeTabId, b);
+      expect(doc.tabs[b], tabBefore);
+      expect(doc.windows, windowsBefore);
+      expect(doc.focusedShellId, id);
+      expect(platform.opened, [id]);
+    });
+
+    test('the source shell activates a neighbour tab', () async {
+      await c.popOutTab(b);
+      final shell = c.doc.value.shells[source]!;
+      expect(shell.tabIds, [a, third]);
+      expect(shell.activeTabId, a);
+    });
+
+    test('publishes once and clears the undo timeline', () async {
+      final undo = UndoController();
+      final u = WindowingController(undo: undo, platform: platform);
+      final t = u.newTab(buffer: BufferId.manual('x'));
+      expect(undo.$canUndo.value, isTrue);
+      var publishes = 0;
+      u.doc.addListener(() => publishes++);
+      await u.popOutTab(t);
+      expect(publishes, 1);
+      expect(undo.$canUndo.value, isFalse);
+      u.dispose();
+    });
+
+    test("a shell's last tab is refused without the platform", () async {
+      final only = (await c.openShell()).getOrNull()!;
+      platform.opened.clear();
+      final before = c.doc.value;
+      final result =
+          await c.popOutTab(c.doc.value.shells[only]!.tabIds.single);
+      expect(result.getErrOrNull(), const ShellError(ShellErrorKind.refused));
+      expect(platform.opened, isEmpty);
+      expect(c.doc.value, same(before));
+    });
+
+    test('an unknown tab is refused without the platform', () async {
+      final before = c.doc.value;
+      final result = await c.popOutTab(TabId.generate());
+      expect(result.getErrOrNull()!.kind, ShellErrorKind.refused);
+      expect(platform.opened, isEmpty);
+      expect(c.doc.value, same(before));
+    });
+
+    test('an unsupported platform returns unsupported', () async {
+      platform.isSupported = false;
+      final result = await c.popOutTab(b);
+      expect(result.getErrOrNull()!.kind, ShellErrorKind.unsupported);
+      expect(platform.opened, isEmpty);
+    });
+
+    test('a failed open leaves the doc the same instance', () async {
+      const failure = ShellError(ShellErrorKind.platformFailure);
+      platform.failNextOpen(failure);
+      final before = c.doc.value;
+      expect((await c.popOutTab(b)).getErrOrNull(), failure);
+      expect(c.doc.value, same(before));
+    });
+
+    test('a veto closes the opened shell and returns refused', () async {
+      c.interceptor = (doc, command) => command is AttachShell
+          ? const CommandDecision.veto(UndoLabel('No'))
+          : const CommandDecision.approve();
+      final before = c.doc.value;
+      final result = await c.popOutTab(b);
+      expect(result.getErrOrNull()!.kind, ShellErrorKind.refused);
+      expect(platform.opened, hasLength(1));
+      expect(platform.closed, platform.opened);
+      expect(c.doc.value, same(before));
+    });
   });
 
   test('FakeShellPlatform records closes', () {

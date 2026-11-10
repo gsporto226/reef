@@ -876,6 +876,35 @@ class WindowingController {
     return Ok(shell);
   }
 
+  /// Opens a real shell, then moves [tabId] into it as its only tab, in one
+  /// batch, and focuses it. Returns its id. Fails like [openShell], and with
+  /// `refused` before opening anything when the doc would refuse the move
+  /// (an unknown tab, or a shell's last tab).
+  Future<Result<ShellError, ShellId>> popOutTab(TabId tabId) async {
+    final platform = this.platform;
+    if (platform == null || !platform.isSupported) {
+      return const Err(ShellError(ShellErrorKind.unsupported));
+    }
+    final shell = ShellId.generate();
+    final placeholder = TabId.generate();
+    final batch = [
+      AttachShell(shell, tabId: placeholder),
+      MoveTab(tabId, shellId: shell, index: 1),
+      CloseTab(placeholder),
+    ];
+    final folded = batch.fold(_doc.value, (doc, c) => c.apply(doc));
+    if (!listEquals(folded.shells[shell]?.tabIds, [tabId])) {
+      return const Err(ShellError(ShellErrorKind.refused));
+    }
+    if (await platform.open(shell) case Err(:final value)) return Err(value);
+    dispatchAll(batch);
+    if (!_doc.value.shells.containsKey(shell)) {
+      platform.close(shell);
+      return const Err(ShellError(ShellErrorKind.refused));
+    }
+    return Ok(shell);
+  }
+
   void activateShell(ShellId shellId) => dispatch(ActivateShell(shellId));
 
   void closeShell(ShellId shellId) => dispatch(CloseShell(shellId));
