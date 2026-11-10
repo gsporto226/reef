@@ -24,8 +24,10 @@ typedef ShellSurfaceBuilder = Widget Function(
 
 /// The top of a windowing UI: installs [WindowingScope] and [delegate] over
 /// [child]. Without a [child] it draws the focused shell through the
-/// delegate's [WindowingDelegate.projectionPolicy].
-class WindowingRoot extends StatelessWidget {
+/// delegate's [WindowingDelegate.projectionPolicy]. While mounted, a
+/// [WindowingDelegate.interceptor] replaces the controller's; the previous one
+/// comes back on unmount.
+class WindowingRoot extends StatefulWidget {
   const WindowingRoot({
     super.key,
     required this.controller,
@@ -40,26 +42,63 @@ class WindowingRoot extends StatelessWidget {
   final Widget? child;
 
   @override
+  State<WindowingRoot> createState() => _WindowingRootState();
+}
+
+class _WindowingRootState extends State<WindowingRoot> {
+  WindowingInterceptor? _previous;
+
+  @override
+  void initState() {
+    super.initState();
+    _install();
+  }
+
+  @override
+  void didUpdateWidget(WindowingRoot old) {
+    super.didUpdateWidget(old);
+    if (old.controller == widget.controller &&
+        old.delegate.interceptor == widget.delegate.interceptor) {
+      return;
+    }
+    old.controller.interceptor = _previous;
+    _install();
+  }
+
+  @override
+  void dispose() {
+    widget.controller.interceptor = _previous;
+    super.dispose();
+  }
+
+  void _install() {
+    _previous = widget.controller.interceptor;
+    if (widget.delegate.interceptor case final interceptor?) {
+      widget.controller.interceptor = interceptor;
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    controller.interceptor = delegate.interceptor;
+    final WindowingRoot(:controller, :delegate, :child) = widget;
     return WindowingScope(
-    controller: controller,
-    bufferBuilder: bufferBuilder,
-    child: WindowingDelegateScope(
-      delegate: delegate,
-      child:
-          child ??
-          _Select<ShellId>(
-            id: #focusedShell,
-            selector: (doc) => doc.focusedShellId,
-            builder: (context, shellId) => delegate.projectionPolicy(
-              context,
-              controller,
-              shellId,
-            )(context, controller, shellId),
-          ),
-    ),
-  );
+      controller: controller,
+      bufferBuilder: widget.bufferBuilder,
+      child: WindowingDelegateScope(
+        delegate: delegate,
+        child:
+            child ??
+            _Select<ShellId>(
+              id: #focusedShell,
+              selector: (doc) => doc.focusedShellId,
+              builder: (context, shellId) => delegate.projectionPolicy(
+                context,
+                controller,
+                shellId,
+              )(context, controller, shellId),
+            ),
+      ),
+    );
   }
 }
 
@@ -93,8 +132,8 @@ class WindowingScope extends InheritedWidget {
       bufferBuilder != oldWidget.bufferBuilder;
 }
 
-/// Renders the active tab of shell [shellId], with the shell's
-/// [FloatingLayer] over it, under [surfaceBuilder].
+/// Renders the active tab of shell [shellId] under [surfaceBuilder], with
+/// the shell's [FloatingLayer] over the whole surface.
 class ShellHost extends StatelessWidget {
   const ShellHost(this.shellId, {super.key, this.surfaceBuilder});
 
@@ -106,14 +145,15 @@ class ShellHost extends StatelessWidget {
     id: shellId.value,
     selector: (doc) => doc.shells[shellId]?.activeTabId,
     builder: (context, tabId) {
-      final canvas = Stack(
+      final canvas = tabId == null ? const SizedBox.expand() : TabCanvas(tabId);
+      // The shell's floats cover the whole surface, chrome included.
+      return Stack(
         fit: StackFit.expand,
         children: [
-          if (tabId != null) TabCanvas(tabId),
+          surfaceBuilder?.call(context, shellId, canvas) ?? canvas,
           FloatingLayer(ShellScope(shellId)),
         ],
       );
-      return surfaceBuilder?.call(context, shellId, canvas) ?? canvas;
     },
   );
 }
@@ -166,17 +206,26 @@ class TabCanvas extends StatelessWidget {
 
   Widget _node(BuildContext context, WindowNode node) => switch (node) {
     WindowLeaf(:final id) => WindowHost(id),
-    WindowBranch(:final axis, :final children, :final ratios) => Flex(
-      direction: axis,
-      children: [
-        for (final (i, child) in children.indexed) ...[
-          if (i > 0) WindowResizeHandle(branch: node, index: i),
-          Expanded(
-            flex: (ratios[i] * 1000).round(),
-            child: _node(context, child),
-          ),
+    WindowBranch(:final axis, :final children, :final ratios) => LayoutBuilder(
+      builder: (context, constraints) => Flex(
+        direction: axis,
+        children: [
+          for (final (i, child) in children.indexed) ...[
+            if (i > 0)
+              WindowResizeHandle(
+                branch: node,
+                index: i,
+                extent: axis == Axis.horizontal
+                    ? constraints.maxWidth
+                    : constraints.maxHeight,
+              ),
+            Expanded(
+              flex: (ratios[i] * 1000).round(),
+              child: _node(context, child),
+            ),
+          ],
         ],
-      ],
+      ),
     ),
   };
 }
@@ -184,7 +233,8 @@ class TabCanvas extends StatelessWidget {
 /// Shows window [windowId]'s current buffer through the scope's buffer
 /// builder inside the delegate's [WindowingDelegate.windowChrome], with the
 /// window's [FloatingLayer] over it. A pointer down on it activates it (and
-/// raises it, when floating).
+/// raises it, when floating). A window is drawn in one place at a time: its
+/// page sits under a global key, so two hosts of one window would clash.
 class WindowHost extends StatelessWidget {
   const WindowHost(this.windowId, {super.key});
 
@@ -263,7 +313,13 @@ class FloatingLayer extends StatelessWidget {
           for (final (i, (id, geometry)) in floats.indexed)
             Positioned.fill(
               key: ValueKey(id.value),
-              child: delegate.floating(context, id, geometry, i, WindowHost(id)),
+              child: delegate.floating(
+                context,
+                id,
+                geometry,
+                i,
+                WindowHost(id),
+              ),
             ),
         ],
       );

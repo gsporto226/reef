@@ -5,18 +5,22 @@ import 'package:reef/features/windowing/_implementations/windowing_root.dart';
 
 /// The divider between child `index - 1` and child `index` of [branch]: a
 /// drag trades share between those two neighbours only, keeping at least 5%
-/// each. Place it as a direct child of the flex that lays out [branch]; the
-/// drag is measured against that flex's extent. One drag is one undo step.
+/// each. [extent] is the main-axis size of the flex that lays out [branch];
+/// the windows share it less the branch's handles, each counted at this
+/// handle's own size, and a drag is measured against that share. One drag is
+/// one undo step.
 /// Its look is the delegate's [WindowingDelegate.splitter].
 class WindowResizeHandle extends StatefulWidget {
   const WindowResizeHandle({
     super.key,
     required this.branch,
     required this.index,
+    required this.extent,
   });
 
   final WindowBranch branch;
   final int index;
+  final double extent;
 
   @override
   State<WindowResizeHandle> createState() => _WindowResizeHandleState();
@@ -36,9 +40,12 @@ class _WindowResizeHandleState extends State<WindowResizeHandle> {
   }
 
   void _update(DragUpdateDetails d) {
-    final flex = context.findAncestorRenderObjectOfType<RenderBox>()!.size;
+    final own = context.size!;
+    final handles =
+        (widget.branch.children.length - 1) *
+        (_horizontal ? own.width : own.height);
     _offset += _horizontal ? d.delta.dx : d.delta.dy;
-    final fraction = _offset / (_horizontal ? flex.width : flex.height);
+    final fraction = _offset / (widget.extent - handles);
 
     // ResizeWindow addresses a branch through any window under it: descend
     // first children to a leaf, counting the branches passed below this one.
@@ -73,9 +80,8 @@ class _WindowResizeHandleState extends State<WindowResizeHandle> {
       onVerticalDragStart: _horizontal ? null : _begin,
       onVerticalDragUpdate: _horizontal ? null : _update,
       onVerticalDragEnd: _horizontal ? null : _end,
-      child: WindowingDelegateScope.of(
-        context,
-      ).splitter(context, widget.branch.axis),
+      child: WindowingDelegateScope.of(context)
+          .splitter(context, widget.branch.axis),
     ),
   );
 }

@@ -186,13 +186,15 @@ void main() {
     tester,
   ) async {
     final controller = await _pump(tester, _mixed());
-    await tester.pumpWidget(Directionality(
-      textDirection: TextDirection.ltr,
-      child: WindowingRoot(
-        controller: controller,
-        bufferBuilder: (_, buffer) => Text('new ${buffer.value}'),
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: WindowingRoot(
+          controller: controller,
+          bufferBuilder: (_, buffer) => Text('new ${buffer.value}'),
+        ),
       ),
-    ));
+    );
     expect(find.text('new A'), findsOneWidget);
   });
 
@@ -257,5 +259,49 @@ void main() {
         reason: file.path,
       );
     }
+  });
+
+  group('interceptor ownership', () {
+    CommandDecision own(WindowingDoc _, WindowingCommand _) =>
+        const CommandDecision.approve();
+    CommandDecision delegated(WindowingDoc _, WindowingCommand _) =>
+        const CommandDecision.approve();
+
+    Widget root(WindowingController c, WindowingDelegate delegate) =>
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: WindowingRoot(
+            controller: c,
+            bufferBuilder: (_, _) => const SizedBox.expand(),
+            delegate: delegate,
+          ),
+        );
+
+    testWidgets("a delegate without one keeps the controller's", (
+      tester,
+    ) async {
+      final c = WindowingController(initial: _mixed(), interceptor: own);
+      addTearDown(c.dispose);
+      await tester.pumpWidget(root(c, const WindowingDelegate()));
+      expect(c.interceptor, own);
+    });
+
+    testWidgets("the delegate's is installed on mount and on change, and "
+        'the previous one comes back on unmount', (tester) async {
+      final c = WindowingController(initial: _mixed(), interceptor: own);
+      addTearDown(c.dispose);
+      await tester.pumpWidget(
+        root(c, WindowingDelegate(interceptor: delegated)),
+      );
+      expect(c.interceptor, delegated);
+      await tester.pumpWidget(root(c, const WindowingDelegate()));
+      expect(c.interceptor, own);
+      await tester.pumpWidget(
+        root(c, WindowingDelegate(interceptor: delegated)),
+      );
+      expect(c.interceptor, delegated);
+      await tester.pumpWidget(const SizedBox());
+      expect(c.interceptor, own);
+    });
   });
 }

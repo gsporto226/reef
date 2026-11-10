@@ -769,8 +769,17 @@ class WindowingController {
   void dispatchAll(Iterable<WindowingCommand> commands,
       {Object? coalesceKey}) {
     final before = _doc.value;
-    final next = commands.fold(before, _intercepted);
-    if (next == before) return;
+    final vetoes = <CommandVeto>[];
+    final next =
+        commands.fold(before, (doc, c) => _intercepted(doc, c, vetoes));
+    if (next != before) _publish(before, next, coalesceKey);
+    // After the doc, so veto listeners read the batch result.
+    for (final veto in vetoes) {
+      _vetoes.value = veto;
+    }
+  }
+
+  void _publish(WindowingDoc before, WindowingDoc next, Object? coalesceKey) {
     if (_undo case final undo?) {
       if (!setEquals(next.shells.keys.toSet(), before.shells.keys.toSet())) {
         undo.clearHost<WindowingDoc>(); // layout undo never crosses a pop-out
@@ -786,17 +795,17 @@ class WindowingController {
     _doc.value = next;
   }
 
-  WindowingDoc _intercepted(WindowingDoc doc, WindowingCommand command) =>
-      switch (interceptor?.call(doc, command)) {
-        null || _Approve() => command.apply(doc),
-        _Replace(:final command) => command.apply(doc),
-        _Veto(:final reason) => _veto(doc, command, reason),
-      };
-
-  WindowingDoc _veto(
-      WindowingDoc doc, WindowingCommand command, ILocalizable reason) {
-    _vetoes.value = CommandVeto(command, reason);
-    return doc;
+  WindowingDoc _intercepted(WindowingDoc doc, WindowingCommand command,
+      List<CommandVeto> vetoes) {
+    switch (interceptor?.call(doc, command)) {
+      case null || _Approve():
+        return command.apply(doc);
+      case _Replace(:final command):
+        return command.apply(doc);
+      case _Veto(:final reason):
+        vetoes.add(CommandVeto(command, reason));
+        return doc;
+    }
   }
 
   /// Opens a tab in [shellId] (the focused shell by default), showing

@@ -127,7 +127,10 @@ void main() {
     expect(moved.topLeft, greaterThan(const Offset(100, 50)));
     expect(c.doc.value.floating[_f2]!.geometry, moved);
 
-    await tester.drag(find.byKey(const ValueKey('page f2')), const Offset(2000, 0));
+    await tester.drag(
+      find.byKey(const ValueKey('page f2')),
+      const Offset(2000, 0),
+    );
     await tester.pump();
     expect(rect(tester, 'f2').right, 800);
 
@@ -146,7 +149,10 @@ void main() {
     c.closeWindow(_f2); // the tab layer covers f3: clear it
     c.closeWindow(_f4);
     await tester.pump();
-    await tester.drag(find.byKey(const ValueKey('page f3')), const Offset(2000, 2000));
+    await tester.drag(
+      find.byKey(const ValueKey('page f3')),
+      const Offset(2000, 2000),
+    );
     await tester.pump();
     final window = rect(tester, 'a');
     expect(window.contains(rect(tester, 'f3').topLeft), isTrue);
@@ -164,5 +170,41 @@ void main() {
     );
     expect(find.byKey(const ValueKey('page f2')), findsNothing);
     expect(find.text('custom'), findsNWidgets(3));
+  });
+
+  testWidgets('a shell float covers the chrome the surface builder draws', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(800, 600));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final c = WindowingController(initial: _doc());
+    addTearDown(c.dispose);
+    await tester.pumpWidget(
+      Directionality(
+        textDirection: TextDirection.ltr,
+        child: WindowingRoot(
+          controller: c,
+          bufferBuilder: (_, _) => const SizedBox.expand(),
+          delegate: WindowingDelegate(
+            floating: (_, id, _, _, window) => id == _f1
+                ? const SizedBox.expand(key: ValueKey('cover'))
+                : const SizedBox.shrink(),
+          ),
+          child: ShellHost(
+            _shell,
+            surfaceBuilder: (_, _, canvas) => Column(
+              children: [
+                const SizedBox(height: 50),
+                Expanded(child: canvas),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    expect(
+      tester.getRect(find.byKey(const ValueKey('cover'))),
+      const Rect.fromLTWH(0, 0, 800, 600),
+    );
   });
 }

@@ -202,15 +202,16 @@ prefix of a `kind:token` id picks the page). Units take ids, never objects, so t
 widget renders whatever the doc says and projection switches re-run
 assembly over an unchanged doc.
 
-Containers. Each container renders its content plus its own `Overlay`.
+Containers. Each container renders its content with its own `FloatingLayer`
+stacked above it.
 
-| Unit | Renders | Overlay hosts |
+| Unit | Renders | Floating layer hosts |
 |---|---|---|
-| `ShellHost` | active tab's canvas; dev supplies shell chrome via `surfaceBuilder` | shell-scoped floating windows |
+| `ShellHost` | active tab's canvas; dev supplies shell chrome via `surfaceBuilder` | shell-scoped floating windows, above the chrome too |
 | `TabCanvas` | the tab's window tree (Flex recursion), resize handles, `windowArrangement` | tab-scoped floating windows |
 | `WindowHost` | the window's `ReefWindow`, focus ring slot | window-scoped floating content |
 | `TabStripSlot` | headless tab data: tabIds, activeTabId, activate/close/reorder callbacks | dev renders the look |
-| `FloatingLayer` | a container's floating windows in an `Overlay`, ordered by `zIndex`, each wrapped in the dev's positioning widget | |
+| `FloatingLayer` | a container's floating windows in a `Stack` layer above the container's content, ordered by `zIndex`, each wrapped in the dev's positioning widget | |
 
 `windowArrangement` decides how a tab's windows manifest: `flexTree` (desktop
 default), `focusedOnly` (compact default), or a custom builder. Drag-resize

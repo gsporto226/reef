@@ -35,12 +35,7 @@ WindowingDoc _doc() => WindowingDoc(
       ),
     ),
   },
-  windows: {
-    _a: _shows('A'),
-    _b: _shows('B'),
-    _c: _shows('C'),
-    _d: _shows('D'),
-  },
+  windows: {_a: _shows('A'), _b: _shows('B'), _c: _shows('C'), _d: _shows('D')},
   focusedShellId: _shell,
 );
 
@@ -79,8 +74,9 @@ void main() {
 
   Finder handle(int i) => find.byType(WindowResizeHandle).at(i);
 
-  testWidgets('flexTree places a handle between the children of every branch',
-      (tester) async {
+  testWidgets('flexTree places a handle between the children of every branch', (
+    tester,
+  ) async {
     await pump(tester);
     // Depth-first: root a|bc, inner b/c, root bc|d.
     expect(find.byType(WindowResizeHandle), findsNWidgets(3));
@@ -99,8 +95,9 @@ void main() {
     expect(_rootRatios(c).fold(0.0, (s, r) => s + r), 1.0);
   });
 
-  testWidgets('updates within one frame do not stack on stale ratios',
-      (tester) async {
+  testWidgets('updates within one frame do not stack on stale ratios', (
+    tester,
+  ) async {
     await pump(tester);
     final gesture = await tester.startGesture(tester.getCenter(handle(0)));
     await gesture.moveBy(const Offset(20, 0)); // past the drag slop
@@ -108,8 +105,9 @@ void main() {
     await gesture.moveBy(const Offset(40, 0)); // no pump in between
     await gesture.up();
     await tester.pump();
-    // 100px of 808 once, not each update over the last one's ratios.
-    expect(_rootRatios(c)[0], closeTo(0.25 + 100 / 808, 1e-9));
+    // 100px once, not each update over the last one's ratios, of the 792px
+    // the windows share (808 less two 8px handles).
+    expect(_rootRatios(c)[0], closeTo(0.25 + 100 / 792, 1e-9));
   });
 
   testWidgets('one drag is one undo step; the next drag is its own', (
@@ -179,6 +177,7 @@ void main() {
               WindowResizeHandle(
                 branch: c.doc.value.tabs[_tab]!.root! as WindowBranch,
                 index: 1,
+                extent: 808,
               ),
               const Expanded(child: WindowHost(_d)),
             ],
@@ -188,5 +187,33 @@ void main() {
     );
     await tester.drag(find.byType(WindowResizeHandle), const Offset(80, 0));
     expect(_rootRatios(c)[0], closeTo(0.35, 0.01));
+  });
+
+  testWidgets('a wrapped handle measures the extent it is given', (
+    tester,
+  ) async {
+    await pump(
+      tester,
+      delegate: WindowingDelegate(
+        windowArrangement: WindowArrangement.custom(
+          (context, _) => Row(
+            children: [
+              const Expanded(child: WindowHost(_a)),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: WindowResizeHandle(
+                  branch: c.doc.value.tabs[_tab]!.root! as WindowBranch,
+                  index: 1,
+                  extent: 808,
+                ),
+              ),
+              const Expanded(child: WindowHost(_d)),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.drag(find.byType(WindowResizeHandle), const Offset(80, 0));
+    expect(_rootRatios(c)[0], closeTo(0.35, 0.005));
   });
 }

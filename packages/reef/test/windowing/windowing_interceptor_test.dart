@@ -94,4 +94,11 @@ void main() {
     expect(tabCount(), 4);
     expect(seen, isEmpty);
   });
+
+  test('a vetoes listener reads the post-batch doc', () {
+    final seenTabs = <int>[];
+    c.vetoes.addListener(() => seenTabs.add(tabCount()));
+    c.dispatchAll([newTab(), newTab()]);
+    expect(seenTabs, [2]);
+  });
 }
