@@ -8,6 +8,7 @@ import 'package:reef/features/windowing/_implementations/windowing_controller.da
 import 'package:reef/features/windowing/_implementations/windowing_delegate.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
+import 'package:reef/features/windowing/_implementations/windowing_projection.dart';
 
 /// Turns a buffer id into the page that shows it: the app's kind-to-page
 /// mapping. Returns null while the buffer is not ready yet; the window then
@@ -23,10 +24,9 @@ typedef ShellSurfaceBuilder = Widget Function(
 );
 
 /// The top of a windowing UI: installs [WindowingScope] and [delegate] over
-/// [child]. Without a [child] it draws the focused shell through the
-/// delegate's [WindowingDelegate.projectionPolicy]. While mounted, a
-/// [WindowingDelegate.interceptor] replaces the controller's; the previous one
-/// comes back on unmount.
+/// [child]. Without a [child] it draws the focused shell as a
+/// [ShellProjection]. While mounted, a [WindowingDelegate.interceptor]
+/// replaces the controller's; the previous one comes back on unmount.
 class WindowingRoot extends StatefulWidget {
   const WindowingRoot({
     super.key,
@@ -91,11 +91,7 @@ class _WindowingRootState extends State<WindowingRoot> {
             _Select<ShellId>(
               id: #focusedShell,
               selector: (doc) => doc.focusedShellId,
-              builder: (context, shellId) => delegate.projectionPolicy(
-                context,
-                controller,
-                shellId,
-              )(context, controller, shellId),
+              builder: (context, shellId) => ShellProjection(shellId),
             ),
       ),
     );

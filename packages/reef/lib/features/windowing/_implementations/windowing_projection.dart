@@ -29,6 +29,22 @@ WindowingProjection defaultWindowingProjection(
     ? (_, _, shellId) => DesktopProjection(shellId)
     : (_, _, shellId) => TabbedProjection(shellId);
 
+/// Draws shell [shellId] through the delegate's
+/// [WindowingDelegate.projectionPolicy], picked by the screen class of the
+/// view it sits in.
+class ShellProjection extends StatelessWidget {
+  const ShellProjection(this.shellId, {super.key});
+
+  final ShellId shellId;
+
+  @override
+  Widget build(BuildContext context) {
+    final controller = WindowingScope.of(context).controller;
+    final policy = WindowingDelegateScope.of(context).projectionPolicy;
+    return policy(context, controller, shellId)(context, controller, shellId);
+  }
+}
+
 /// Shell [shellId] with an optional tab strip over its windows tiled as the
 /// [WindowArrangement.flexTree].
 class DesktopProjection extends StatelessWidget {
