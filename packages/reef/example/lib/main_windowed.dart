@@ -31,7 +31,7 @@ void main() {
               size: const Size(1280, 800),
               title: 'Reef example',
             ),
-            builder: (_) => const ReefExampleShellApp(),
+            builder: (_) => const ReefExampleRoutedApp(),
           ),
         ],
       ),

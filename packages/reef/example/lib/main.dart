@@ -30,7 +30,7 @@ class ReefExampleApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) =>
-      const ProviderScope(child: ReefExampleShellApp());
+      const ProviderScope(child: ReefExampleRoutedApp());
 }
 
 /// The app without the root [ProviderScope] — the windowed entrypoint puts
@@ -38,14 +38,15 @@ class ReefExampleApp extends StatelessWidget {
 /// shell on the task list, drawn by the default projection policy.
 ///
 /// The app is design-free (§5) — [WidgetsApp], no Material.
-class ReefExampleShellApp extends StatefulWidget {
-  const ReefExampleShellApp({super.key});
+// Name kept for the spike entry main_windowed.dart until W4 replaces it.
+class ReefExampleRoutedApp extends StatefulWidget {
+  const ReefExampleRoutedApp({super.key});
 
   @override
-  State<ReefExampleShellApp> createState() => _ReefExampleShellAppState();
+  State<ReefExampleRoutedApp> createState() => _ReefExampleRoutedAppState();
 }
 
-class _ReefExampleShellAppState extends State<ReefExampleShellApp> {
+class _ReefExampleRoutedAppState extends State<ReefExampleRoutedApp> {
   late final _controller = WindowingController(
     initial: startingLayout(const BufferId.manual('task-list:all')),
     undo: ProviderScope.containerOf(context, listen: false)

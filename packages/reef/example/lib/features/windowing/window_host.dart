@@ -52,7 +52,7 @@ class RealWindowHost implements WindowHost {
   RealWindowHost({required this.contentBuilder});
 
   /// Builds the page for a popped-out buffer — the same kind→page mapping the
-  /// app's buffer builder uses, so any routable buffer can leave the tree.
+  /// workspace registry uses, so any routable buffer can leave the tree.
   final Widget Function(BuildContext context, BufferId bufferId) contentBuilder;
 
   @override
