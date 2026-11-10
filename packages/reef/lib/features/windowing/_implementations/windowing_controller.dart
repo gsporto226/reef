@@ -803,6 +803,12 @@ class WindowingController {
       }
     }
     _doc.value = next;
+    // Doc-first: real shells close only after the doc dropped them.
+    if (platform case final platform?) {
+      before.shells.keys
+          .where((id) => !next.shells.containsKey(id))
+          .forEach(platform.close);
+    }
   }
 
   WindowingDoc _intercepted(WindowingDoc doc, WindowingCommand command,

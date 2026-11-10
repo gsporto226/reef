@@ -216,6 +216,79 @@ void main() {
     });
   });
 
+  group('shells leaving the doc', () {
+    late ShellId first, second;
+
+    setUp(() async {
+      first = c.doc.value.focusedShellId;
+      second = (await c.openShell()).getOrNull()!;
+    });
+
+    test('closeShell closes the real shell after the doc drops it', () async {
+      final recorder = _DocAtClose(() => c.doc.value);
+      final rc = WindowingController(platform: recorder);
+      final id = (await rc.openShell()).getOrNull()!;
+      rc.closeShell(id);
+      expect(recorder.closed, [id]);
+      expect(recorder.docsAtClose.single.shells.containsKey(id), isFalse);
+      expect(rc.doc.value.shells.containsKey(id), isFalse);
+      rc.dispose();
+    });
+
+    test('closeShell calls platform.close once', () {
+      c.closeShell(second);
+      expect(platform.closed, [second]);
+    });
+
+    test('a raw CloseShell calls platform.close once', () {
+      c.dispatch(CloseShell(second));
+      expect(platform.closed, [second]);
+    });
+
+    test('an interceptor replacement that closes a shell closes it', () {
+      final tab = c.doc.value.shells[first]!.tabIds.single;
+      c.interceptor = (doc, command) => command is CloseTab
+          ? CommandDecision.replace(CloseShell(first))
+          : const CommandDecision.approve();
+      c.closeTab(tab);
+      expect(platform.closed, [first]);
+    });
+
+    test('a refused last-shell close calls nothing', () {
+      c.closeShell(second);
+      platform.closed.clear();
+      c.closeShell(first);
+      expect(c.doc.value.shells.keys, [first]);
+      expect(platform.closed, isEmpty);
+    });
+
+    test('a vetoed close calls nothing', () {
+      c.interceptor = (doc, command) =>
+          const CommandDecision.veto(UndoLabel('No'));
+      c.closeShell(second);
+      expect(c.doc.value.shells.containsKey(second), isTrue);
+      expect(platform.closed, isEmpty);
+    });
+
+    test('a buffer in two shells survives one closing', () {
+      final buffer = BufferId.manual('shared');
+      c.newTab(shellId: first, buffer: buffer);
+      c.newTab(shellId: second, buffer: buffer);
+      c.closeShell(second);
+      final doc = c.doc.value;
+      final tab = doc.tabs[doc.shells[first]!.activeTabId]!;
+      expect(doc.windows[tab.activeWindowId]!.history.current, buffer);
+    });
+  });
+
+  test('with no platform, closing a shell calls nothing', () {
+    final bare = WindowingController();
+    final id = bare.attachShell();
+    bare.closeShell(id);
+    expect(bare.doc.value.shells.containsKey(id), isFalse);
+    bare.dispose();
+  });
+
   test('FakeShellPlatform records closes', () {
     final id = ShellId.generate();
     platform.close(id);
@@ -232,4 +305,17 @@ void main() {
     expect(a == const ShellError(ShellErrorKind.refused), isFalse);
     expect(a.toString(), contains('refused'));
   });
+}
+
+class _DocAtClose extends FakeShellPlatform {
+  _DocAtClose(this.read);
+
+  final WindowingDoc Function() read;
+  final docsAtClose = <WindowingDoc>[];
+
+  @override
+  void close(ShellId id) {
+    docsAtClose.add(read());
+    super.close(id);
+  }
 }
