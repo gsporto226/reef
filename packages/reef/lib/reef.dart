@@ -18,6 +18,7 @@ export 'package:reef/features/view_model/_implementations/view_model.dart';
 export 'package:reef/features/windowing/_implementations/windowing_controller.dart';
 export 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 export 'package:reef/features/windowing/_implementations/windowing_ids.dart';
+export 'package:reef/features/windowing/_implementations/windowing_root.dart';
 export 'package:reef/features/workspace/_implementations/split_tree.dart';
 export 'package:reef/features/workspace/_implementations/split_tree_controller.dart';
 export 'package:reef/features/workspace/_implementations/split_workspace.dart';
