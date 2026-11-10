@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/window_resize_handle.dart';
+import 'package:reef/features/windowing/_implementations/windowing_controller.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 import 'package:reef/features/windowing/_implementations/windowing_root.dart';
 
@@ -34,6 +35,18 @@ typedef TabStripBuilder = Widget Function(
 /// Draws the divider of a [WindowResizeHandle] between children laid out
 /// along [axis].
 typedef SplitterBuilder = Widget Function(BuildContext context, Axis axis);
+
+/// Places floating window [windowId] (the [window] widget) in its scope's
+/// [FloatingLayer], which fills the scope's container. [geometry] is the
+/// doc's advisory hint, null until moved; [index] is the window's place in
+/// the scope, bottom first.
+typedef FloatingBuilder = Widget Function(
+  BuildContext context,
+  WindowId windowId,
+  Rect? geometry,
+  int index,
+  Widget window,
+);
 
 /// How a tab's windows show: the window tree as nested flexes ([flexTree]),
 /// or a [custom] builder given the tab id.
@@ -87,6 +100,7 @@ class WindowingDelegate {
     this.windowArrangement = WindowArrangement.flexTree,
     this.tabStrip = _defaultTabStrip,
     this.splitter = _thinDivider,
+    this.floating = _floatingFrame,
   });
 
   /// Default: a border on the focused window only.
@@ -111,6 +125,11 @@ class WindowingDelegate {
   /// Default: a 1px grey line centred in an 8px strip.
   final SplitterBuilder splitter;
 
+  /// Default: at the hint, else cascading from the top left at 280x160,
+  /// clamped to the container; a drag dispatches [MoveFloating], one undo
+  /// step per drag.
+  final FloatingBuilder floating;
+
   WindowingDelegate copyWith({
     WindowChromeBuilder? windowChrome,
     EmptyTabBuilder? emptyBuilder,
@@ -119,6 +138,7 @@ class WindowingDelegate {
     WindowArrangement? windowArrangement,
     TabStripBuilder? tabStrip,
     SplitterBuilder? splitter,
+    FloatingBuilder? floating,
   }) => WindowingDelegate(
     windowChrome: windowChrome ?? this.windowChrome,
     emptyBuilder: emptyBuilder ?? this.emptyBuilder,
@@ -127,7 +147,16 @@ class WindowingDelegate {
     windowArrangement: windowArrangement ?? this.windowArrangement,
     tabStrip: tabStrip ?? this.tabStrip,
     splitter: splitter ?? this.splitter,
+    floating: floating ?? this.floating,
   );
+
+  static Widget _floatingFrame(
+    BuildContext _,
+    WindowId windowId,
+    Rect? geometry,
+    int index,
+    Widget window,
+  ) => _FloatingFrame(windowId, geometry, index, window);
 
   static Widget _thinDivider(BuildContext _, Axis axis) => SizedBox(
     width: axis == Axis.horizontal ? 8 : null,
@@ -213,4 +242,69 @@ class WindowingDelegateScope extends InheritedWidget {
   @override
   bool updateShouldNotify(WindowingDelegateScope oldWidget) =>
       delegate != oldWidget.delegate;
+}
+
+class _FloatingFrame extends StatefulWidget {
+  const _FloatingFrame(this.windowId, this.geometry, this.index, this.window);
+
+  final WindowId windowId;
+  final Rect? geometry;
+  final int index;
+  final Widget window;
+
+  @override
+  State<_FloatingFrame> createState() => _FloatingFrameState();
+}
+
+class _FloatingFrameState extends State<_FloatingFrame> {
+  // The rect at drag start plus the offset since then, so updates landing
+  // in one frame never stack on a stale rect.
+  Rect _rect = Rect.zero;
+  Rect _start = Rect.zero;
+  Offset _offset = Offset.zero;
+  Size _area = Size.zero;
+
+  Rect _clamp(Rect r) => Rect.fromLTWH(
+    r.left.clamp(0, (_area.width - r.width).clamp(0, double.infinity)),
+    r.top.clamp(0, (_area.height - r.height).clamp(0, double.infinity)),
+    r.width,
+    r.height,
+  );
+
+  void _move(DragUpdateDetails d) {
+    _offset += d.delta;
+    WindowingScope.of(context).controller.moveFloating(
+      widget.windowId,
+      _clamp(_start.shift(_offset)),
+      coalesceKey: 'move:${widget.windowId.value}',
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, box) {
+      _area = box.biggest;
+      final cascade = 40 + 32.0 * widget.index;
+      _rect = _clamp(
+        widget.geometry ?? Rect.fromLTWH(cascade, cascade, 280, 160),
+      );
+      return Stack(
+        children: [
+          Positioned.fromRect(
+            rect: _rect,
+            child: GestureDetector(
+              onPanStart: (_) {
+                _start = _rect;
+                _offset = Offset.zero;
+              },
+              onPanUpdate: _move,
+              onPanEnd: (_) =>
+                  WindowingScope.of(context).controller.sealCoalescing(),
+              child: widget.window,
+            ),
+          ),
+        ],
+      );
+    },
+  );
 }

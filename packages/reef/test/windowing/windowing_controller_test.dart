@@ -73,6 +73,16 @@ WindowingDoc tree(WindowNode? root, WindowId? active,
       focusedShellId: s1,
     );
 
+/// [start] with floating window [w]'s geometry hint set to [rect].
+WindowingDoc hinted(WindowingDoc start, WindowId w, Rect rect) =>
+    start.copyWith(floating: {
+      ...start.floating,
+      w: FloatingState(
+          scope: start.floating[w]!.scope,
+          zIndex: start.floating[w]!.zIndex,
+          geometry: rect),
+    });
+
 /// [start] plus floating windows `{window: (scope, zIndex)}`, each showing
 /// [b1] unless [windows] says otherwise.
 WindowingDoc floating(
@@ -139,6 +149,12 @@ void main() {
     }
     final f = FloatingState(scope: scopes[0], zIndex: 1);
     expect(f.hashCode, FloatingState(scope: again[0], zIndex: 1).hashCode);
+    const r = Rect.fromLTWH(1, 2, 3, 4);
+    final g = FloatingState(scope: scopes[0], zIndex: 1, geometry: r);
+    expect(g, FloatingState(scope: again[0], zIndex: 1, geometry: r));
+    expect(g.hashCode,
+        FloatingState(scope: again[0], zIndex: 1, geometry: r).hashCode);
+    expect(g, isNot(f));
     final fd = floating(tree(null, null), {w1: (ShellScope(s1), 0)});
     expect(() => fd.floating.clear(), throwsUnsupportedError);
   });
@@ -865,6 +881,51 @@ void main() {
         const RaiseWindow(w4),
         const RaiseWindow(w1),
         const RaiseWindow(WindowId.manual('nope')),
+      ],
+      expected: null,
+    ),
+  ]);
+
+  runTable('MoveFloating', [
+    (
+      name: 'sets the hint, keeping scope and zIndex',
+      start: floating(tree(l1, w1), {w2: (const TabScope(t1), 3)}),
+      commands: [const MoveFloating(w2, Rect.fromLTWH(10, 20, 300, 200))],
+      expected: hinted(floating(tree(l1, w1), {w2: (const TabScope(t1), 3)}),
+          w2, const Rect.fromLTWH(10, 20, 300, 200)),
+    ),
+    (
+      name: 'raising keeps the hint',
+      start: hinted(
+          floating(tree(l1, w1),
+              {w2: (const TabScope(t1), 0), w3: (const TabScope(t1), 1)}),
+          w2,
+          const Rect.fromLTWH(1, 1, 1, 1)),
+      commands: [const RaiseWindow(w2)],
+      expected: hinted(
+          floating(tree(l1, w1),
+              {w2: (const TabScope(t1), 2), w3: (const TabScope(t1), 1)}),
+          w2,
+          const Rect.fromLTWH(1, 1, 1, 1)),
+    ),
+    (
+      name: 'docking drops the hint',
+      start: hinted(floating(tree(null, null), {w1: (const ShellScope(s1), 0)}),
+          w1, const Rect.fromLTWH(1, 1, 1, 1)),
+      commands: [
+        const DockWindow(w1, tabId: t1),
+        const FloatWindow(w1, scope: ShellScope(s1)),
+      ],
+      expected: floating(tree(null, null), {w1: (const ShellScope(s1), 0)}),
+    ),
+    (
+      name: 'a tree window, unknown or the same hint is unchanged',
+      start: hinted(floating(tree(l1, w1), {w2: (const TabScope(t1), 0)}),
+          w2, const Rect.fromLTWH(1, 1, 1, 1)),
+      commands: [
+        const MoveFloating(w1, Rect.fromLTWH(5, 5, 5, 5)),
+        const MoveFloating(w4, Rect.fromLTWH(5, 5, 5, 5)),
+        const MoveFloating(w2, Rect.fromLTWH(1, 1, 1, 1)),
       ],
       expected: null,
     ),

@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/painting.dart' show Axis;
+import 'package:flutter/painting.dart' show Axis, Rect;
 import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
@@ -627,7 +627,26 @@ class RaiseWindow extends WindowingCommand {
     if (state.zIndex > top) return doc;
     return doc.copyWith(floating: {
       ...doc.floating,
-      windowId: FloatingState(scope: state.scope, zIndex: top + 1),
+      windowId: state.copyWith(zIndex: top + 1),
+    });
+  }
+}
+
+/// Sets floating window [windowId]'s advisory geometry hint to [geometry], a
+/// rectangle in its scope's space. Refused for windows that are not floating.
+class MoveFloating extends WindowingCommand {
+  const MoveFloating(this.windowId, this.geometry);
+
+  final WindowId windowId;
+  final Rect geometry;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) {
+    final state = doc.floating[windowId];
+    if (state == null || state.geometry == geometry) return doc;
+    return doc.copyWith(floating: {
+      ...doc.floating,
+      windowId: state.copyWith(geometry: geometry),
     });
   }
 }
@@ -780,6 +799,11 @@ class WindowingController {
           tabId: tabId, target: target, axis: axis, side: side));
 
   void raiseWindow(WindowId windowId) => dispatch(RaiseWindow(windowId));
+
+  void moveFloating(WindowId windowId, Rect geometry,
+          {Object? coalesceKey}) =>
+      dispatchAll([MoveFloating(windowId, geometry)],
+          coalesceKey: coalesceKey);
 
   void resizeWindow(WindowId windowId, List<double> ratios,
           {int levels = 0, Object? coalesceKey}) =>

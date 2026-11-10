@@ -92,7 +92,7 @@ ids.
 |---|---|
 | Tabs | `NewTab` (optional initial buffer, creates the tab's first window), `CloseTab`, `MoveTab`, `ActivateTab` |
 | Tree windows | `SplitWindow` (optional buffer, defaulting to the split window's; the new window copies the window history and takes focus), `CloseWindow`, `MoveWindow` (to any tab tree in any shell), `ResizeWindow` |
-| Floating | `FloatWindow`, `DockWindow` (target window + axis + side; becomes the tree root in an empty tab), `RaiseWindow` |
+| Floating | `FloatWindow`, `DockWindow` (target window + axis + side; becomes the tree root in an empty tab; drops the geometry hint), `RaiseWindow`, `MoveFloating` (sets the advisory geometry hint, a rectangle in the scope's space) |
 | Buffer content | `AttachBuffer`, `PushBuffer`, `PopBuffer`, `ReplaceBuffer`, `NavigateForward` |
 | Focus | `ActivateWindow`, `ActivateShell` |
 | shells | `AttachShell`, `CloseShell` |

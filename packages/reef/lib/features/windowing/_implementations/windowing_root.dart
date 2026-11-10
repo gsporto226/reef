@@ -85,7 +85,8 @@ class WindowingScope extends InheritedWidget {
       bufferBuilder != oldWidget.bufferBuilder;
 }
 
-/// Renders the active tab of shell [shellId] under [surfaceBuilder].
+/// Renders the active tab of shell [shellId], with the shell's
+/// [FloatingLayer] over it, under [surfaceBuilder].
 class ShellHost extends StatelessWidget {
   const ShellHost(this.shellId, {super.key, this.surfaceBuilder});
 
@@ -97,7 +98,13 @@ class ShellHost extends StatelessWidget {
     id: shellId.value,
     selector: (doc) => doc.shells[shellId]?.activeTabId,
     builder: (context, tabId) {
-      final canvas = tabId == null ? const SizedBox.shrink() : TabCanvas(tabId);
+      final canvas = Stack(
+        fit: StackFit.expand,
+        children: [
+          if (tabId != null) TabCanvas(tabId),
+          FloatingLayer(ShellScope(shellId)),
+        ],
+      );
       return surfaceBuilder?.call(context, shellId, canvas) ?? canvas;
     },
   );
@@ -106,7 +113,9 @@ class ShellHost extends StatelessWidget {
 /// Renders tab [tabId]'s windows through the delegate's
 /// [WindowingDelegate.windowArrangement]; the default flex tree sizes branch
 /// children by their ratios along the branch axis with a
-/// [WindowResizeHandle] between them, a [WindowHost] per tree window. An empty tab shows the delegate's [WindowingDelegate.emptyBuilder].
+/// [WindowResizeHandle] between them, a [WindowHost] per tree window. An
+/// empty tab shows the delegate's [WindowingDelegate.emptyBuilder]. The
+/// tab's [FloatingLayer] draws on top.
 class TabCanvas extends StatelessWidget {
   const TabCanvas(this.tabId, {super.key});
 
@@ -118,9 +127,17 @@ class TabCanvas extends StatelessWidget {
     selector: (doc) => doc.tabs[tabId]?.root,
     builder: (context, root) {
       final delegate = WindowingDelegateScope.of(context);
-      if (root == null) return delegate.emptyBuilder(context, tabId);
-      return delegate.windowArrangement.builder?.call(context, tabId) ??
-          _node(context, root);
+      return Stack(
+        fit: StackFit.expand,
+        children: [
+          if (root == null)
+            delegate.emptyBuilder(context, tabId)
+          else
+            delegate.windowArrangement.builder?.call(context, tabId) ??
+                _node(context, root),
+          FloatingLayer(TabScope(tabId)),
+        ],
+      );
     },
   );
 
@@ -142,8 +159,9 @@ class TabCanvas extends StatelessWidget {
 }
 
 /// Shows window [windowId]'s current buffer through the scope's buffer
-/// builder inside the delegate's [WindowingDelegate.windowChrome]. A pointer
-/// down on it activates it.
+/// builder inside the delegate's [WindowingDelegate.windowChrome], with the
+/// window's [FloatingLayer] over it. A pointer down on it activates it (and
+/// raises it, when floating).
 class WindowHost extends StatelessWidget {
   const WindowHost(this.windowId, {super.key});
 
@@ -166,7 +184,7 @@ class WindowHost extends StatelessWidget {
       builder: (context, selected) {
         final (buffer, active) = selected;
         if (buffer == null) return const SizedBox.shrink();
-        return Listener(
+        final window = Listener(
           behavior: HitTestBehavior.translucent,
           onPointerDown: (_) => scope.controller.activateWindow(windowId),
           child: _WindowIdScope(
@@ -188,9 +206,61 @@ class WindowHost extends StatelessWidget {
             ),
           ),
         );
+        return Stack(
+          fit: StackFit.expand,
+          children: [window, FloatingLayer(WindowScope(windowId))],
+        );
       },
     );
   }
+}
+
+/// The floating windows of [scope], bottom to top by z-index, each a
+/// [WindowHost] wrapped by the delegate's [WindowingDelegate.floating].
+/// Hosted by [ShellHost], [TabCanvas] and [WindowHost] for their own scope.
+class FloatingLayer extends StatelessWidget {
+  const FloatingLayer(this.scope, {super.key});
+
+  final FloatScope scope;
+
+  @override
+  Widget build(BuildContext context) => _Select<_Floats>(
+    id: scope,
+    selector: (doc) => _Floats([
+      for (final MapEntry(:key, :value)
+          in doc.floating.entries.where((e) => e.value.scope == scope).toList()
+            ..sort((a, b) => a.value.zIndex.compareTo(b.value.zIndex)))
+        (key, value.geometry),
+    ]),
+    builder: (context, floats) {
+      final delegate = WindowingDelegateScope.of(context);
+      return Stack(
+        children: [
+          for (final (i, (id, geometry)) in floats.windows.indexed)
+            Positioned.fill(
+              key: ValueKey(id.value),
+              child: delegate.floating(context, id, geometry, i, WindowHost(id)),
+            ),
+        ],
+      );
+    },
+  );
+}
+
+/// A scope's floating windows and their hints, bottom to top, compared by
+/// value so the layer rebuilds only when they change.
+@immutable
+class _Floats {
+  const _Floats(this.windows);
+
+  final List<(WindowId, Rect?)> windows;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _Floats && listEquals(other.windows, windows);
+
+  @override
+  int get hashCode => Object.hashAll(windows);
 }
 
 /// What a [TabStripSlot] hands its builder: a shell's tabs and the intents

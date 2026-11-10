@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/painting.dart' show Axis;
+import 'package:flutter/painting.dart' show Axis, Rect;
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 
@@ -248,19 +248,29 @@ class WindowScope extends FloatScope {
   int get hashCode => id.hashCode;
 }
 
-/// A floating window's [scope] and its [zIndex] among that scope's floating
-/// windows (higher draws on top).
+/// A floating window's [scope], its [zIndex] among that scope's floating
+/// windows (higher draws on top), and an advisory [geometry] hint: where it
+/// sits in its scope's space, null until moved.
 @immutable
 class FloatingState {
-  const FloatingState({required this.scope, required this.zIndex});
+  const FloatingState({required this.scope, required this.zIndex, this.geometry});
 
   final FloatScope scope;
   final int zIndex;
+  final Rect? geometry;
+
+  FloatingState copyWith({int? zIndex, Rect? geometry}) => FloatingState(
+      scope: scope,
+      zIndex: zIndex ?? this.zIndex,
+      geometry: geometry ?? this.geometry);
 
   @override
   bool operator ==(Object other) =>
-      other is FloatingState && other.scope == scope && other.zIndex == zIndex;
+      other is FloatingState &&
+      other.scope == scope &&
+      other.zIndex == zIndex &&
+      other.geometry == geometry;
 
   @override
-  int get hashCode => Object.hash(scope, zIndex);
+  int get hashCode => Object.hash(scope, zIndex, geometry);
 }
