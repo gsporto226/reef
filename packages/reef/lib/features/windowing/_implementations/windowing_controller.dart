@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show Axis;
+import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
@@ -676,21 +677,43 @@ WindowNode? _atParent(WindowNode node, WindowId id,
 /// Owns the [WindowingDoc] and publishes it through [doc]. Pages call the
 /// intent methods; [dispatch] and [dispatchAll] take commands directly.
 class WindowingController {
-  WindowingController({WindowingDoc? initial})
-      : _doc = ValueNotifier(initial ?? WindowingDoc.initial());
+  /// With [undo], each layout-changing batch records one entry on it
+  /// (spec §4), published back through a [WindowingUndoHost].
+  WindowingController({WindowingDoc? initial, UndoController? undo})
+      : _doc = ValueNotifier(initial ?? WindowingDoc.initial()),
+        _undo = undo {
+    undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
+  }
 
   final ValueNotifier<WindowingDoc> _doc;
+  final UndoController? _undo;
 
   ValueListenable<WindowingDoc> get doc => _doc;
 
   void dispatch(WindowingCommand command) => dispatchAll([command]);
 
   /// Applies [commands] in order and publishes once, only when the resulting
-  /// doc differs from the current one.
-  void dispatchAll(Iterable<WindowingCommand> commands) {
-    final next = commands.fold(_doc.value, (doc, c) => c.apply(doc));
-    // W2 (undo): record one undo entry per batch here, before publishing.
-    if (next != _doc.value) _doc.value = next;
+  /// doc differs from the current one. Records one undo entry for the batch
+  /// unless only focus changed; a changed shell set clears the timeline.
+  /// Consecutive batches with an equal [coalesceKey] merge into one entry.
+  void dispatchAll(Iterable<WindowingCommand> commands,
+      {Object? coalesceKey}) {
+    final before = _doc.value;
+    final next = commands.fold(before, (doc, c) => c.apply(doc));
+    if (next == before) return;
+    if (_undo case final undo?) {
+      if (!setEquals(next.shells.keys.toSet(), before.shells.keys.toSet())) {
+        undo.clearHost<WindowingDoc>(); // layout undo never crosses a pop-out
+      } else if (_withFocusFrom(next, focusSource: before) != before) {
+        undo.record(UndoEntry<WindowingDoc>(
+          label: const UndoLabel('Change layout'),
+          snapshotBefore: before,
+          snapshotAfter: next,
+          coalesceKey: coalesceKey,
+        ));
+      }
+    }
+    _doc.value = next;
   }
 
   /// Opens a tab in [shellId] (the focused shell by default), showing
@@ -759,8 +782,9 @@ class WindowingController {
   void raiseWindow(WindowId windowId) => dispatch(RaiseWindow(windowId));
 
   void resizeWindow(WindowId windowId, List<double> ratios,
-          {int levels = 0}) =>
-      dispatch(ResizeWindow(windowId, ratios, levels: levels));
+          {int levels = 0, Object? coalesceKey}) =>
+      dispatchAll([ResizeWindow(windowId, ratios, levels: levels)],
+          coalesceKey: coalesceKey);
 
   void attachBuffer(WindowId windowId, BufferId buffer) =>
       dispatch(AttachBuffer(windowId, buffer));
@@ -777,4 +801,37 @@ class WindowingController {
       dispatch(ReplaceBuffer(windowId, buffer));
 
   void dispose() => _doc.dispose();
+}
+
+/// [doc] with [focusSource]'s focused shell, active tabs and active windows, so
+/// comparing it to [focusSource] ignores focus-only changes.
+WindowingDoc _withFocusFrom(WindowingDoc doc,
+        {required WindowingDoc focusSource}) =>
+    doc.copyWith(
+      focusedShellId: focusSource.focusedShellId,
+      shells: doc.shells.map((id, s) => MapEntry(
+          id,
+          ShellState(
+              tabIds: s.tabIds,
+              activeTabId: focusSource.shells[id]?.activeTabId ?? s.activeTabId))),
+      tabs: doc.tabs.map((id, t) => MapEntry(
+          id,
+          TabState(
+              root: t.root,
+              activeWindowId: focusSource.tabs[id]?.activeWindowId ??
+                  t.activeWindowId))),
+    );
+
+/// Publishes [WindowingDoc] snapshots into a controller's doc without
+/// recording them.
+class WindowingUndoHost implements UndoHost<WindowingDoc> {
+  WindowingUndoHost(this._doc);
+
+  final ValueNotifier<WindowingDoc> _doc;
+
+  @override
+  void undo(WindowingDoc snapshotBefore) => _doc.value = snapshotBefore;
+
+  @override
+  void redo(WindowingDoc snapshotAfter) => _doc.value = snapshotAfter;
 }

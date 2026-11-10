@@ -6,14 +6,22 @@ import 'package:listenable_plus/listenable_plus.dart';
 import 'package:reef/features/formularium_bridge/_implementations/result_validation.dart';
 import 'package:reef/features/hibernation/_implementations/lifecycle.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
+import 'package:reef/features/undo/_implementations/buffer_undo_host.dart';
 import 'package:reef/features/view_model/_implementations/view_model.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_model.dart';
+import 'package:reef_example/undo_providers.dart';
 import 'package:reef_fp/async.dart';
 import 'package:reef_fp/result.dart';
 import 'package:reef_fp/unit.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart' show Provider;
 import 'package:riverpod_annotation/riverpod_annotation.dart';
 
 part 'task_edit_viewmodel.g.dart';
+
+/// Route seeds for fresh buffers, keyed by buffer id. Kept out of the family
+/// key so any widget holding only the id (via `ReefBufferScope`) reaches the
+/// same viewmodel. Consumed once, on first materialization.
+final taskEditSeedsProvider = Provider((ref) => <BufferId, TaskEditModel>{});
 
 /// The page's viewmodel: owns the model, exposes out-bindings (`$`-prefixed)
 /// and in-bindings (intents), owns ephemeral UI objects and mediates every
@@ -28,19 +36,21 @@ part 'task_edit_viewmodel.g.dart';
 TaskEditViewModel taskEditViewModel(
   Ref ref, {
   required BufferId bufferId,
-  TaskEditModel? initial,
 }) {
   trackBuffer(ref, bufferId);
   // Hibernation wins over the route seed (§10.2): a rematerialized buffer
   // restores its hibernated model; the seed only matters for fresh buffers.
-  final seed = hibernatedSeed<TaskEditModel>(ref, bufferId, TaskEditModel.fromJson) ?? initial;
-  final vm = TaskEditViewModel(initialModel: seed);
+  final seed = hibernatedSeed<TaskEditModel>(ref, bufferId, TaskEditModel.fromJson) ??
+      ref.read(taskEditSeedsProvider).remove(bufferId);
+  final vm = TaskEditViewModel(initialModel: seed)
+    ..attachUndo(ref.watch(bufferUndoHostProvider), bufferId);
   hibernateOnDispose(ref, bufferId, () => vm.model.toJson());
   ref.onDispose(vm.dispose);
   return vm;
 }
 
-class TaskEditViewModel extends ViewModel<TaskEditModel> {
+class TaskEditViewModel extends ViewModel<TaskEditModel>
+    with UndoableModel<TaskEditModel> {
   TaskEditViewModel({TaskEditModel? initialModel})
     : super(initialModel ?? const TaskEditModel()) {
     final base = initialModel ?? const TaskEditModel();
@@ -73,6 +83,7 @@ class TaskEditViewModel extends ViewModel<TaskEditModel> {
       $title,
       apply: (value) => Ok<TaskError, TaskEditModel>(model.withTitle(value)),
       via: titleOp,
+      coalesceKey: #title, // the undo host scopes keys per buffer
     );
     bindField<DateTime?, TaskError>(
       field: dueDateField,
@@ -131,8 +142,6 @@ class TaskEditViewModel extends ViewModel<TaskEditModel> {
   // ---- Hibernation contract: the model is serializable; restoring is just a
   // publish — the out-channel re-seeds every UI object (transient-unsub keeps
   // it echo-free). ----
-
-  String hibernate() => model.toJson().toString();
 
   void restore(Map<String, dynamic> json) => publish(TaskEditModel.fromJson(json));
 }

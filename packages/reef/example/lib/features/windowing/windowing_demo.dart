@@ -1,22 +1,27 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reef/reef.dart';
+import 'package:reef_example/undo_providers.dart';
 
 /// A playground over a [WindowingController]: shells and tabs across the top,
 /// the active tab's window tree in the middle (drag the dividers to resize),
 /// its floating windows on top, and the focus chain in the status bar. Every
 /// control dispatches one controller intent. Drives the windowing integration
-/// flow. Needs a [MaterialApp] above it.
-class WindowingDemo extends StatefulWidget {
+/// flow. Needs a [MaterialApp] and a [ProviderScope] above it; Undo and Redo
+/// drive [undoControllerProvider], which [controller] must record on.
+class WindowingDemo extends ConsumerStatefulWidget {
   const WindowingDemo({super.key, required this.controller});
 
   final WindowingController controller;
 
   @override
-  State<WindowingDemo> createState() => _WindowingDemoState();
+  ConsumerState<WindowingDemo> createState() => _WindowingDemoState();
 }
 
-class _WindowingDemoState extends State<WindowingDemo> {
+class _WindowingDemoState extends ConsumerState<WindowingDemo> {
   WindowingController get _c => widget.controller;
+  UndoController get _undo => ref.read(undoControllerProvider);
   int _buffers = 0;
 
   /// Where each floating window is drawn. Placement is view state, not doc
@@ -83,6 +88,9 @@ class _WindowingDemoState extends State<WindowingDemo> {
           icon: const Icon(Icons.add_to_queue),
           onPressed: _c.attachShell,
         ),
+        const Spacer(),
+        _undoButton('Undo', Icons.undo, _undo.$canUndo, _undo.undo),
+        _undoButton('Redo', Icons.redo, _undo.$canRedo, _undo.redo),
       ]),
     );
   }
@@ -151,9 +159,12 @@ class _WindowingDemoState extends State<WindowingDemo> {
               key: const ValueKey('divider'),
               axis: branch.axis,
               ratios: branch.ratios,
+              // Keyed per handle so one drag is one undo step (spec §4);
+              // sealed on release so the next drag is its own step.
               onDrag: (start, offset) => _c.resizeWindow(
                   handle, _shift(start, i - 1, offset / extent),
-                  levels: levels),
+                  levels: levels, coalesceKey: (#resize, handle)),
+              onDragEnd: _undo.sealCoalescing,
             ),
           Expanded(
             flex: (branch.ratios[i] * 1000).round(),
@@ -358,6 +369,17 @@ class _WindowingDemoState extends State<WindowingDemo> {
     );
   }
 
+  Widget _undoButton(String tooltip, IconData icon,
+          ValueListenable<bool> enabled, VoidCallback action) =>
+      ValueListenableBuilder<bool>(
+        valueListenable: enabled,
+        builder: (_, on, _) => IconButton(
+          tooltip: tooltip,
+          icon: Icon(icon),
+          onPressed: on ? action : null,
+        ),
+      );
+
   Widget _icon(IconData icon, String tooltip, VoidCallback? onPressed,
           {int quarterTurns = 0}) =>
       IconButton(
@@ -390,11 +412,13 @@ class _Divider extends StatefulWidget {
       {super.key,
       required this.axis,
       required this.ratios,
-      required this.onDrag});
+      required this.onDrag,
+      required this.onDragEnd});
 
   final Axis axis;
   final List<double> ratios;
   final void Function(List<double> start, double offset) onDrag;
+  final VoidCallback onDragEnd;
 
   @override
   State<_Divider> createState() => _DividerState();
@@ -422,8 +446,10 @@ class _DividerState extends State<_Divider> {
         behavior: HitTestBehavior.opaque,
         onHorizontalDragStart: horizontal ? _begin : null,
         onHorizontalDragUpdate: horizontal ? (d) => _update(d.delta.dx) : null,
+        onHorizontalDragEnd: horizontal ? (_) => widget.onDragEnd() : null,
         onVerticalDragStart: horizontal ? null : _begin,
         onVerticalDragUpdate: horizontal ? null : (d) => _update(d.delta.dy),
+        onVerticalDragEnd: horizontal ? null : (_) => widget.onDragEnd(),
         child: SizedBox(
           width: horizontal ? 8 : null,
           height: horizontal ? null : 8,

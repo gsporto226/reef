@@ -13,7 +13,7 @@ import 'package:reef_fp/unit.dart';
 
 /// Page layer: layout + wiring only (blueprint §4) — defines the buffer type;
 /// [ReefWindow] owns identity, scope and the provider watch (§4.4, §10).
-class TaskEditPage extends StatelessWidget {
+class TaskEditPage extends ConsumerWidget {
   const TaskEditPage({super.key, this.bufferId, this.initial, this.windowHost});
 
   /// Opens this buffer; null materializes a fresh one.
@@ -27,10 +27,15 @@ class TaskEditPage extends StatelessWidget {
   final WindowHost? windowHost;
 
   @override
-  Widget build(BuildContext context) => ReefWindow<TaskEditViewModel>(
+  Widget build(BuildContext context, WidgetRef ref) =>
+      ReefWindow<TaskEditViewModel>(
         bufferId: bufferId,
-        viewModel: (id) =>
-            taskEditViewModelProvider(bufferId: id, initial: initial),
+        viewModel: (id) {
+          if (initial case final seed?) {
+            ref.read(taskEditSeedsProvider).putIfAbsent(id, () => seed);
+          }
+          return taskEditViewModelProvider(bufferId: id);
+        },
         builder: (context, vm) =>
             _TaskEditLayout(viewModel: vm, windowHost: windowHost),
       );
@@ -178,6 +183,7 @@ class _TaskEditLayout extends StatelessWidget {
 
 /// Demo of the hibernation contract: snapshot the model JSON, dispose-free
 /// restore via publish — the out-channel re-seeds every UI object.
+/// Reaches its buffer through the scope — no constructor threading (§4.4).
 class _HibernateBar extends ConsumerStatefulWidget {
   const _HibernateBar();
 
@@ -190,8 +196,6 @@ class _HibernateBarState extends ConsumerState<_HibernateBar> {
 
   @override
   Widget build(BuildContext context) {
-    // Descendants reach the buffer id through the scope — no constructor
-    // threading (§4.4).
     final vm = ref.watch(
       taskEditViewModelProvider(bufferId: ReefBufferScope.of(context)),
     );

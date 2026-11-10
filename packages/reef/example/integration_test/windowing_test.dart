@@ -1,26 +1,28 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_example/features/windowing/windowing_demo.dart';
 import 'package:reef_example/main_windowing.dart' as playground;
+import 'package:reef_example/undo_providers.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
+  Widget demo(WindowingController c, UndoController undo) => ProviderScope(
+        overrides: [undoControllerProvider.overrideWithValue(undo)],
+        child: MaterialApp(home: Scaffold(body: WindowingDemo(controller: c))),
+      );
+
   Future<WindowingController> pump(WidgetTester tester,
       {BufferId? buffer}) async {
-    final controller = WindowingController();
-    if (buffer != null) {
-      final empty = controller.doc.value.shells.values.single.activeTabId;
-      controller
-        ..newTab(buffer: buffer)
-        ..closeTab(empty);
-    }
+    final undo = UndoController();
+    final controller = WindowingController(
+        initial: buffer == null ? null : playground.startingLayout(buffer),
+        undo: undo);
     await tester.binding.setSurfaceSize(const Size(1200, 800));
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(body: WindowingDemo(controller: controller)),
-    ));
+    await tester.pumpWidget(demo(controller, undo));
     return controller;
   }
 
@@ -130,6 +132,65 @@ void main() {
     expect(find.text('Shell 2'), findsNothing);
     expect(find.text('b'), findsNothing);
     expect(find.text('buffer 1'), findsOneWidget);
+  });
+
+  testWidgets('undo and redo a split, focus changes not recorded',
+      (tester) async {
+    final undo = UndoController();
+    final c = WindowingController(undo: undo)
+      ..newTab(buffer: const BufferId.manual('b'));
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    await tester.pumpWidget(demo(c, undo));
+
+    await tap(tester, find.byTooltip('Split right'));
+    expect(status('windows in tab: 2'), findsOneWidget);
+    await tap(tester, find.text('Tab 1'));
+    await tap(tester, find.text('Tab 2'));
+
+    undo.undo();
+    await tester.pumpAndSettle();
+    expect(status('windows in tab: 1'), findsOneWidget);
+
+    undo.redo();
+    await tester.pumpAndSettle();
+    expect(status('windows in tab: 2'), findsOneWidget);
+  });
+
+  testWidgets('undo/redo buttons: split, close, drag', (tester) async {
+    final c = await pump(tester, buffer: const BufferId.manual('b'));
+    bool enabled(String tooltip) => tester
+            .widget<IconButton>(find.widgetWithIcon(IconButton,
+                tooltip == 'Undo' ? Icons.undo : Icons.redo))
+            .onPressed !=
+        null;
+    expect(enabled('Undo'), isFalse);
+    expect(enabled('Redo'), isFalse);
+
+    await tap(tester, find.byTooltip('Split right'));
+    await tap(tester, find.byTooltip('Close window').first);
+    expect(status('windows in tab: 1'), findsOneWidget);
+
+    await tap(tester, find.byTooltip('Undo'));
+    expect(status('windows in tab: 2'), findsOneWidget);
+    await tap(tester, find.byTooltip('Undo'));
+    expect(status('windows in tab: 1'), findsOneWidget);
+    expect(enabled('Undo'), isFalse);
+    await tap(tester, find.byTooltip('Redo'));
+    expect(status('windows in tab: 2'), findsOneWidget);
+
+    // One drag, many ResizeWindow updates: one undo step.
+    final gesture = await tester
+        .startGesture(tester.getCenter(find.byKey(const ValueKey('divider'))));
+    for (var i = 0; i < 5; i++) {
+      await gesture.moveBy(const Offset(30, 0));
+      await tester.pump();
+    }
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(rootRatios(c).first, greaterThan(0.5));
+    await tap(tester, find.byTooltip('Undo'));
+    expect(rootRatios(c), [0.5, 0.5]);
+    expect(status('windows in tab: 2'), findsOneWidget);
   });
 
   testWidgets('float, drag, raise, dock', (tester) async {
