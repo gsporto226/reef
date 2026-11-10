@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show Axis, Rect;
 import 'package:formularium/features/localization/localizable_interface.dart';
+import 'package:reef_fp/result.dart';
 import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
+import 'package:reef/features/windowing/_implementations/shell_platform.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 
@@ -740,8 +742,10 @@ class WindowingController {
   /// With [undo], each layout-changing batch records one entry on it
   /// (spec §4), published back through a [WindowingUndoHost].
   /// With [interceptor], every dispatched command is decided on first.
+  /// With [platform], [openShell] opens real shells.
   WindowingController(
-      {WindowingDoc? initial, UndoController? undo, this.interceptor})
+      {WindowingDoc? initial, UndoController? undo, this.interceptor,
+      this.platform})
       : _doc = ValueNotifier(initial ?? WindowingDoc.initial()),
         _undo = undo {
     undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
@@ -749,6 +753,12 @@ class WindowingController {
 
   final ValueNotifier<WindowingDoc> _doc;
   final UndoController? _undo;
+
+  /// Opens and closes the real shells; null for a single-shell app.
+  final ShellPlatform? platform;
+
+  ShellCapabilities get capabilities =>
+      ShellCapabilities(canPopOut: platform?.isSupported ?? false);
 
   ValueListenable<WindowingDoc> get doc => _doc;
 
@@ -833,6 +843,37 @@ class WindowingController {
     final shell = ShellId.generate();
     dispatch(AttachShell(shell, tabId: TabId.generate()));
     return shell;
+  }
+
+  /// Opens a real shell, then attaches it to the doc holding one empty tab,
+  /// or one tab showing [buffer], and focuses it. Returns its id. Fails with
+  /// `unsupported` without a supported platform, with the platform's error
+  /// when the open fails (the doc is untouched), and with `refused` when an
+  /// interceptor keeps the shell out of the doc (the real shell is closed).
+  Future<Result<ShellError, ShellId>> openShell({BufferId? buffer}) async {
+    final platform = this.platform;
+    if (platform == null || !platform.isSupported) {
+      return const Err(ShellError(ShellErrorKind.unsupported));
+    }
+    final shell = ShellId.generate();
+    final tab = TabId.generate();
+    final batch = [
+      AttachShell(shell, tabId: tab),
+      if (buffer != null) ...[
+        NewTab(
+            shellId: shell,
+            tabId: TabId.generate(),
+            buffer: (WindowId.generate(), buffer)),
+        CloseTab(tab),
+      ],
+    ];
+    if (await platform.open(shell) case Err(:final value)) return Err(value);
+    dispatchAll(batch);
+    if (!_doc.value.shells.containsKey(shell)) {
+      platform.close(shell);
+      return const Err(ShellError(ShellErrorKind.refused));
+    }
+    return Ok(shell);
   }
 
   void activateShell(ShellId shellId) => dispatch(ActivateShell(shellId));
