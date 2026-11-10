@@ -112,8 +112,9 @@ Dispatch semantics:
   `Future<Result<ShellError, ShellId>>` and open the real shell first, then
   dispatch the batch (`AttachShell`, the tab, close the placeholder tab) on
   success, so the doc never claims a shell that does not exist. A batch the
-  doc would refuse fails with `refused` before any real shell opens; a batch
-  an interceptor vetoes closes the real shell it opened. `closeShell` keeps
+  doc would refuse fails with `refused` before any real shell opens; the batch is
+  all or nothing: if an interceptor keeps it from landing whole, nothing is
+  published and the real shell it opened closes. `closeShell` keeps
   its signature: it dispatches first, and every shell that leaves a
   published doc has its real shell closed best-effort. Without a platform, or
   where it is unsupported, the open intents return `unsupported` and the doc

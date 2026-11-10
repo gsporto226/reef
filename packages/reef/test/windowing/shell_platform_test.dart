@@ -113,6 +113,24 @@ void main() {
         expect(c.doc.value, same(before));
       },
     );
+
+    test(
+      'a vetoed NewTab closes the opened shell once and returns refused',
+      () async {
+        final vetoes = <CommandVeto?>[];
+        c.vetoes.addListener(() => vetoes.add(c.vetoes.value));
+        c.interceptor = (doc, command) => command is NewTab
+            ? const CommandDecision.veto(UndoLabel('No'))
+            : const CommandDecision.approve();
+        final before = c.doc.value;
+        final result = await c.openShell(buffer: BufferId.manual('page'));
+        expect(result.getErrOrNull()!.kind, ShellErrorKind.refused);
+        expect(platform.opened, hasLength(1));
+        expect(platform.closed, platform.opened);
+        expect(c.doc.value, same(before));
+        expect(vetoes.single!.command, isA<NewTab>());
+      },
+    );
   });
 
   group('popOutTab', () {
@@ -213,6 +231,22 @@ void main() {
       expect(platform.opened, hasLength(1));
       expect(platform.closed, platform.opened);
       expect(c.doc.value, same(before));
+    });
+
+    test('a vetoed MoveTab closes the opened shell once, refused', () async {
+      final vetoes = <CommandVeto?>[];
+      c.vetoes.addListener(() => vetoes.add(c.vetoes.value));
+      c.interceptor = (doc, command) => command is MoveTab
+          ? const CommandDecision.veto(UndoLabel('No'))
+          : const CommandDecision.approve();
+      final before = c.doc.value;
+      final result = await c.popOutTab(b);
+      expect(result.getErrOrNull()!.kind, ShellErrorKind.refused);
+      expect(platform.opened, hasLength(1));
+      expect(platform.closed, platform.opened);
+      expect(c.doc.value, same(before));
+      expect(c.doc.value.shells[source]!.tabIds, [a, b, third]);
+      expect(vetoes.single!.command, isA<MoveTab>());
     });
   });
 

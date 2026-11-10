@@ -78,10 +78,10 @@ class _ShellDelegate with windowing.WindowControllerDelegate {
   final ShellId id;
 
   @override
-  void onWindowCloseRequested(windowing.WindowController controller) {
-    final doc = platform._controller;
-    if (doc != null && doc.doc.value.shells.length > 1) {
-      doc.closeShell(id);
+  void onWindowCloseRequested(windowing.WindowController window) {
+    final controller = platform._controller;
+    if (controller != null && controller.doc.value.shells.length > 1) {
+      controller.closeShell(id);
     } else {
       platform.close(id);
     }
