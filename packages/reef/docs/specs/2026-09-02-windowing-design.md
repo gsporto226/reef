@@ -208,9 +208,9 @@ Projections:
 
 ```dart
 typedef WindowingProjection = Widget Function(
-    BuildContext context, WindowingController controller, ShellId windowId);
+    BuildContext context, WindowingController controller, ShellId shellId);
 typedef WindowingProjectionPolicy = WindowingProjection Function(
-    BuildContext context, WindowingController controller, ShellId windowId);
+    BuildContext context, WindowingController controller, ShellId shellId);
 ```
 
 Two reference assemblies ship as widgets: `DesktopProjection` (one

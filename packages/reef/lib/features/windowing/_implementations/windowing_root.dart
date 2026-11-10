@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:listenable_plus/listenable_plus.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
+import 'package:reef/features/responsive/_implementations/screen_type_layout.dart';
 import 'package:reef/features/windowing/_implementations/window_resize_handle.dart';
 import 'package:reef/features/windowing/_implementations/windowing_controller.dart';
 import 'package:reef/features/windowing/_implementations/windowing_delegate.dart';
@@ -22,8 +23,8 @@ typedef ShellSurfaceBuilder = Widget Function(
 );
 
 /// The top of a windowing UI: installs [WindowingScope] and [delegate] over
-/// [child]. Without
-/// a [child] it draws the focused shell through a [ShellHost].
+/// [child]. Without a [child] it draws the focused shell through the
+/// delegate's [WindowingDelegate.projectionPolicy].
 class WindowingRoot extends StatelessWidget {
   const WindowingRoot({
     super.key,
@@ -51,7 +52,11 @@ class WindowingRoot extends StatelessWidget {
           _Select<ShellId>(
             id: #focusedShell,
             selector: (doc) => doc.focusedShellId,
-            builder: (_, shellId) => ShellHost(shellId),
+            builder: (context, shellId) => delegate.projectionPolicy(
+              context,
+              controller,
+              shellId,
+            )(context, controller, shellId),
           ),
     ),
   );
@@ -136,13 +141,28 @@ class TabCanvas extends StatelessWidget {
           if (root == null)
             delegate.emptyBuilder(context, tabId)
           else
-            delegate.windowArrangement.builder?.call(context, tabId) ??
-                _node(context, root),
+            _arranged(context, root),
           FloatingLayer(TabScope(tabId)),
         ],
       );
     },
   );
+
+  Widget _arranged(BuildContext context, WindowNode root) {
+    final arrangement =
+        WindowingDelegateScope.of(context).windowArrangement ??
+        (screenTypeOf(context) == ScreenType.desktop
+            ? WindowArrangement.flexTree
+            : WindowArrangement.focusedOnly);
+    if (arrangement.builder case final builder?) return builder(context, tabId);
+    if (!arrangement.focused) return _node(context, root);
+    return _Select<WindowId?>(
+      id: tabId.value,
+      selector: (doc) => doc.tabs[tabId]?.activeWindowId,
+      builder: (_, windowId) =>
+          windowId == null ? const SizedBox.shrink() : WindowHost(windowId),
+    );
+  }
 
   Widget _node(BuildContext context, WindowNode node) => switch (node) {
     WindowLeaf(:final id) => WindowHost(id),

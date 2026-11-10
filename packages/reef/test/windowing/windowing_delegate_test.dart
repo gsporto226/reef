@@ -101,7 +101,7 @@ void main() {
     final c = await _pump(tester);
     c.activateTab(_t2);
     await tester.pump();
-    expect(find.byType(Text), findsNothing);
+    expect(find.textContaining('page'), findsNothing);
 
     await _pump(
       tester,
@@ -241,6 +241,12 @@ void main() {
     Widget floating(BuildContext _, WindowId _, Rect? _, int _, Widget w) => w;
     CommandDecision interceptor(WindowingDoc _, WindowingCommand _) =>
         const CommandDecision.approve();
+    WindowingProjection policy(
+      BuildContext _,
+      WindowingController _,
+      ShellId _,
+    ) =>
+        (_, _, _) => const SizedBox();
     const labels = WindowingLabels();
     final arrangement = WindowArrangement.custom((_, _) => const SizedBox());
     const base = WindowingDelegate();
@@ -255,6 +261,7 @@ void main() {
       splitter: splitter,
       floating: floating,
       interceptor: interceptor,
+      projectionPolicy: policy,
     );
     expect(
       (
@@ -267,6 +274,7 @@ void main() {
         d.splitter,
         d.floating,
         d.interceptor,
+        d.projectionPolicy,
       ),
       (
         chrome,
@@ -278,6 +286,7 @@ void main() {
         splitter,
         floating,
         interceptor,
+        policy,
       ),
     );
     expect(base.copyWith().windowChrome, base.windowChrome);
@@ -318,6 +327,6 @@ void main() {
         },
       ),
     );
-    expect(delegate.windowArrangement, WindowArrangement.flexTree);
+    expect(delegate.windowArrangement, isNull);
   });
 }

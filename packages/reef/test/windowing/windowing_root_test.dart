@@ -101,13 +101,14 @@ void main() {
     expect('$error', contains('No WindowingRoot found'));
   });
 
-  testWidgets('the root draws the focused shell\'s active tab, children '
-      'sized by their ratios', (tester) async {
+  testWidgets('the root draws the focused shell\'s active tab under its '
+      'tab strip, children sized by their ratios', (tester) async {
     await _pump(tester, _mixed());
-    // Less the 8px resize handle between siblings.
-    expect(_sizeOf(tester, 'A'), const Size(198, 600));
-    expect(_sizeOf(tester, 'B'), const Size(594, 296));
-    expect(_sizeOf(tester, 'C'), const Size(594, 296));
+    // Less the 14px tab strip, and the 8px resize handle between siblings.
+    expect(find.text('Tab 1'), findsOneWidget);
+    expect(_sizeOf(tester, 'A'), const Size(198, 586));
+    expect(_sizeOf(tester, 'B'), const Size(594, 289));
+    expect(_sizeOf(tester, 'C'), const Size(594, 289));
   });
 
   testWidgets('an empty tab renders a blank placeholder', (tester) async {

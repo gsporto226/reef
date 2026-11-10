@@ -4,6 +4,7 @@ import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/window_resize_handle.dart';
 import 'package:reef/features/windowing/_implementations/windowing_controller.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
+import 'package:reef/features/windowing/_implementations/windowing_projection.dart';
 import 'package:reef/features/windowing/_implementations/windowing_root.dart';
 
 /// Wraps window [windowId]'s [page]; [focused] while it is its tab's active
@@ -49,16 +50,23 @@ typedef FloatingBuilder = Widget Function(
 );
 
 /// How a tab's windows show: the window tree as nested flexes ([flexTree]),
-/// or a [custom] builder given the tab id.
+/// the active window alone ([focusedOnly]), or a [custom] builder given the
+/// tab id.
 @immutable
 final class WindowArrangement {
-  const WindowArrangement._(this.builder);
+  const WindowArrangement._(this.builder, {this.focused = false});
 
   /// A custom arrangement, e.g. a window carousel. The windows' pages are
   /// drawn by placing a [WindowHost] per window.
   const WindowArrangement.custom(
     Widget Function(BuildContext context, TabId tabId) this.builder,
-  );
+  ) : focused = false;
+
+  /// Only the tab's active window, filling the tab.
+  static const focusedOnly = WindowArrangement._(null, focused: true);
+
+  /// Whether this is [focusedOnly].
+  final bool focused;
 
   /// The window tree as nested flexes sized by their ratios, a
   /// [WindowResizeHandle] between the children of every branch.
@@ -97,11 +105,12 @@ class WindowingDelegate {
     this.emptyBuilder = _blankTab,
     this.hibernatingBuilder = _blankWindow,
     this.labels = const WindowingLabels(),
-    this.windowArrangement = WindowArrangement.flexTree,
+    this.windowArrangement,
     this.tabStrip = _defaultTabStrip,
     this.splitter = _thinDivider,
     this.floating = _floatingFrame,
     this.interceptor,
+    this.projectionPolicy = defaultWindowingProjection,
   });
 
   /// Default: a border on the focused window only.
@@ -116,8 +125,10 @@ class WindowingDelegate {
   /// Default: no labels.
   final WindowingLabels labels;
 
-  /// Default: [WindowArrangement.flexTree].
-  final WindowArrangement windowArrangement;
+  /// Default (null): by screen class, [WindowArrangement.flexTree] on
+  /// expanded screens, [WindowArrangement.focusedOnly] on medium and compact
+  /// ones.
+  final WindowArrangement? windowArrangement;
 
   /// Default: a plain row of tab names over [TabStripSlot]; a tap activates,
   /// the `×` closes.
@@ -135,6 +146,10 @@ class WindowingDelegate {
   /// command applies.
   final WindowingInterceptor? interceptor;
 
+  /// Picks the projection [WindowingRoot] draws when given no child.
+  /// Default: [defaultWindowingProjection].
+  final WindowingProjectionPolicy projectionPolicy;
+
   WindowingDelegate copyWith({
     WindowChromeBuilder? windowChrome,
     EmptyTabBuilder? emptyBuilder,
@@ -145,6 +160,7 @@ class WindowingDelegate {
     SplitterBuilder? splitter,
     FloatingBuilder? floating,
     WindowingInterceptor? interceptor,
+    WindowingProjectionPolicy? projectionPolicy,
   }) => WindowingDelegate(
     windowChrome: windowChrome ?? this.windowChrome,
     emptyBuilder: emptyBuilder ?? this.emptyBuilder,
@@ -155,6 +171,7 @@ class WindowingDelegate {
     splitter: splitter ?? this.splitter,
     floating: floating ?? this.floating,
     interceptor: interceptor ?? this.interceptor,
+    projectionPolicy: projectionPolicy ?? this.projectionPolicy,
   );
 
   static Widget _floatingFrame(

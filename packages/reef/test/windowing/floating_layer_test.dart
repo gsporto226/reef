@@ -70,6 +70,7 @@ void main() {
           bufferBuilder: (_, buffer) =>
               SizedBox.expand(key: ValueKey('page ${buffer.value}')),
           delegate: delegate,
+          child: const ShellHost(_shell),
         ),
       ),
     );
