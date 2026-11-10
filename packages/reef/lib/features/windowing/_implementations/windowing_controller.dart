@@ -786,6 +786,10 @@ class WindowingController {
       dispatchAll([ResizeWindow(windowId, ratios, levels: levels)],
           coalesceKey: coalesceKey);
 
+  /// Ends the current coalescing run on the undo timeline, if any: the next
+  /// batch is its own undo step.
+  void sealCoalescing() => _undo?.sealCoalescing();
+
   void attachBuffer(WindowId windowId, BufferId buffer) =>
       dispatch(AttachBuffer(windowId, buffer));
 

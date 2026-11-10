@@ -54,7 +54,7 @@ void main() {
     await tester.tap(find.byTooltip('Split right'));
     await tester.pumpAndSettle();
     final split = c.doc.value;
-    final divider = find.byKey(const ValueKey('divider'));
+    final divider = find.byType(WindowResizeHandle);
 
     await tester.drag(divider, const Offset(60, 0));
     await tester.pumpAndSettle();

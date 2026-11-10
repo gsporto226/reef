@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:listenable_plus/listenable_plus.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
+import 'package:reef/features/windowing/_implementations/window_resize_handle.dart';
 import 'package:reef/features/windowing/_implementations/windowing_controller.dart';
 import 'package:reef/features/windowing/_implementations/windowing_delegate.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
@@ -104,18 +105,12 @@ class ShellHost extends StatelessWidget {
 
 /// Renders tab [tabId]'s windows through the delegate's
 /// [WindowingDelegate.windowArrangement]; the default flex tree sizes branch
-/// children by their ratios along the branch axis, a [WindowHost] per tree
-/// window. An empty tab shows the delegate's [WindowingDelegate.emptyBuilder].
+/// children by their ratios along the branch axis with a
+/// [WindowResizeHandle] between them, a [WindowHost] per tree window. An empty tab shows the delegate's [WindowingDelegate.emptyBuilder].
 class TabCanvas extends StatelessWidget {
-  const TabCanvas(this.tabId, {super.key, this.dividerBuilder});
+  const TabCanvas(this.tabId, {super.key});
 
   final TabId tabId;
-
-  /// Drawn between child `index - 1` and child `index` of [WindowBranch]es.
-  // ponytail: stopgap for the playground's divider, until the resize handle
-  // unit (#17) replaces it.
-  final Widget Function(BuildContext context, WindowBranch branch, int index)?
-  dividerBuilder;
 
   @override
   Widget build(BuildContext context) => _Select<WindowNode?>(
@@ -135,8 +130,7 @@ class TabCanvas extends StatelessWidget {
       direction: axis,
       children: [
         for (final (i, child) in children.indexed) ...[
-          if (i > 0 && dividerBuilder != null)
-            dividerBuilder!(context, node, i),
+          if (i > 0) WindowResizeHandle(branch: node, index: i),
           Expanded(
             flex: (ratios[i] * 1000).round(),
             child: _node(context, child),

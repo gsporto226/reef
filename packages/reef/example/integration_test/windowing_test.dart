@@ -71,13 +71,13 @@ void main() {
     expect(status('windows in tab: 2'), findsOneWidget);
     expect(rootRatios(c), [0.5, 0.5]);
 
-    await tester.drag(find.byKey(const ValueKey('divider')), const Offset(120, 0));
+    await tester.drag(find.byType(WindowResizeHandle), const Offset(120, 0));
     await tester.pumpAndSettle();
     expect(rootRatios(c).first, greaterThan(0.5));
 
     await tap(tester, find.byTooltip('Split down').first);
     await tester.drag(
-        find.byKey(const ValueKey('divider')).first, const Offset(0, 100));
+        find.byType(WindowResizeHandle).first, const Offset(0, 100));
     await tester.pumpAndSettle();
     expect(status('windows in tab: 3'), findsOneWidget);
 
@@ -86,7 +86,7 @@ void main() {
     final before = rootRatios(c).first;
     // Depth-first order: left branch's divider, root's divider, right's.
     await tester.drag(
-        find.byKey(const ValueKey('divider')).at(1), const Offset(80, 0));
+        find.byType(WindowResizeHandle).at(1), const Offset(80, 0));
     await tester.pumpAndSettle();
     expect(rootRatios(c).first, greaterThan(before));
 
@@ -180,7 +180,7 @@ void main() {
 
     // One drag, many ResizeWindow updates: one undo step.
     final gesture = await tester
-        .startGesture(tester.getCenter(find.byKey(const ValueKey('divider'))));
+        .startGesture(tester.getCenter(find.byType(WindowResizeHandle)));
     for (var i = 0; i < 5; i++) {
       await gesture.moveBy(const Offset(30, 0));
       await tester.pump();

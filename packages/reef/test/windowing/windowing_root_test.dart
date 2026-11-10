@@ -104,9 +104,10 @@ void main() {
   testWidgets('the root draws the focused shell\'s active tab, children '
       'sized by their ratios', (tester) async {
     await _pump(tester, _mixed());
-    expect(_sizeOf(tester, 'A'), const Size(200, 600));
-    expect(_sizeOf(tester, 'B'), const Size(600, 300));
-    expect(_sizeOf(tester, 'C'), const Size(600, 300));
+    // Less the 8px resize handle between siblings.
+    expect(_sizeOf(tester, 'A'), const Size(198, 600));
+    expect(_sizeOf(tester, 'B'), const Size(594, 296));
+    expect(_sizeOf(tester, 'C'), const Size(594, 296));
   });
 
   testWidgets('an empty tab renders a blank placeholder', (tester) async {

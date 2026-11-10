@@ -221,6 +221,7 @@ void main() {
     Widget empty(BuildContext _, TabId _) => const SizedBox();
     Widget waking(BuildContext _, WindowId _, BufferId _) => const SizedBox();
     Widget strip(BuildContext _, ShellId _) => const SizedBox();
+    Widget splitter(BuildContext _, Axis _) => const SizedBox();
     const labels = WindowingLabels();
     final arrangement = WindowArrangement.custom((_, _) => const SizedBox());
     const base = WindowingDelegate();
@@ -232,6 +233,7 @@ void main() {
       labels: labels,
       windowArrangement: arrangement,
       tabStrip: strip,
+      splitter: splitter,
     );
     expect(
       (
@@ -241,8 +243,9 @@ void main() {
         d.labels,
         d.windowArrangement,
         d.tabStrip,
+        d.splitter,
       ),
-      (chrome, empty, waking, labels, arrangement, strip),
+      (chrome, empty, waking, labels, arrangement, strip, splitter),
     );
     expect(base.copyWith().windowChrome, base.windowChrome);
   });

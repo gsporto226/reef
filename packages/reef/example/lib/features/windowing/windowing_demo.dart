@@ -1,6 +1,5 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/rendering.dart' show RenderFlex;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_example/undo_providers.dart';
@@ -69,10 +68,7 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
                             )
                           : Padding(
                               padding: const EdgeInsets.all(4),
-                              child: TabCanvas(
-                                shell.activeTabId,
-                                dividerBuilder: _divider,
-                              ),
+                              child: TabCanvas(shell.activeTabId),
                             ),
                     ),
                     for (final (i, w) in _visibleFloating(doc, shell).indexed)
@@ -169,33 +165,6 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
           ],
         ),
       ),
-    );
-  }
-
-  /// The playground's divider between child `i - 1` and child `i`.
-  Widget _divider(BuildContext context, WindowBranch branch, int i) {
-    // ResizeWindow addresses a branch through any window under it: descend
-    // first children to a leaf, counting the branches passed below this one.
-    var levels = 0;
-    var first = branch.children.first;
-    while (first is WindowBranch) {
-      first = first.children.first;
-      levels++;
-    }
-    final handle = (first as WindowLeaf).id;
-    return _Divider(
-      key: const ValueKey('divider'),
-      axis: branch.axis,
-      ratios: branch.ratios,
-      // Keyed per handle so one drag is one undo step (spec §4); sealed on
-      // release so the next drag is its own step.
-      onDrag: (start, fraction) => _c.resizeWindow(
-        handle,
-        _shift(start, i - 1, fraction),
-        levels: levels,
-        coalesceKey: (#resize, handle),
-      ),
-      onDragEnd: _undo.sealCoalescing,
     );
   }
 
@@ -467,87 +436,4 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     icon: RotatedBox(quarterTurns: quarterTurns, child: Icon(icon)),
     onPressed: onPressed,
   );
-}
-
-/// Moves [delta] of the total from ratio `i + 1` to ratio `i`, keeping both
-/// at least 5% and the sum at exactly one.
-List<double> _shift(List<double> ratios, int i, double delta) {
-  final pair = ratios[i] + ratios[i + 1];
-  final a = (ratios[i] + delta).clamp(0.05, pair - 0.05);
-  final out = [...ratios]
-    ..[i] = a
-    ..[i + 1] = pair - a;
-  // Absorb float drift into the last ratio so ResizeWindow accepts the sum.
-  out[out.length - 1] += 1 - out.fold(0.0, (s, r) => s + r);
-  return out;
-}
-
-/// A drag handle between two children. Reports the ratios at drag start and
-/// the offset since then, so updates landing in the same frame never stack on
-/// stale ratios.
-class _Divider extends StatefulWidget {
-  const _Divider({
-    super.key,
-    required this.axis,
-    required this.ratios,
-    required this.onDrag,
-    required this.onDragEnd,
-  });
-
-  final Axis axis;
-  final List<double> ratios;
-
-  /// Reports the ratios at drag start and the offset since then as a
-  /// fraction of the branch extent.
-  final void Function(List<double> start, double fraction) onDrag;
-  final VoidCallback onDragEnd;
-
-  @override
-  State<_Divider> createState() => _DividerState();
-}
-
-class _DividerState extends State<_Divider> {
-  List<double> _start = const [];
-  double _offset = 0;
-
-  void _begin(DragStartDetails _) {
-    _start = widget.ratios;
-    _offset = 0;
-  }
-
-  void _update(double delta) {
-    final flex = context.findAncestorRenderObjectOfType<RenderFlex>()!.size;
-    final extent = widget.axis == Axis.horizontal ? flex.width : flex.height;
-    widget.onDrag(_start, (_offset += delta) / extent);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final horizontal = widget.axis == Axis.horizontal;
-    return MouseRegion(
-      cursor: horizontal
-          ? SystemMouseCursors.resizeColumn
-          : SystemMouseCursors.resizeRow,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragStart: horizontal ? _begin : null,
-        onHorizontalDragUpdate: horizontal ? (d) => _update(d.delta.dx) : null,
-        onHorizontalDragEnd: horizontal ? (_) => widget.onDragEnd() : null,
-        onVerticalDragStart: horizontal ? null : _begin,
-        onVerticalDragUpdate: horizontal ? null : (d) => _update(d.delta.dy),
-        onVerticalDragEnd: horizontal ? null : (_) => widget.onDragEnd(),
-        child: SizedBox(
-          width: horizontal ? 8 : null,
-          height: horizontal ? null : 8,
-          child: Center(
-            child: Container(
-              width: horizontal ? 2 : 40,
-              height: horizontal ? 40 : 2,
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }

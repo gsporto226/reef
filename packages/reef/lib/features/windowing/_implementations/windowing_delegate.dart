@@ -1,6 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
+import 'package:reef/features/windowing/_implementations/window_resize_handle.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 import 'package:reef/features/windowing/_implementations/windowing_root.dart';
 
@@ -30,6 +31,10 @@ typedef TabStripBuilder = Widget Function(
   ShellId shellId,
 );
 
+/// Draws the divider of a [WindowResizeHandle] between children laid out
+/// along [axis].
+typedef SplitterBuilder = Widget Function(BuildContext context, Axis axis);
+
 /// How a tab's windows show: the window tree as nested flexes ([flexTree]),
 /// or a [custom] builder given the tab id.
 @immutable
@@ -42,7 +47,8 @@ final class WindowArrangement {
     Widget Function(BuildContext context, TabId tabId) this.builder,
   );
 
-  /// The window tree as nested flexes sized by their ratios.
+  /// The window tree as nested flexes sized by their ratios, a
+  /// [WindowResizeHandle] between the children of every branch.
   static const flexTree = WindowArrangement._(null);
 
   /// Null for [flexTree].
@@ -80,6 +86,7 @@ class WindowingDelegate {
     this.labels = const WindowingLabels(),
     this.windowArrangement = WindowArrangement.flexTree,
     this.tabStrip = _defaultTabStrip,
+    this.splitter = _thinDivider,
   });
 
   /// Default: a border on the focused window only.
@@ -101,6 +108,9 @@ class WindowingDelegate {
   /// the `×` closes.
   final TabStripBuilder tabStrip;
 
+  /// Default: a 1px grey line centred in an 8px strip.
+  final SplitterBuilder splitter;
+
   WindowingDelegate copyWith({
     WindowChromeBuilder? windowChrome,
     EmptyTabBuilder? emptyBuilder,
@@ -108,6 +118,7 @@ class WindowingDelegate {
     WindowingLabels? labels,
     WindowArrangement? windowArrangement,
     TabStripBuilder? tabStrip,
+    SplitterBuilder? splitter,
   }) => WindowingDelegate(
     windowChrome: windowChrome ?? this.windowChrome,
     emptyBuilder: emptyBuilder ?? this.emptyBuilder,
@@ -115,6 +126,19 @@ class WindowingDelegate {
     labels: labels ?? this.labels,
     windowArrangement: windowArrangement ?? this.windowArrangement,
     tabStrip: tabStrip ?? this.tabStrip,
+    splitter: splitter ?? this.splitter,
+  );
+
+  static Widget _thinDivider(BuildContext _, Axis axis) => SizedBox(
+    width: axis == Axis.horizontal ? 8 : null,
+    height: axis == Axis.horizontal ? null : 8,
+    child: Center(
+      child: Container(
+        width: axis == Axis.horizontal ? 1 : null,
+        height: axis == Axis.horizontal ? null : 1,
+        color: const Color(0xFFBDBDBD),
+      ),
+    ),
   );
 
   static Widget _focusBorder(
