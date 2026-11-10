@@ -96,6 +96,19 @@ void main() {
     expect(find.textContaining('Empty tab'), findsOneWidget);
   });
 
+  testWidgets('a fifth window is vetoed with its reason', (tester) async {
+    await pump(tester, buffer: const BufferId.manual('b'));
+    await tap(tester, find.byTooltip('Split right'));
+    await tap(tester, find.byTooltip('Split down').first);
+    await tap(tester, find.byTooltip('Split down').last);
+    expect(status('windows in tab: 4'), findsOneWidget);
+    expect(find.textContaining('Vetoed'), findsNothing);
+
+    await tap(tester, find.byTooltip('Split down').first);
+    expect(status('windows in tab: 4'), findsOneWidget);
+    expect(find.text('Vetoed: At most 4 windows per tab'), findsOneWidget);
+  });
+
   testWidgets('activate, push, back, forward', (tester) async {
     await pump(tester, buffer: const BufferId.manual('b'));
     await tap(tester, find.byTooltip('Open new buffer'));

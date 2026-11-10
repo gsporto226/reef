@@ -34,6 +34,7 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     delegate: WindowingDelegate(
       windowChrome: _chrome,
       tabStrip: (context, shellId) => _tabBar(_c.doc.value, shellId),
+      interceptor: _atMostFourWindows,
       emptyBuilder: (_, _) => const Center(
         child: Text('Empty tab: dock a floating window here, or close it'),
       ),
@@ -309,6 +310,19 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     );
   }
 
+  /// The playground's app rule: a split that would put a fifth window in a
+  /// tab is vetoed, and the status bar shows why.
+  static CommandDecision _atMostFourWindows(
+    WindowingDoc doc,
+    WindowingCommand command,
+  ) => command is SplitWindow &&
+          doc.tabs.values.any(
+            (t) => (t.root?.windowIds.length ?? 0) >= 4 &&
+                t.root!.windowIds.contains(command.windowId),
+          )
+      ? const CommandDecision.veto(UndoLabel('At most 4 windows per tab'))
+      : const CommandDecision.approve();
+
   Widget _statusBar(
     WindowingDoc doc,
     List<ShellId> shellIds,
@@ -321,7 +335,7 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
       'Tab ${shell.tabIds.indexOf(shell.activeTabId) + 1}',
       if (window != null) doc.windows[window]!.history.current.value,
     ].join(' > ');
-    return Container(
+    final bar = Container(
       width: double.infinity,
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -330,6 +344,17 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
         'windows in tab: ${tab.root?.windowIds.length ?? 0}    '
         'floating: ${doc.floating.length}',
       ),
+    );
+    return Column(
+      children: [
+        ValueListenableBuilder<CommandVeto?>(
+          valueListenable: _c.vetoes,
+          builder: (_, veto, _) => veto == null
+              ? const SizedBox.shrink()
+              : Text('Vetoed: ${veto.reason.localize()}'),
+        ),
+        bar,
+      ],
     );
   }
 
