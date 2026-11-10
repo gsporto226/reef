@@ -224,19 +224,20 @@ class FloatingLayer extends StatelessWidget {
   final FloatScope scope;
 
   @override
-  Widget build(BuildContext context) => _Select<_Floats>(
+  Widget build(BuildContext context) => _Select<List<(WindowId, Rect?)>>(
     id: scope,
-    selector: (doc) => _Floats([
+    equals: listEquals,
+    selector: (doc) => [
       for (final MapEntry(:key, :value)
           in doc.floating.entries.where((e) => e.value.scope == scope).toList()
             ..sort((a, b) => a.value.zIndex.compareTo(b.value.zIndex)))
         (key, value.geometry),
-    ]),
+    ],
     builder: (context, floats) {
       final delegate = WindowingDelegateScope.of(context);
       return Stack(
         children: [
-          for (final (i, (id, geometry)) in floats.windows.indexed)
+          for (final (i, (id, geometry)) in floats.indexed)
             Positioned.fill(
               key: ValueKey(id.value),
               child: delegate.floating(context, id, geometry, i, WindowHost(id)),
@@ -245,22 +246,6 @@ class FloatingLayer extends StatelessWidget {
       );
     },
   );
-}
-
-/// A scope's floating windows and their hints, bottom to top, compared by
-/// value so the layer rebuilds only when they change.
-@immutable
-class _Floats {
-  const _Floats(this.windows);
-
-  final List<(WindowId, Rect?)> windows;
-
-  @override
-  bool operator ==(Object other) =>
-      other is _Floats && listEquals(other.windows, windows);
-
-  @override
-  int get hashCode => Object.hashAll(windows);
 }
 
 /// What a [TabStripSlot] hands its builder: a shell's tabs and the intents
@@ -339,15 +324,18 @@ class _PageKey extends GlobalKey {
 }
 
 /// Rebuilds [builder] only when [selector]'s value over the doc changes by
-/// value equality. [id] names the selection: a new id selects afresh.
+/// value equality, or by [equals] when given. [id] names the selection: a
+/// new id selects afresh.
 class _Select<T> extends StatefulWidget {
   const _Select({
     required this.id,
     required this.selector,
     required this.builder,
+    this.equals,
   });
 
   final Object id;
+  final bool Function(T previous, T next)? equals;
   final T Function(WindowingDoc doc) selector;
   final Widget Function(BuildContext context, T value) builder;
 
@@ -357,16 +345,27 @@ class _Select<T> extends StatefulWidget {
 
 class _SelectState<T> extends State<_Select<T>> {
   ValueListenable<WindowingDoc>? _doc;
-  late MappedValueListenable<T, WindowingDoc> _selection;
+  late MappedValueListenable<T, WindowingDoc> _mapped;
+  late DistinctValueNotifier<T> _selection;
 
   void _listen(ValueListenable<WindowingDoc> doc) {
-    if (_doc != null) _selection.dispose();
+    if (_doc != null) _dispose();
     _doc = doc;
-    _selection = MappedValueListenable(
+    _mapped = MappedValueListenable(
       widget.selector(doc.value),
       mapper: widget.selector,
       source: doc,
     );
+    _selection = DistinctValueNotifier(
+      _mapped.value,
+      source: _mapped,
+      equals: widget.equals,
+    );
+  }
+
+  void _dispose() {
+    _selection.dispose();
+    _mapped.dispose();
   }
 
   @override
@@ -384,7 +383,7 @@ class _SelectState<T> extends State<_Select<T>> {
 
   @override
   void dispose() {
-    _selection.dispose();
+    _dispose();
     super.dispose();
   }
 

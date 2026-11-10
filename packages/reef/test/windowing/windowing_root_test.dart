@@ -181,6 +181,20 @@ void main() {
     expect(find.text('A:1'), findsOneWidget);
   });
 
+  testWidgets('a new buffer builder on the root redraws the pages', (
+    tester,
+  ) async {
+    final controller = await _pump(tester, _mixed());
+    await tester.pumpWidget(Directionality(
+      textDirection: TextDirection.ltr,
+      child: WindowingRoot(
+        controller: controller,
+        bufferBuilder: (_, buffer) => Text('new ${buffer.value}'),
+      ),
+    ));
+    expect(find.text('new A'), findsOneWidget);
+  });
+
   testWidgets('tapping a window activates it', (tester) async {
     final c = await _pump(tester, _mixed());
     await tester.tap(find.text('C:0'));
