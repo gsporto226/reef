@@ -37,5 +37,8 @@ end_of_record
   assert(!isGated('packages/reef/test/x_test.dart'));
   assert(!isGated('tool/coverage.dart'));
 
+  assert(!hasCode("/// Barrel.\nlibrary;\n\nexport 'a.dart';\n"));
+  assert(hasCode("export 'a.dart';\nint x = 1;\n"));
+
   print('coverage_test: ok');
 }

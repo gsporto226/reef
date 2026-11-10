@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart' show RenderFlex;
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_example/undo_providers.dart';
@@ -31,67 +32,82 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
   BufferId _nextBuffer() => BufferId.manual('buffer ${++_buffers}');
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<WindowingDoc>(
-        valueListenable: _c.doc,
-        builder: (context, doc, _) {
-          final shellIds = doc.shells.keys.toList();
-          final shell = doc.shells[doc.focusedShellId]!;
-          final tab = doc.tabs[shell.activeTabId]!;
-          return Column(children: [
+  Widget build(BuildContext context) => WindowingRoot(
+    controller: _c,
+    bufferBuilder: (context, _) => _page(WindowHost.of(context)),
+    child: ValueListenableBuilder<WindowingDoc>(
+      valueListenable: _c.doc,
+      builder: (context, doc, _) {
+        final shellIds = doc.shells.keys.toList();
+        final shell = doc.shells[doc.focusedShellId]!;
+        final tab = doc.tabs[shell.activeTabId]!;
+        return Column(
+          children: [
             _shellBar(doc, shellIds),
             _tabBar(doc, shellIds, shell),
             const Divider(height: 1),
             Expanded(
               child: LayoutBuilder(
-                builder: (context, box) => Stack(children: [
-                  Positioned.fill(
-                    child: tab.root == null
-                        ? const Center(
-                            child: Text('Empty tab: dock a floating window '
-                                'here, or close it'),
-                          )
-                        : Padding(
-                            padding: const EdgeInsets.all(4),
-                            child: _node(doc, tab, tab.root!),
-                          ),
-                  ),
-                  for (final (i, w) in _visibleFloating(doc, shell).indexed)
-                    _floating(doc, shell, w, i, box.biggest),
-                ]),
+                builder: (context, box) => Stack(
+                  children: [
+                    Positioned.fill(
+                      child: tab.root == null
+                          ? const Center(
+                              child: Text(
+                                'Empty tab: dock a floating window '
+                                'here, or close it',
+                              ),
+                            )
+                          : Padding(
+                              padding: const EdgeInsets.all(4),
+                              child: TabCanvas(
+                                shell.activeTabId,
+                                dividerBuilder: _divider,
+                              ),
+                            ),
+                    ),
+                    for (final (i, w) in _visibleFloating(doc, shell).indexed)
+                      _floating(doc, shell, w, i, box.biggest),
+                  ],
+                ),
               ),
             ),
             _statusBar(doc, shellIds, shell),
-          ]);
-        },
-      );
+          ],
+        );
+      },
+    ),
+  );
 
   Widget _shellBar(WindowingDoc doc, List<ShellId> shellIds) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       color: scheme.surfaceContainerHighest,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(children: [
-        const Text('Shells'),
-        const SizedBox(width: 8),
-        for (final (i, id) in shellIds.indexed) ...[
-          InputChip(
-            label: Text('Shell ${i + 1}'),
-            selected: id == doc.focusedShellId,
-            onPressed: () => _c.activateShell(id),
-            onDeleted: shellIds.length > 1 ? () => _c.closeShell(id) : null,
-            deleteButtonTooltipMessage: 'Close shell ${i + 1}',
+      child: Row(
+        children: [
+          const Text('Shells'),
+          const SizedBox(width: 8),
+          for (final (i, id) in shellIds.indexed) ...[
+            InputChip(
+              label: Text('Shell ${i + 1}'),
+              selected: id == doc.focusedShellId,
+              onPressed: () => _c.activateShell(id),
+              onDeleted: shellIds.length > 1 ? () => _c.closeShell(id) : null,
+              deleteButtonTooltipMessage: 'Close shell ${i + 1}',
+            ),
+            const SizedBox(width: 4),
+          ],
+          IconButton(
+            tooltip: 'New shell',
+            icon: const Icon(Icons.add_to_queue),
+            onPressed: _c.attachShell,
           ),
-          const SizedBox(width: 4),
+          const Spacer(),
+          _undoButton('Undo', Icons.undo, _undo.$canUndo, _undo.undo),
+          _undoButton('Redo', Icons.redo, _undo.$canRedo, _undo.redo),
         ],
-        IconButton(
-          tooltip: 'New shell',
-          icon: const Icon(Icons.add_to_queue),
-          onPressed: _c.attachShell,
-        ),
-        const Spacer(),
-        _undoButton('Undo', Icons.undo, _undo.$canUndo, _undo.undo),
-        _undoButton('Redo', Icons.redo, _undo.$canRedo, _undo.redo),
-      ]),
+      ),
     );
   }
 
@@ -99,47 +115,47 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     final scheme = Theme.of(context).colorScheme;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(children: [
-        for (final (i, id) in shell.tabIds.indexed) ...[
-          InputChip(
-            label: Text('Tab ${i + 1}'),
-            selected: id == shell.activeTabId,
-            selectedColor: scheme.primaryContainer,
-            onPressed: () => _c.activateTab(id),
-            onDeleted: () => _c.closeTab(id),
-            deleteButtonTooltipMessage: 'Close tab ${i + 1}',
+      child: Row(
+        children: [
+          for (final (i, id) in shell.tabIds.indexed) ...[
+            InputChip(
+              label: Text('Tab ${i + 1}'),
+              selected: id == shell.activeTabId,
+              selectedColor: scheme.primaryContainer,
+              onPressed: () => _c.activateTab(id),
+              onDeleted: () => _c.closeTab(id),
+              deleteButtonTooltipMessage: 'Close tab ${i + 1}',
+            ),
+            const SizedBox(width: 4),
+          ],
+          IconButton(
+            tooltip: 'New tab',
+            icon: const Icon(Icons.add),
+            onPressed: () => _c.newTab(buffer: _nextBuffer()),
           ),
-          const SizedBox(width: 4),
+          const Spacer(),
+          if (shellIds.length > 1)
+            PopupMenuButton<ShellId>(
+              tooltip: 'Move tab to shell',
+              icon: const Icon(Icons.drive_file_move_outline),
+              onSelected: (to) => _c.moveTab(
+                shell.activeTabId,
+                shellId: to,
+                index: doc.shells[to]!.tabIds.length,
+              ),
+              itemBuilder: (_) => [
+                for (final (i, id) in shellIds.indexed)
+                  if (id != doc.focusedShellId)
+                    PopupMenuItem(value: id, child: Text('To shell ${i + 1}')),
+              ],
+            ),
         ],
-        IconButton(
-          tooltip: 'New tab',
-          icon: const Icon(Icons.add),
-          onPressed: () => _c.newTab(buffer: _nextBuffer()),
-        ),
-        const Spacer(),
-        if (shellIds.length > 1)
-          PopupMenuButton<ShellId>(
-            tooltip: 'Move tab to shell',
-            icon: const Icon(Icons.drive_file_move_outline),
-            onSelected: (to) => _c.moveTab(shell.activeTabId,
-                shellId: to, index: doc.shells[to]!.tabIds.length),
-            itemBuilder: (_) => [
-              for (final (i, id) in shellIds.indexed)
-                if (id != doc.focusedShellId)
-                  PopupMenuItem(value: id, child: Text('To shell ${i + 1}')),
-            ],
-          ),
-      ]),
+      ),
     );
   }
 
-  Widget _node(WindowingDoc doc, TabState tab, WindowNode node) =>
-      switch (node) {
-        WindowLeaf(:final id) => _window(doc, tab, id),
-        WindowBranch() => _branch(doc, tab, node),
-      };
-
-  Widget _branch(WindowingDoc doc, TabState tab, WindowBranch branch) {
+  /// The playground's divider between child `i - 1` and child `i`.
+  Widget _divider(BuildContext context, WindowBranch branch, int i) {
     // ResizeWindow addresses a branch through any window under it: descend
     // first children to a leaf, counting the branches passed below this one.
     var levels = 0;
@@ -149,118 +165,130 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
       levels++;
     }
     final handle = (first as WindowLeaf).id;
-    return LayoutBuilder(builder: (context, box) {
-      final extent =
-          branch.axis == Axis.horizontal ? box.maxWidth : box.maxHeight;
-      return Flex(direction: branch.axis, children: [
-        for (final (i, child) in branch.children.indexed) ...[
-          if (i > 0)
-            _Divider(
-              key: const ValueKey('divider'),
-              axis: branch.axis,
-              ratios: branch.ratios,
-              // Keyed per handle so one drag is one undo step (spec §4);
-              // sealed on release so the next drag is its own step.
-              onDrag: (start, offset) => _c.resizeWindow(
-                  handle, _shift(start, i - 1, offset / extent),
-                  levels: levels, coalesceKey: (#resize, handle)),
-              onDragEnd: _undo.sealCoalescing,
-            ),
-          Expanded(
-            flex: (branch.ratios[i] * 1000).round(),
-            child: _node(doc, tab, child),
-          ),
-        ],
-      ]);
-    });
+    return _Divider(
+      key: const ValueKey('divider'),
+      axis: branch.axis,
+      ratios: branch.ratios,
+      // Keyed per handle so one drag is one undo step (spec §4); sealed on
+      // release so the next drag is its own step.
+      onDrag: (start, fraction) => _c.resizeWindow(
+        handle,
+        _shift(start, i - 1, fraction),
+        levels: levels,
+        coalesceKey: (#resize, handle),
+      ),
+      onDragEnd: _undo.sealCoalescing,
+    );
   }
 
-  Widget _window(WindowingDoc doc, TabState tab, WindowId id) {
-    final scheme = Theme.of(context).colorScheme;
-    final active = id == tab.activeWindowId;
+  /// A tree window's page: its header over its history.
+  Widget _page(WindowId id) {
+    final doc = _c.doc.value;
     return Padding(
       padding: const EdgeInsets.all(2),
-      child: GestureDetector(
-        onTap: () => _c.activateWindow(id),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: active ? scheme.primary : scheme.outlineVariant,
-              width: active ? 2 : 1,
-            ),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Column(children: [
-            _windowHeader(doc, id, floating: false),
-            Expanded(child: _windowBody(doc, id)),
-          ]),
-        ),
+      child: Column(
+        children: [
+          _windowHeader(doc, id, floating: false),
+          Expanded(child: _windowBody(doc, id)),
+        ],
       ),
     );
   }
 
-  Widget _windowHeader(WindowingDoc doc, WindowId id,
-      {required bool floating}) {
+  Widget _windowHeader(
+    WindowingDoc doc,
+    WindowId id, {
+    required bool floating,
+  }) {
     final history = doc.windows[id]!.history;
     final shell = doc.shells[doc.focusedShellId]!;
     return Container(
       color: Theme.of(context).colorScheme.surfaceContainer,
-      child: Row(children: [
-        _icon(Icons.arrow_back, 'Back',
-            history.back.isEmpty ? null : () => _c.popBuffer(id)),
-        _icon(Icons.arrow_forward, 'Forward',
-            history.forward.isEmpty ? null : () => _c.navigateForward(id)),
-        Expanded(
-          child: Text(history.current.value,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600)),
-        ),
-        _icon(Icons.note_add_outlined, 'Open new buffer',
-            () => _c.pushBuffer(id, _nextBuffer())),
-        if (floating)
-          PopupMenuButton<(Axis, DockSide)>(
-            tooltip: 'Dock',
-            icon: const Icon(Icons.vertical_split_outlined, size: 18),
-            onSelected: (to) => _c.dockWindow(id,
-                tabId: shell.activeTabId, axis: to.$1, side: to.$2),
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                  value: (Axis.horizontal, DockSide.before),
-                  child: Text('Dock left')),
-              PopupMenuItem(
-                  value: (Axis.horizontal, DockSide.after),
-                  child: Text('Dock right')),
-              PopupMenuItem(
-                  value: (Axis.vertical, DockSide.before),
-                  child: Text('Dock top')),
-              PopupMenuItem(
-                  value: (Axis.vertical, DockSide.after),
-                  child: Text('Dock bottom')),
-            ],
-          )
-        else ...[
-          _icon(Icons.splitscreen_outlined, 'Split right',
-              () => _c.splitWindow(id, axis: Axis.horizontal),
-              quarterTurns: 1),
-          _icon(Icons.splitscreen_outlined, 'Split down',
-              () => _c.splitWindow(id, axis: Axis.vertical)),
-          PopupMenuButton<FloatScope>(
-            tooltip: 'Float',
-            icon: const Icon(Icons.picture_in_picture_alt_outlined, size: 18),
-            onSelected: (scope) => _c.floatWindow(id, scope: scope),
-            itemBuilder: (_) => [
-              PopupMenuItem(
-                  value: TabScope(shell.activeTabId),
-                  child: const Text('Float over tab')),
-              PopupMenuItem(
-                  value: ShellScope(doc.focusedShellId),
-                  child: const Text('Float over shell')),
-            ],
+      child: Row(
+        children: [
+          _icon(
+            Icons.arrow_back,
+            'Back',
+            history.back.isEmpty ? null : () => _c.popBuffer(id),
           ),
-          _moveMenu(doc, id),
+          _icon(
+            Icons.arrow_forward,
+            'Forward',
+            history.forward.isEmpty ? null : () => _c.navigateForward(id),
+          ),
+          Expanded(
+            child: Text(
+              history.current.value,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          _icon(
+            Icons.note_add_outlined,
+            'Open new buffer',
+            () => _c.pushBuffer(id, _nextBuffer()),
+          ),
+          if (floating)
+            PopupMenuButton<(Axis, DockSide)>(
+              tooltip: 'Dock',
+              icon: const Icon(Icons.vertical_split_outlined, size: 18),
+              onSelected: (to) => _c.dockWindow(
+                id,
+                tabId: shell.activeTabId,
+                axis: to.$1,
+                side: to.$2,
+              ),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: (Axis.horizontal, DockSide.before),
+                  child: Text('Dock left'),
+                ),
+                PopupMenuItem(
+                  value: (Axis.horizontal, DockSide.after),
+                  child: Text('Dock right'),
+                ),
+                PopupMenuItem(
+                  value: (Axis.vertical, DockSide.before),
+                  child: Text('Dock top'),
+                ),
+                PopupMenuItem(
+                  value: (Axis.vertical, DockSide.after),
+                  child: Text('Dock bottom'),
+                ),
+              ],
+            )
+          else ...[
+            _icon(
+              Icons.splitscreen_outlined,
+              'Split right',
+              () => _c.splitWindow(id, axis: Axis.horizontal),
+              quarterTurns: 1,
+            ),
+            _icon(
+              Icons.splitscreen_outlined,
+              'Split down',
+              () => _c.splitWindow(id, axis: Axis.vertical),
+            ),
+            PopupMenuButton<FloatScope>(
+              tooltip: 'Float',
+              icon: const Icon(Icons.picture_in_picture_alt_outlined, size: 18),
+              onSelected: (scope) => _c.floatWindow(id, scope: scope),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: TabScope(shell.activeTabId),
+                  child: const Text('Float over tab'),
+                ),
+                PopupMenuItem(
+                  value: ShellScope(doc.focusedShellId),
+                  child: const Text('Float over shell'),
+                ),
+              ],
+            ),
+            _moveMenu(doc, id),
+          ],
+          _icon(Icons.close, 'Close window', () => _c.closeWindow(id)),
         ],
-        _icon(Icons.close, 'Close window', () => _c.closeWindow(id)),
-      ]),
+      ),
     );
   }
 
@@ -304,11 +332,14 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     };
     final out = <WindowId>[];
     for (var grew = true; grew;) {
-      final next = [
-        for (final MapEntry(:key, :value) in doc.floating.entries)
-          if (!out.contains(key) && visible.contains(value.scope)) key,
-      ]..sort((a, b) =>
-          doc.floating[a]!.zIndex.compareTo(doc.floating[b]!.zIndex));
+      final next =
+          [
+            for (final MapEntry(:key, :value) in doc.floating.entries)
+              if (!out.contains(key) && visible.contains(value.scope)) key,
+          ]..sort(
+            (a, b) =>
+                doc.floating[a]!.zIndex.compareTo(doc.floating[b]!.zIndex),
+          );
       out.addAll(next);
       visible.addAll(next.map(WindowScope.new));
       grew = next.isNotEmpty;
@@ -317,11 +348,18 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
   }
 
   Widget _floating(
-      WindowingDoc doc, ShellState shell, WindowId id, int i, Size area) {
+    WindowingDoc doc,
+    ShellState shell,
+    WindowId id,
+    int i,
+    Size area,
+  ) {
     final scheme = Theme.of(context).colorScheme;
     const size = Size(280, 160);
-    final max = Offset((area.width - size.width).clamp(0, double.infinity),
-        (area.height - size.height).clamp(0, double.infinity));
+    final max = Offset(
+      (area.width - size.width).clamp(0, double.infinity),
+      (area.height - size.height).clamp(0, double.infinity),
+    );
     Offset clamp(Offset p) =>
         Offset(p.dx.clamp(0, max.dx), p.dy.clamp(0, max.dy));
     final pos = clamp(_positions[id] ?? Offset(40 + 32.0 * i, 40 + 32.0 * i));
@@ -335,23 +373,29 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
         // Read the stored position, not the build-time one, so several pan
         // events in one frame all count.
         onPanUpdate: (d) => setState(
-            () => _positions[id] = clamp((_positions[id] ?? pos) + d.delta)),
+          () => _positions[id] = clamp((_positions[id] ?? pos) + d.delta),
+        ),
         child: Material(
           elevation: 8,
           borderRadius: BorderRadius.circular(8),
           clipBehavior: Clip.antiAlias,
           color: scheme.surface,
-          child: Column(children: [
-            _windowHeader(doc, id, floating: true),
-            Expanded(child: _windowBody(doc, id)),
-          ]),
+          child: Column(
+            children: [
+              _windowHeader(doc, id, floating: true),
+              Expanded(child: _windowBody(doc, id)),
+            ],
+          ),
         ),
       ),
     );
   }
 
   Widget _statusBar(
-      WindowingDoc doc, List<ShellId> shellIds, ShellState shell) {
+    WindowingDoc doc,
+    List<ShellId> shellIds,
+    ShellState shell,
+  ) {
     final tab = doc.tabs[shell.activeTabId]!;
     final window = tab.activeWindowId;
     final chain = [
@@ -363,32 +407,40 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
       width: double.infinity,
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Text('Focus: $chain    '
-          'windows in tab: ${tab.root?.windowIds.length ?? 0}    '
-          'floating: ${doc.floating.length}'),
+      child: Text(
+        'Focus: $chain    '
+        'windows in tab: ${tab.root?.windowIds.length ?? 0}    '
+        'floating: ${doc.floating.length}',
+      ),
     );
   }
 
-  Widget _undoButton(String tooltip, IconData icon,
-          ValueListenable<bool> enabled, VoidCallback action) =>
-      ValueListenableBuilder<bool>(
-        valueListenable: enabled,
-        builder: (_, on, _) => IconButton(
-          tooltip: tooltip,
-          icon: Icon(icon),
-          onPressed: on ? action : null,
-        ),
-      );
+  Widget _undoButton(
+    String tooltip,
+    IconData icon,
+    ValueListenable<bool> enabled,
+    VoidCallback action,
+  ) => ValueListenableBuilder<bool>(
+    valueListenable: enabled,
+    builder: (_, on, _) => IconButton(
+      tooltip: tooltip,
+      icon: Icon(icon),
+      onPressed: on ? action : null,
+    ),
+  );
 
-  Widget _icon(IconData icon, String tooltip, VoidCallback? onPressed,
-          {int quarterTurns = 0}) =>
-      IconButton(
-        tooltip: tooltip,
-        visualDensity: VisualDensity.compact,
-        iconSize: 18,
-        icon: RotatedBox(quarterTurns: quarterTurns, child: Icon(icon)),
-        onPressed: onPressed,
-      );
+  Widget _icon(
+    IconData icon,
+    String tooltip,
+    VoidCallback? onPressed, {
+    int quarterTurns = 0,
+  }) => IconButton(
+    tooltip: tooltip,
+    visualDensity: VisualDensity.compact,
+    iconSize: 18,
+    icon: RotatedBox(quarterTurns: quarterTurns, child: Icon(icon)),
+    onPressed: onPressed,
+  );
 }
 
 /// Moves [delta] of the total from ratio `i + 1` to ratio `i`, keeping both
@@ -408,16 +460,20 @@ List<double> _shift(List<double> ratios, int i, double delta) {
 /// the offset since then, so updates landing in the same frame never stack on
 /// stale ratios.
 class _Divider extends StatefulWidget {
-  const _Divider(
-      {super.key,
-      required this.axis,
-      required this.ratios,
-      required this.onDrag,
-      required this.onDragEnd});
+  const _Divider({
+    super.key,
+    required this.axis,
+    required this.ratios,
+    required this.onDrag,
+    required this.onDragEnd,
+  });
 
   final Axis axis;
   final List<double> ratios;
-  final void Function(List<double> start, double offset) onDrag;
+
+  /// Reports the ratios at drag start and the offset since then as a
+  /// fraction of the branch extent.
+  final void Function(List<double> start, double fraction) onDrag;
   final VoidCallback onDragEnd;
 
   @override
@@ -433,7 +489,11 @@ class _DividerState extends State<_Divider> {
     _offset = 0;
   }
 
-  void _update(double delta) => widget.onDrag(_start, _offset += delta);
+  void _update(double delta) {
+    final flex = context.findAncestorRenderObjectOfType<RenderFlex>()!.size;
+    final extent = widget.axis == Axis.horizontal ? flex.width : flex.height;
+    widget.onDrag(_start, (_offset += delta) / extent);
+  }
 
   @override
   Widget build(BuildContext context) {
