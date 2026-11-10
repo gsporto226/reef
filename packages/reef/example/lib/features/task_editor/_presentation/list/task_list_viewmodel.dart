@@ -30,7 +30,10 @@ TaskListViewModel taskListViewModel(
 }
 
 class TaskListViewModel extends ViewModel<TaskListModel> {
-  TaskListViewModel() : super(const TaskListModel()) {
+  /// [loadPage] replaces the in-memory [FakeTaskSource] (tests: a slow one).
+  TaskListViewModel({
+    InfiniteScrollLoader<String, String, TaskError>? loadPage,
+  }) : super(const TaskListModel()) {
     queryController = TextEditingController(text: model.query);
     registerDisposal(queryController.dispose);
 
@@ -43,7 +46,7 @@ class TaskListViewModel extends ViewModel<TaskListModel> {
 
     scroll = InfiniteScrollController<String, String, TaskError>(
       $filter: $filter,
-      loadPage: _source.load,
+      loadPage: loadPage ?? const FakeTaskSource().load,
     );
     registerDisposal(scroll.dispose);
   }
@@ -51,7 +54,6 @@ class TaskListViewModel extends ViewModel<TaskListModel> {
   late final TextEditingController queryController;
   late final InfiniteScrollController<String, String, TaskError> scroll;
   late final queryOp = operation<Unit, TaskError>();
-  final _source = const FakeTaskSource();
 
   ValueListenable<String> get $query => $model.select((m) => m.query);
 

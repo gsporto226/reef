@@ -50,10 +50,13 @@ Future<void> main(List<String> args) async {
   final targets = paths.isEmpty
       ? await _changedFiles(root, base)
       : paths.expand((p) => _dartFiles(_abs(root, p))).toList();
-  final failures = uncovered(hits, targets.where(isGated).toList());
+  final gated = targets
+      .where((t) => isGated(t) && hasCode(File(t).readAsStringSync()))
+      .toList();
+  final failures = uncovered(hits, gated);
 
   if (failures.isEmpty) {
-    stdout.writeln('coverage: 100% over ${targets.where(isGated).length} '
+    stdout.writeln('coverage: 100% over ${gated.length} '
         'touched lib files');
     return;
   }
@@ -102,6 +105,16 @@ Map<String, List<int>?> uncovered(
   }
   return result;
 }
+
+/// False for a library of directives and comments only (a barrel): it has no
+/// executable lines, so no layer reports it.
+bool hasCode(String source) => source
+    .split('\n')
+    .map((l) => l.trim())
+    .any((l) =>
+        l.isNotEmpty &&
+        !l.startsWith('//') &&
+        !RegExp(r'^(library|import|export)\b').hasMatch(l));
 
 /// Hand-written library code under some package's `lib/`; generated files
 /// are not gated.

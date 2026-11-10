@@ -4,8 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_example/undo_providers.dart';
 
-/// A playground over a [WindowingController]: shells and tabs across the top,
-/// the active tab's window tree in the middle (drag the dividers to resize),
+/// A playground over a [WindowingController]: shells, the projection switch
+/// and tabs across the top, the active tab's windows in the middle as the
+/// projection lays them out (drag the dividers to resize),
 /// its floating windows on top, and the focus chain in the status bar. Every
 /// control dispatches one controller intent. Drives the windowing integration
 /// flow. Needs a [MaterialApp] and a [ProviderScope] above it; Undo and Redo
@@ -24,243 +25,292 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
   UndoController get _undo => ref.read(undoControllerProvider);
   int _buffers = 0;
 
-  /// Where each floating window is drawn. Placement is view state, not doc
-  /// state (W1 has no geometry).
-  final _positions = <WindowId, Offset>{};
+  /// The projection switch: by screen class, or forced.
+  WindowingProjectionPolicy _policy = defaultWindowingProjection;
 
   BufferId _nextBuffer() => BufferId.manual('buffer ${++_buffers}');
 
   @override
-  Widget build(BuildContext context) => ValueListenableBuilder<WindowingDoc>(
+  Widget build(BuildContext context) => WindowingRoot(
+    controller: _c,
+    bufferBuilder: (context, _) =>
+        _windowBody(_c.doc.value, WindowHost.of(context)),
+    delegate: WindowingDelegate(
+      windowChrome: _chrome,
+      tabStrip: (context, shellId) => _tabBar(_c.doc.value, shellId),
+      interceptor: _atMostFourWindows,
+      emptyBuilder: (_, _) => const Center(
+        child: Text('Empty tab: dock a floating window here, or close it'),
+      ),
+    ),
+    child: WindowingShortcuts(
+      undo: _undo,
+      child: ValueListenableBuilder<WindowingDoc>(
         valueListenable: _c.doc,
         builder: (context, doc, _) {
           final shellIds = doc.shells.keys.toList();
           final shell = doc.shells[doc.focusedShellId]!;
-          final tab = doc.tabs[shell.activeTabId]!;
-          return Column(children: [
-            _shellBar(doc, shellIds),
-            _tabBar(doc, shellIds, shell),
-            const Divider(height: 1),
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, box) => Stack(children: [
-                  Positioned.fill(
-                    child: tab.root == null
-                        ? const Center(
-                            child: Text('Empty tab: dock a floating window '
-                                'here, or close it'),
-                          )
-                        : Padding(
-                            padding: const EdgeInsets.all(4),
-                            child: _node(doc, tab, tab.root!),
-                          ),
+          return Column(
+            children: [
+              _shellBar(doc, shellIds),
+              const Divider(height: 1),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: Builder(
+                    builder: (context) => _policy(
+                      context,
+                      _c,
+                      doc.focusedShellId,
+                    )(context, _c, doc.focusedShellId),
                   ),
-                  for (final (i, w) in _visibleFloating(doc, shell).indexed)
-                    _floating(doc, shell, w, i, box.biggest),
-                ]),
+                ),
               ),
-            ),
-            _statusBar(doc, shellIds, shell),
-          ]);
+              _statusBar(doc, shellIds, shell),
+            ],
+          );
         },
-      );
+    ),
+    ),
+  );
+
+  static WindowingProjection _desktop(
+    BuildContext _,
+    WindowingController _,
+    ShellId _,
+  ) => (_, _, shellId) => DesktopProjection(shellId);
+
+  static WindowingProjection _tabbed(
+    BuildContext _,
+    WindowingController _,
+    ShellId _,
+  ) => (_, _, shellId) => TabbedProjection(shellId);
 
   Widget _shellBar(WindowingDoc doc, List<ShellId> shellIds) {
     final scheme = Theme.of(context).colorScheme;
     return Container(
       color: scheme.surfaceContainerHighest,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(children: [
-        const Text('Shells'),
-        const SizedBox(width: 8),
-        for (final (i, id) in shellIds.indexed) ...[
-          InputChip(
-            label: Text('Shell ${i + 1}'),
-            selected: id == doc.focusedShellId,
-            onPressed: () => _c.activateShell(id),
-            onDeleted: shellIds.length > 1 ? () => _c.closeShell(id) : null,
-            deleteButtonTooltipMessage: 'Close shell ${i + 1}',
+      child: Row(
+        children: [
+          const Text('Shells'),
+          const SizedBox(width: 8),
+          for (final (i, id) in shellIds.indexed) ...[
+            InputChip(
+              label: Text('Shell ${i + 1}'),
+              selected: id == doc.focusedShellId,
+              onPressed: () => _c.activateShell(id),
+              onDeleted: shellIds.length > 1 ? () => _c.closeShell(id) : null,
+              deleteButtonTooltipMessage: 'Close shell ${i + 1}',
+            ),
+            const SizedBox(width: 4),
+          ],
+          IconButton(
+            tooltip: 'New shell',
+            icon: const Icon(Icons.add_to_queue),
+            onPressed: _c.attachShell,
           ),
-          const SizedBox(width: 4),
-        ],
-        IconButton(
-          tooltip: 'New shell',
-          icon: const Icon(Icons.add_to_queue),
-          onPressed: _c.attachShell,
-        ),
-        const Spacer(),
-        _undoButton('Undo', Icons.undo, _undo.$canUndo, _undo.undo),
-        _undoButton('Redo', Icons.redo, _undo.$canRedo, _undo.redo),
-      ]),
-    );
-  }
-
-  Widget _tabBar(WindowingDoc doc, List<ShellId> shellIds, ShellState shell) {
-    final scheme = Theme.of(context).colorScheme;
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Row(children: [
-        for (final (i, id) in shell.tabIds.indexed) ...[
-          InputChip(
-            label: Text('Tab ${i + 1}'),
-            selected: id == shell.activeTabId,
-            selectedColor: scheme.primaryContainer,
-            onPressed: () => _c.activateTab(id),
-            onDeleted: () => _c.closeTab(id),
-            deleteButtonTooltipMessage: 'Close tab ${i + 1}',
-          ),
-          const SizedBox(width: 4),
-        ],
-        IconButton(
-          tooltip: 'New tab',
-          icon: const Icon(Icons.add),
-          onPressed: () => _c.newTab(buffer: _nextBuffer()),
-        ),
-        const Spacer(),
-        if (shellIds.length > 1)
-          PopupMenuButton<ShellId>(
-            tooltip: 'Move tab to shell',
-            icon: const Icon(Icons.drive_file_move_outline),
-            onSelected: (to) => _c.moveTab(shell.activeTabId,
-                shellId: to, index: doc.shells[to]!.tabIds.length),
-            itemBuilder: (_) => [
-              for (final (i, id) in shellIds.indexed)
-                if (id != doc.focusedShellId)
-                  PopupMenuItem(value: id, child: Text('To shell ${i + 1}')),
+          const Spacer(),
+          PopupMenuButton<WindowingProjectionPolicy>(
+            tooltip: 'Projection',
+            icon: const Icon(Icons.view_quilt_outlined),
+            initialValue: _policy,
+            onSelected: (policy) => setState(() => _policy = policy),
+            itemBuilder: (_) => const [
+              PopupMenuItem(
+                value: defaultWindowingProjection,
+                child: Text('Auto'),
+              ),
+              PopupMenuItem(value: _desktop, child: Text('Desktop')),
+              PopupMenuItem(value: _tabbed, child: Text('Tabbed')),
             ],
           ),
-      ]),
+          _undoButton('Undo', Icons.undo, _undo.$canUndo, _undo.undo),
+          _undoButton('Redo', Icons.redo, _undo.$canRedo, _undo.redo),
+        ],
+      ),
     );
   }
 
-  Widget _node(WindowingDoc doc, TabState tab, WindowNode node) =>
-      switch (node) {
-        WindowLeaf(:final id) => _window(doc, tab, id),
-        WindowBranch() => _branch(doc, tab, node),
-      };
-
-  Widget _branch(WindowingDoc doc, TabState tab, WindowBranch branch) {
-    // ResizeWindow addresses a branch through any window under it: descend
-    // first children to a leaf, counting the branches passed below this one.
-    var levels = 0;
-    var first = branch.children.first;
-    while (first is WindowBranch) {
-      first = first.children.first;
-      levels++;
-    }
-    final handle = (first as WindowLeaf).id;
-    return LayoutBuilder(builder: (context, box) {
-      final extent =
-          branch.axis == Axis.horizontal ? box.maxWidth : box.maxHeight;
-      return Flex(direction: branch.axis, children: [
-        for (final (i, child) in branch.children.indexed) ...[
-          if (i > 0)
-            _Divider(
-              key: const ValueKey('divider'),
-              axis: branch.axis,
-              ratios: branch.ratios,
-              // Keyed per handle so one drag is one undo step (spec §4);
-              // sealed on release so the next drag is its own step.
-              onDrag: (start, offset) => _c.resizeWindow(
-                  handle, _shift(start, i - 1, offset / extent),
-                  levels: levels, coalesceKey: (#resize, handle)),
-              onDragEnd: _undo.sealCoalescing,
-            ),
-          Expanded(
-            flex: (branch.ratios[i] * 1000).round(),
-            child: _node(doc, tab, child),
-          ),
-        ],
-      ]);
-    });
-  }
-
-  Widget _window(WindowingDoc doc, TabState tab, WindowId id) {
+  /// The delegate's tab strip: chips over [TabStripSlot], plus new-tab and
+  /// move-to-shell controls.
+  Widget _tabBar(WindowingDoc doc, ShellId shellId) {
     final scheme = Theme.of(context).colorScheme;
-    final active = id == tab.activeWindowId;
-    return Padding(
-      padding: const EdgeInsets.all(2),
-      child: GestureDetector(
-        onTap: () => _c.activateWindow(id),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            border: Border.all(
-              color: active ? scheme.primary : scheme.outlineVariant,
-              width: active ? 2 : 1,
+    final shellIds = doc.shells.keys.toList();
+    return TabStripSlot(
+      shellId,
+      builder: (context, strip) => Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+        child: Row(
+          children: [
+            for (final (i, id) in strip.tabIds.indexed) ...[
+              InputChip(
+                label: Text('Tab ${i + 1}'),
+                selected: id == strip.activeTabId,
+                selectedColor: scheme.primaryContainer,
+                onPressed: () => strip.activate(id),
+                onDeleted: () => strip.close(id),
+                deleteButtonTooltipMessage: 'Close tab ${i + 1}',
+              ),
+              const SizedBox(width: 4),
+            ],
+            IconButton(
+              tooltip: 'New tab',
+              icon: const Icon(Icons.add),
+              onPressed: () => _c.newTab(buffer: _nextBuffer()),
             ),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Column(children: [
-            _windowHeader(doc, id, floating: false),
-            Expanded(child: _windowBody(doc, id)),
-          ]),
+            const Spacer(),
+            if (shellIds.length > 1)
+              PopupMenuButton<ShellId>(
+                tooltip: 'Move tab to shell',
+                icon: const Icon(Icons.drive_file_move_outline),
+                onSelected: (to) => _c.moveTab(
+                  strip.activeTabId,
+                  shellId: to,
+                  index: doc.shells[to]!.tabIds.length,
+                ),
+                itemBuilder: (_) => [
+                  for (final (i, id) in shellIds.indexed)
+                    if (id != shellId)
+                      PopupMenuItem(
+                        value: id,
+                        child: Text('To shell ${i + 1}'),
+                      ),
+                ],
+              ),
+          ],
         ),
       ),
     );
   }
 
-  Widget _windowHeader(WindowingDoc doc, WindowId id,
-      {required bool floating}) {
+  /// The delegate's window chrome: the window's header over its page, inside
+  /// the default focus border; floating windows on a raised card.
+  Widget _chrome(
+    BuildContext context,
+    WindowId id,
+    bool focused,
+    Widget page,
+  ) {
+    final floating = _c.doc.value.floating.containsKey(id);
+    final window = const WindowingDelegate().windowChrome(
+      context,
+      id,
+      focused,
+      Padding(
+        padding: const EdgeInsets.all(2),
+        child: Column(
+          children: [
+            _windowHeader(_c.doc.value, id, floating: floating),
+            Expanded(child: page),
+          ],
+        ),
+      ),
+    );
+    if (!floating) return window;
+    return Material(
+      elevation: 8,
+      borderRadius: BorderRadius.circular(8),
+      clipBehavior: Clip.antiAlias,
+      color: Theme.of(context).colorScheme.surface,
+      child: window,
+    );
+  }
+
+  Widget _windowHeader(
+    WindowingDoc doc,
+    WindowId id, {
+    required bool floating,
+  }) {
     final history = doc.windows[id]!.history;
     final shell = doc.shells[doc.focusedShellId]!;
     return Container(
       color: Theme.of(context).colorScheme.surfaceContainer,
-      child: Row(children: [
-        _icon(Icons.arrow_back, 'Back',
-            history.back.isEmpty ? null : () => _c.popBuffer(id)),
-        _icon(Icons.arrow_forward, 'Forward',
-            history.forward.isEmpty ? null : () => _c.navigateForward(id)),
-        Expanded(
-          child: Text(history.current.value,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w600)),
-        ),
-        _icon(Icons.note_add_outlined, 'Open new buffer',
-            () => _c.pushBuffer(id, _nextBuffer())),
-        if (floating)
-          PopupMenuButton<(Axis, DockSide)>(
-            tooltip: 'Dock',
-            icon: const Icon(Icons.vertical_split_outlined, size: 18),
-            onSelected: (to) => _c.dockWindow(id,
-                tabId: shell.activeTabId, axis: to.$1, side: to.$2),
-            itemBuilder: (_) => const [
-              PopupMenuItem(
-                  value: (Axis.horizontal, DockSide.before),
-                  child: Text('Dock left')),
-              PopupMenuItem(
-                  value: (Axis.horizontal, DockSide.after),
-                  child: Text('Dock right')),
-              PopupMenuItem(
-                  value: (Axis.vertical, DockSide.before),
-                  child: Text('Dock top')),
-              PopupMenuItem(
-                  value: (Axis.vertical, DockSide.after),
-                  child: Text('Dock bottom')),
-            ],
-          )
-        else ...[
-          _icon(Icons.splitscreen_outlined, 'Split right',
-              () => _c.splitWindow(id, axis: Axis.horizontal),
-              quarterTurns: 1),
-          _icon(Icons.splitscreen_outlined, 'Split down',
-              () => _c.splitWindow(id, axis: Axis.vertical)),
-          PopupMenuButton<FloatScope>(
-            tooltip: 'Float',
-            icon: const Icon(Icons.picture_in_picture_alt_outlined, size: 18),
-            onSelected: (scope) => _c.floatWindow(id, scope: scope),
-            itemBuilder: (_) => [
-              PopupMenuItem(
-                  value: TabScope(shell.activeTabId),
-                  child: const Text('Float over tab')),
-              PopupMenuItem(
-                  value: ShellScope(doc.focusedShellId),
-                  child: const Text('Float over shell')),
-            ],
+      child: Row(
+        children: [
+          _icon(
+            Icons.arrow_back,
+            'Back',
+            history.back.isEmpty ? null : () => _c.popBuffer(id),
           ),
-          _moveMenu(doc, id),
+          _icon(
+            Icons.arrow_forward,
+            'Forward',
+            history.forward.isEmpty ? null : () => _c.navigateForward(id),
+          ),
+          Expanded(
+            child: Text(
+              history.current.value,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.w600),
+            ),
+          ),
+          _icon(
+            Icons.note_add_outlined,
+            'Open new buffer',
+            () => _c.pushBuffer(id, _nextBuffer()),
+          ),
+          if (floating)
+            PopupMenuButton<(Axis, DockSide)>(
+              tooltip: 'Dock',
+              icon: const Icon(Icons.vertical_split_outlined, size: 18),
+              onSelected: (to) => _c.dockWindow(
+                id,
+                tabId: shell.activeTabId,
+                axis: to.$1,
+                side: to.$2,
+              ),
+              itemBuilder: (_) => const [
+                PopupMenuItem(
+                  value: (Axis.horizontal, DockSide.before),
+                  child: Text('Dock left'),
+                ),
+                PopupMenuItem(
+                  value: (Axis.horizontal, DockSide.after),
+                  child: Text('Dock right'),
+                ),
+                PopupMenuItem(
+                  value: (Axis.vertical, DockSide.before),
+                  child: Text('Dock top'),
+                ),
+                PopupMenuItem(
+                  value: (Axis.vertical, DockSide.after),
+                  child: Text('Dock bottom'),
+                ),
+              ],
+            )
+          else ...[
+            _icon(
+              Icons.splitscreen_outlined,
+              'Split right',
+              () => _c.splitWindow(id, axis: Axis.horizontal),
+              quarterTurns: 1,
+            ),
+            _icon(
+              Icons.splitscreen_outlined,
+              'Split down',
+              () => _c.splitWindow(id, axis: Axis.vertical),
+            ),
+            PopupMenuButton<FloatScope>(
+              tooltip: 'Float',
+              icon: const Icon(Icons.picture_in_picture_alt_outlined, size: 18),
+              onSelected: (scope) => _c.floatWindow(id, scope: scope),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: TabScope(shell.activeTabId),
+                  child: const Text('Float over tab'),
+                ),
+                PopupMenuItem(
+                  value: ShellScope(doc.focusedShellId),
+                  child: const Text('Float over shell'),
+                ),
+              ],
+            ),
+            _moveMenu(doc, id),
+          ],
+          _icon(Icons.close, 'Close window', () => _c.closeWindow(id)),
         ],
-        _icon(Icons.close, 'Close window', () => _c.closeWindow(id)),
-      ]),
+      ),
     );
   }
 
@@ -294,64 +344,24 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     );
   }
 
-  /// Floating windows over the focused shell, its active tab, or a window
-  /// already on screen; bottom to top within each scope.
-  List<WindowId> _visibleFloating(WindowingDoc doc, ShellState shell) {
-    final visible = <Object>{
-      ShellScope(doc.focusedShellId),
-      TabScope(shell.activeTabId),
-      ...?doc.tabs[shell.activeTabId]!.root?.windowIds.map(WindowScope.new),
-    };
-    final out = <WindowId>[];
-    for (var grew = true; grew;) {
-      final next = [
-        for (final MapEntry(:key, :value) in doc.floating.entries)
-          if (!out.contains(key) && visible.contains(value.scope)) key,
-      ]..sort((a, b) =>
-          doc.floating[a]!.zIndex.compareTo(doc.floating[b]!.zIndex));
-      out.addAll(next);
-      visible.addAll(next.map(WindowScope.new));
-      grew = next.isNotEmpty;
-    }
-    return out;
-  }
-
-  Widget _floating(
-      WindowingDoc doc, ShellState shell, WindowId id, int i, Size area) {
-    final scheme = Theme.of(context).colorScheme;
-    const size = Size(280, 160);
-    final max = Offset((area.width - size.width).clamp(0, double.infinity),
-        (area.height - size.height).clamp(0, double.infinity));
-    Offset clamp(Offset p) =>
-        Offset(p.dx.clamp(0, max.dx), p.dy.clamp(0, max.dy));
-    final pos = clamp(_positions[id] ?? Offset(40 + 32.0 * i, 40 + 32.0 * i));
-    return Positioned(
-      left: pos.dx,
-      top: pos.dy,
-      width: size.width,
-      height: size.height,
-      child: GestureDetector(
-        onTap: () => _c.activateWindow(id),
-        // Read the stored position, not the build-time one, so several pan
-        // events in one frame all count.
-        onPanUpdate: (d) => setState(
-            () => _positions[id] = clamp((_positions[id] ?? pos) + d.delta)),
-        child: Material(
-          elevation: 8,
-          borderRadius: BorderRadius.circular(8),
-          clipBehavior: Clip.antiAlias,
-          color: scheme.surface,
-          child: Column(children: [
-            _windowHeader(doc, id, floating: true),
-            Expanded(child: _windowBody(doc, id)),
-          ]),
-        ),
-      ),
-    );
-  }
+  /// The playground's app rule: a split that would put a fifth window in a
+  /// tab is vetoed, and the status bar shows why.
+  static CommandDecision _atMostFourWindows(
+    WindowingDoc doc,
+    WindowingCommand command,
+  ) => command is SplitWindow &&
+          doc.tabs.values.any(
+            (t) => (t.root?.windowIds.length ?? 0) >= 4 &&
+                t.root!.windowIds.contains(command.windowId),
+          )
+      ? const CommandDecision.veto(UndoLabel('At most 4 windows per tab'))
+      : const CommandDecision.approve();
 
   Widget _statusBar(
-      WindowingDoc doc, List<ShellId> shellIds, ShellState shell) {
+    WindowingDoc doc,
+    List<ShellId> shellIds,
+    ShellState shell,
+  ) {
     final tab = doc.tabs[shell.activeTabId]!;
     final window = tab.activeWindowId;
     final chain = [
@@ -359,109 +369,53 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
       'Tab ${shell.tabIds.indexOf(shell.activeTabId) + 1}',
       if (window != null) doc.windows[window]!.history.current.value,
     ].join(' > ');
-    return Container(
+    final bar = Container(
       width: double.infinity,
       color: Theme.of(context).colorScheme.surfaceContainerHighest,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      child: Text('Focus: $chain    '
-          'windows in tab: ${tab.root?.windowIds.length ?? 0}    '
-          'floating: ${doc.floating.length}'),
-    );
-  }
-
-  Widget _undoButton(String tooltip, IconData icon,
-          ValueListenable<bool> enabled, VoidCallback action) =>
-      ValueListenableBuilder<bool>(
-        valueListenable: enabled,
-        builder: (_, on, _) => IconButton(
-          tooltip: tooltip,
-          icon: Icon(icon),
-          onPressed: on ? action : null,
-        ),
-      );
-
-  Widget _icon(IconData icon, String tooltip, VoidCallback? onPressed,
-          {int quarterTurns = 0}) =>
-      IconButton(
-        tooltip: tooltip,
-        visualDensity: VisualDensity.compact,
-        iconSize: 18,
-        icon: RotatedBox(quarterTurns: quarterTurns, child: Icon(icon)),
-        onPressed: onPressed,
-      );
-}
-
-/// Moves [delta] of the total from ratio `i + 1` to ratio `i`, keeping both
-/// at least 5% and the sum at exactly one.
-List<double> _shift(List<double> ratios, int i, double delta) {
-  final pair = ratios[i] + ratios[i + 1];
-  final a = (ratios[i] + delta).clamp(0.05, pair - 0.05);
-  final out = [...ratios]
-    ..[i] = a
-    ..[i + 1] = pair - a;
-  // Absorb float drift into the last ratio so ResizeWindow accepts the sum.
-  out[out.length - 1] += 1 - out.fold(0.0, (s, r) => s + r);
-  return out;
-}
-
-/// A drag handle between two children. Reports the ratios at drag start and
-/// the offset since then, so updates landing in the same frame never stack on
-/// stale ratios.
-class _Divider extends StatefulWidget {
-  const _Divider(
-      {super.key,
-      required this.axis,
-      required this.ratios,
-      required this.onDrag,
-      required this.onDragEnd});
-
-  final Axis axis;
-  final List<double> ratios;
-  final void Function(List<double> start, double offset) onDrag;
-  final VoidCallback onDragEnd;
-
-  @override
-  State<_Divider> createState() => _DividerState();
-}
-
-class _DividerState extends State<_Divider> {
-  List<double> _start = const [];
-  double _offset = 0;
-
-  void _begin(DragStartDetails _) {
-    _start = widget.ratios;
-    _offset = 0;
-  }
-
-  void _update(double delta) => widget.onDrag(_start, _offset += delta);
-
-  @override
-  Widget build(BuildContext context) {
-    final horizontal = widget.axis == Axis.horizontal;
-    return MouseRegion(
-      cursor: horizontal
-          ? SystemMouseCursors.resizeColumn
-          : SystemMouseCursors.resizeRow,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onHorizontalDragStart: horizontal ? _begin : null,
-        onHorizontalDragUpdate: horizontal ? (d) => _update(d.delta.dx) : null,
-        onHorizontalDragEnd: horizontal ? (_) => widget.onDragEnd() : null,
-        onVerticalDragStart: horizontal ? null : _begin,
-        onVerticalDragUpdate: horizontal ? null : (d) => _update(d.delta.dy),
-        onVerticalDragEnd: horizontal ? null : (_) => widget.onDragEnd(),
-        child: SizedBox(
-          width: horizontal ? 8 : null,
-          height: horizontal ? null : 8,
-          child: Center(
-            child: Container(
-              width: horizontal ? 2 : 40,
-              height: horizontal ? 40 : 2,
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
-          ),
-        ),
+      child: Text(
+        'Focus: $chain    '
+        'windows in tab: ${tab.root?.windowIds.length ?? 0}    '
+        'floating: ${doc.floating.length}',
       ),
     );
+    return Column(
+      children: [
+        ValueListenableBuilder<CommandVeto?>(
+          valueListenable: _c.vetoes,
+          builder: (_, veto, _) => veto == null
+              ? const SizedBox.shrink()
+              : Text('Vetoed: ${veto.reason.localize()}'),
+        ),
+        bar,
+      ],
+    );
   }
+
+  Widget _undoButton(
+    String tooltip,
+    IconData icon,
+    ValueListenable<bool> enabled,
+    VoidCallback action,
+  ) => ValueListenableBuilder<bool>(
+    valueListenable: enabled,
+    builder: (_, on, _) => IconButton(
+      tooltip: tooltip,
+      icon: Icon(icon),
+      onPressed: on ? action : null,
+    ),
+  );
+
+  Widget _icon(
+    IconData icon,
+    String tooltip,
+    VoidCallback? onPressed, {
+    int quarterTurns = 0,
+  }) => IconButton(
+    tooltip: tooltip,
+    visualDensity: VisualDensity.compact,
+    iconSize: 18,
+    icon: RotatedBox(quarterTurns: quarterTurns, child: Icon(icon)),
+    onPressed: onPressed,
+  );
 }
