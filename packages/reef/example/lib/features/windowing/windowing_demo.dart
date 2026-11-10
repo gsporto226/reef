@@ -39,30 +39,33 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
         child: Text('Empty tab: dock a floating window here, or close it'),
       ),
     ),
-    child: ValueListenableBuilder<WindowingDoc>(
-      valueListenable: _c.doc,
-      builder: (context, doc, _) {
-        final shellIds = doc.shells.keys.toList();
-        final shell = doc.shells[doc.focusedShellId]!;
-        return Column(
-          children: [
-            _shellBar(doc, shellIds),
-            Builder(
-              builder: (context) =>
-                  WindowingDelegateScope.of(context)
-                      .tabStrip(context, doc.focusedShellId),
-            ),
-            const Divider(height: 1),
-            Expanded(
-              child: Padding(
-                padding: const EdgeInsets.all(4),
-                child: ShellHost(doc.focusedShellId),
+    child: WindowingShortcuts(
+      undo: _undo,
+      child: ValueListenableBuilder<WindowingDoc>(
+        valueListenable: _c.doc,
+        builder: (context, doc, _) {
+          final shellIds = doc.shells.keys.toList();
+          final shell = doc.shells[doc.focusedShellId]!;
+          return Column(
+            children: [
+              _shellBar(doc, shellIds),
+              Builder(
+                builder: (context) =>
+                    WindowingDelegateScope.of(context)
+                        .tabStrip(context, doc.focusedShellId),
               ),
-            ),
-            _statusBar(doc, shellIds, shell),
-          ],
-        );
-      },
+              const Divider(height: 1),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(4),
+                  child: ShellHost(doc.focusedShellId),
+                ),
+              ),
+              _statusBar(doc, shellIds, shell),
+            ],
+          );
+        },
+    ),
     ),
   );
 

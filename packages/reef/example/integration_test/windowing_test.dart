@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -167,6 +168,32 @@ void main() {
     undo.redo();
     await tester.pumpAndSettle();
     expect(status('windows in tab: 2'), findsOneWidget);
+  });
+
+  testWidgets('keyboard: split, close and undo', (tester) async {
+    final c = await pump(tester, buffer: const BufferId.manual('b'));
+    await tester.pumpAndSettle();
+    final primary = WindowingShortcuts.primaryModifier;
+    Future<void> chord(LogicalKeyboardKey key, {bool shift = false}) async {
+      await tester.sendKeyDownEvent(primary);
+      if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(key);
+      if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(primary);
+      await tester.pumpAndSettle();
+    }
+
+    await chord(LogicalKeyboardKey.backslash);
+    expect(status('windows in tab: 2'), findsOneWidget);
+    await chord(LogicalKeyboardKey.backslash, shift: true);
+    expect(status('windows in tab: 3'), findsOneWidget);
+    await chord(LogicalKeyboardKey.keyW);
+    expect(status('windows in tab: 2'), findsOneWidget);
+    await chord(LogicalKeyboardKey.keyZ);
+    expect(status('windows in tab: 3'), findsOneWidget);
+    await chord(LogicalKeyboardKey.keyZ, shift: true);
+    expect(status('windows in tab: 2'), findsOneWidget);
+    expect(c.doc.value.windows, hasLength(2));
   });
 
   testWidgets('undo/redo buttons: split, close, drag', (tester) async {

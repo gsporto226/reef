@@ -21,6 +21,7 @@ export 'package:reef/features/windowing/_implementations/windowing_delegate.dart
 export 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 export 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 export 'package:reef/features/windowing/_implementations/windowing_root.dart';
+export 'package:reef/features/windowing/_implementations/windowing_shortcuts.dart';
 export 'package:reef/features/workspace/_implementations/split_tree.dart';
 export 'package:reef/features/workspace/_implementations/split_tree_controller.dart';
 export 'package:reef/features/workspace/_implementations/split_workspace.dart';
