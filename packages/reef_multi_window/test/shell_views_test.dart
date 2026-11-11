@@ -250,6 +250,25 @@ void main() {
       expect(_in(id, find.byType(TabbedProjection)), findsOneWidget);
     });
 
+    testWidgets('a restored shell whose real shell fails to open leaves the '
+        'doc; the other shell gets its view', (tester) async {
+      owner.failing = {1};
+      final app = await _pump(tester);
+      await tester.pump();
+      expect(app.controller.doc.value.shells.keys, [_s1]);
+      expect(find.byType(View), findsOneWidget);
+      expect(_in(_s1, find.text('A:a1')), findsOneWidget);
+    });
+
+    testWidgets('when every restored shell fails to open, the last shell '
+        'stays in the doc', (tester) async {
+      owner.failing = {0, 1};
+      final app = await _pump(tester);
+      await tester.pump();
+      expect(app.controller.doc.value.shells.keys, [_s2]);
+      expect(find.byType(View), findsNothing);
+    });
+
     testWidgets('a failed window creation returns a platformFailure', (
       tester,
     ) async {
@@ -298,12 +317,15 @@ class _BrokenOwner implements windowing.WindowingOwner {
 
 /// flutter_test's owner, recording each window's delegate: nothing in the
 /// test owner raises a native close request, so tests raise it themselves.
+/// Window creations whose index is in [failing] throw.
 class _RecordingOwner implements windowing.WindowingOwner {
   _RecordingOwner(this.inner);
 
   final windowing.WindowingOwner inner;
   final delegates =
       <windowing.WindowController, windowing.WindowControllerDelegate>{};
+  Set<int> failing = {};
+  var _created = 0;
 
   @override
   windowing.WindowController createWindowController({
@@ -313,6 +335,7 @@ class _RecordingOwner implements windowing.WindowingOwner {
     required bool resizable,
     String? title,
   }) {
+    if (failing.contains(_created++)) throw UnsupportedError('no window');
     final window = inner.createWindowController(
       delegate: delegate,
       size: size,
