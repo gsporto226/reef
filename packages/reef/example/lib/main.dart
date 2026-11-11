@@ -143,15 +143,17 @@ class _ExampleShellsState extends State<_ExampleShells> {
         bufferBuilder: bufferPageFor,
         // Editors open beside the list.
         delegate: const WindowingDelegate(openPolicy: splitBesideOpenPolicy),
-        child: ShellViews(
-          controller: _controller,
-          platform: _platform,
-          shellBuilder: (_, shellId) => ExampleShell(
-            shellId,
-            onResetLayout: () {
-              _controller.discardSavedLayout();
-              widget.onResetLayout();
-            },
+        child: WindowingSystemBack(
+          child: ShellViews(
+            controller: _controller,
+            platform: _platform,
+            shellBuilder: (_, shellId) => ExampleShell(
+              shellId,
+              onResetLayout: () {
+                _controller.discardSavedLayout();
+                widget.onResetLayout();
+              },
+            ),
           ),
         ),
       );

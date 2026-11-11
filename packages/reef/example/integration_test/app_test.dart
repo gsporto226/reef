@@ -35,6 +35,24 @@ void main() {
     }
   });
 
+  testWidgets('system back steps the editor window back to the list',
+      (tester) async {
+    await tester.pumpWidget(
+      app.ReefExampleApp(store: InMemoryHibernationStore()),
+      wrapWithView: false,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Buy milk'));
+    await tester.pumpAndSettle();
+    expect(find.byType(EditableText), findsWidgets);
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(EditableText), findsNWidgets(2),
+        reason: 'two lists, each with its filter; no editor');
+  });
+
   testWidgets('undo and redo a title edit', (tester) async {
     app.main();
     await tester.pumpAndSettle();

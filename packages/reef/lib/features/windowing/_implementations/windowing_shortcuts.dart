@@ -140,3 +140,37 @@ class _UndoAction<T extends Intent> extends Action<T> {
   void invoke(T intent) =>
       callingAction == null ? run() : callingAction!.invoke(intent);
 }
+
+/// Opt-in: binds system back (such as Android's back gesture) to
+/// [WindowingController.back] of the [WindowingScope] above it, so platform
+/// back equals window back. Back left unhandled goes on to the platform.
+class WindowingSystemBack extends StatefulWidget {
+  const WindowingSystemBack({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  State<WindowingSystemBack> createState() => _WindowingSystemBackState();
+}
+
+class _WindowingSystemBackState extends State<WindowingSystemBack>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  Future<bool> didPopRoute() async =>
+      WindowingScope.of(context).controller.back();
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}

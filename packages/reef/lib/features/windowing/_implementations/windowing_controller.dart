@@ -798,6 +798,67 @@ List<WindowingCommand> _firstWindow(WindowingDoc doc, BufferId buffer) {
   ];
 }
 
+/// What [WindowingController.back] does when the active window's back stack
+/// is empty.
+enum EmptyBackAction {
+  /// Nothing; back reports handled.
+  nothing,
+
+  /// Closes the active window; back reports handled.
+  closeWindow,
+
+  /// Nothing; back reports unhandled, so system back reaches the platform.
+  unhandled,
+}
+
+/// What close, split and back do to focus (spec §6). The controller appends
+/// its effects to the triggering batch, before the interceptor; the defaults
+/// add nothing.
+class WindowingFocusPolicy {
+  const WindowingFocusPolicy({
+    this.splitTakesFocus = true,
+    this.closeEmptyTab = false,
+    this.focusAfterClose,
+    this.emptyBack = EmptyBackAction.nothing,
+  });
+
+  /// Whether the new window of a split takes focus; else the split window
+  /// keeps it.
+  final bool splitTakesFocus;
+
+  /// Whether closing a tab's last tree window also closes the tab (a
+  /// shell's last tab never closes).
+  final bool closeEmptyTab;
+
+  /// Picks, against the doc before the close, the window to focus when the
+  /// active window [closed] closes; null keeps the reducer's neighbour.
+  final WindowId? Function(WindowingDoc doc, WindowId closed)? focusAfterClose;
+
+  final EmptyBackAction emptyBack;
+
+  /// The commands to append after [command] took [before] to [after].
+  List<WindowingCommand> _effects(
+          WindowingDoc before, WindowingCommand command, WindowingDoc after) =>
+      switch (command) {
+        SplitWindow(:final windowId, :final newWindowId)
+            when !splitTakesFocus && !before.windows.containsKey(newWindowId) &&
+                after.windows.containsKey(newWindowId) =>
+          [ActivateWindow(windowId)],
+        CloseWindow(:final windowId) when !after.windows.containsKey(windowId) =>
+          switch (_tabOf(before, windowId)) {
+            final tab? when closeEmptyTab && after.tabs[tab]?.root == null =>
+              [CloseTab(tab)],
+            final tab? when before.tabs[tab]!.activeWindowId == windowId =>
+              [
+                if (focusAfterClose?.call(before, windowId) case final w?)
+                  ActivateWindow(w),
+              ],
+            _ => const [],
+          },
+        _ => const [],
+      };
+}
+
 /// Returns the doc a [WindowingController] saves in place of [doc].
 typedef WindowingPersistence = WindowingDoc Function(WindowingDoc doc);
 
@@ -817,6 +878,7 @@ class WindowingController {
     UndoController? undo,
     this.interceptor,
     this.openPolicy = defaultOpenPolicy,
+    this.focusPolicy = const WindowingFocusPolicy(),
     this.platform,
     HibernationStore? store,
     this.persistence = _saveWholeDoc,
@@ -885,6 +947,30 @@ class WindowingController {
   void openBuffer(BufferId buffer) =>
       dispatchAll(openPolicy(_doc.value, buffer));
 
+  /// Decides what close, split and [back] do to focus.
+  WindowingFocusPolicy focusPolicy;
+
+  /// Steps the focused shell's active window back. On an empty back stack,
+  /// or without an active window, [focusPolicy] decides. Returns whether
+  /// back was handled.
+  bool back() {
+    final window = _activeTab(_doc.value).activeWindowId;
+    if (window != null &&
+        _doc.value.windows[window]!.history.back.isNotEmpty) {
+      dispatch(PopBuffer(window));
+      return true;
+    }
+    switch (focusPolicy.emptyBack) {
+      case EmptyBackAction.nothing:
+        return true;
+      case EmptyBackAction.closeWindow:
+        if (window != null) dispatch(CloseWindow(window));
+        return true;
+      case EmptyBackAction.unhandled:
+        return false;
+    }
+  }
+
   final _vetoes = ValueNotifier<CommandVeto?>(null);
 
   /// The latest vetoed command; notifies on every veto.
@@ -906,8 +992,12 @@ class WindowingController {
       {Object? coalesceKey, bool Function(WindowingDoc next)? accept}) {
     final before = _doc.value;
     final vetoes = <CommandVeto>[];
-    final next =
-        commands.fold(before, (doc, c) => _intercepted(doc, c, vetoes));
+    WindowingDoc step(WindowingDoc doc, WindowingCommand c) {
+      final after = _intercepted(doc, c, vetoes);
+      return focusPolicy._effects(doc, c, after).fold(after, step);
+    }
+
+    final next = commands.fold(before, step);
     final accepted = accept?.call(next) ?? true;
     if (accepted && next != before) _publish(before, next, coalesceKey);
     // After the doc, so veto listeners read the batch result.

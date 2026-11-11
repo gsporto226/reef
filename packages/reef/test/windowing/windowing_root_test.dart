@@ -332,4 +332,33 @@ void main() {
       expect(c.openPolicy, pushOpenPolicy);
     });
   });
+
+  group('focus policy ownership', () {
+    const delegated = WindowingFocusPolicy(splitTakesFocus: false);
+    const own = WindowingFocusPolicy(closeEmptyTab: true);
+
+    Widget root(WindowingController c, WindowingDelegate delegate) =>
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: WindowingRoot(
+            controller: c,
+            bufferBuilder: (_, _) => const SizedBox.expand(),
+            delegate: delegate,
+          ),
+        );
+
+    testWidgets("the delegate's is installed on mount and on change, and "
+        'the previous one comes back on unmount', (tester) async {
+      final c = WindowingController(initial: _mixed(), focusPolicy: own);
+      addTearDown(c.dispose);
+      await tester.pumpWidget(root(c, const WindowingDelegate(focusPolicy: delegated)));
+      expect(c.focusPolicy, delegated);
+      await tester.pumpWidget(root(c, const WindowingDelegate()));
+      expect(c.focusPolicy, own);
+      await tester.pumpWidget(root(c, const WindowingDelegate(focusPolicy: delegated)));
+      expect(c.focusPolicy, delegated);
+      await tester.pumpWidget(const SizedBox());
+      expect(c.focusPolicy, own);
+    });
+  });
 }

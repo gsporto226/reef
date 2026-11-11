@@ -111,6 +111,7 @@ class WindowingDelegate {
     this.floating = _floatingFrame,
     this.interceptor,
     this.openPolicy,
+    this.focusPolicy,
     this.projectionPolicy = defaultWindowingProjection,
   });
 
@@ -151,6 +152,10 @@ class WindowingDelegate {
   /// controller's applies.
   final WindowingOpenPolicy? openPolicy;
 
+  /// Handed to the controller by [WindowingRoot]. Default: none, the
+  /// controller's applies.
+  final WindowingFocusPolicy? focusPolicy;
+
   /// Picks the projection [WindowingRoot] draws when given no child.
   /// Default: [defaultWindowingProjection].
   final WindowingProjectionPolicy projectionPolicy;
@@ -166,6 +171,7 @@ class WindowingDelegate {
     FloatingBuilder? floating,
     WindowingInterceptor? interceptor,
     WindowingOpenPolicy? openPolicy,
+    WindowingFocusPolicy? focusPolicy,
     WindowingProjectionPolicy? projectionPolicy,
   }) => WindowingDelegate(
     windowChrome: windowChrome ?? this.windowChrome,
@@ -178,6 +184,7 @@ class WindowingDelegate {
     floating: floating ?? this.floating,
     interceptor: interceptor ?? this.interceptor,
     openPolicy: openPolicy ?? this.openPolicy,
+    focusPolicy: focusPolicy ?? this.focusPolicy,
     projectionPolicy: projectionPolicy ?? this.projectionPolicy,
   );
 
