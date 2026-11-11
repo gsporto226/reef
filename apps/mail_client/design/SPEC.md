@@ -13,6 +13,8 @@ Notation: `pad[t,r,b,l]`; sizing `W/H` = `fixed` | `hug` | `fill`; all values px
 
 ## Tokens
 
+Source of truth: `apps/mail_client/design/tokens.json` (W3C DTCG 2025.10). The frontend reads its tokens from that file; the FigCraft `Mail` collection is synced from it (spec-compare: 40 in sync, 0 drift). DTCG paths mirror the design names (`surface.nav` ↔ `surface/nav`).
+
 One mode. Names are design-side; map them 1:1 to Dart constants.
 
 | Token | Value | Token | Value |
@@ -27,6 +29,25 @@ One mode. Names are design-side; map them 1:1 to Dart constants.
 | `border/hairline` | `#E8E1D6` | `radius/pill` | 999 |
 
 Spacing: `space/2 · 4 · 8 · 10 · 12 · 14 · 16 · 20 · 24 · 32 · 40 · 56` = the same px values. Every gap, padding and radius in masters and screens is bound to one of these; zero values are unbound.
+
+Size tokens (every fixed width/height in masters and screens is bound to one of these; hug/fill sizes and icon glyph geometry are not tokens):
+
+| Token | Value | Use |
+|---|---|---|
+| `size/icon` | 20 | Icon frame, W and H (every `Icon / *`) |
+| `size/avatar` | 40 | Avatar, W and H |
+| `size/control/sm` | 40 | Search bar height |
+| `size/control/md` | 44 | Button / Primary, Folder row, Back link heights; icon-only controls W and H (Nav toggle, sidebar hit areas, Close, icon-only button and folders); mobile nav label rows |
+| `size/control/lg` | 48 | Reply bar height |
+| `sidebar/width/expanded` | 200 | Sidebar Expanded width |
+| `sidebar/width/collapsed` | 64 | Sidebar Collapsed width |
+| `pane/list/width/desktop` | 380 | Thread list pane, desktop |
+| `pane/list/width/tablet` | 300 | Thread list overlay, tablet |
+| `search/width/desktop` | 480 | Search bar, desktop top bar |
+| `reading/body/maxWidth` | 560 | Max width of the thread body text |
+| `composeField/label/width` | 64 | Compose field label column |
+
+The 44 px minimum tap target is a rule, not a token. Sidebar Spacer height is bound to `space/16`.
 
 | Effect style | Value | Use |
 |---|---|---|
@@ -142,7 +163,7 @@ Shared regions (same in every screen that has them):
 | Root | fill `surface/list`, horizontal, clip |
 | Content | vertical, fill/fill |
 | Top bar (desktop, tablet) | top, H hug 65, fill `surface/list`, bottom 1px `border/hairline`, `pad[12,24,12,24]` (`space/12`, `space/24`), centred; holds Search bar |
-| Top bar (mobile) | **bottom** of screen, H 69, fill `surface/list`, top 1px `border/hairline`, horizontal, gap `space/4`, `pad[12,12,12,24]`: Search bar (fill) + Nav toggle |
+| Top bar (mobile) | **bottom** of screen, H 69, fill `surface/list`, top 1px `border/hairline`, horizontal, gap `space/16`, `pad[12,12,12,24]`: Search bar (fill) + Nav toggle (the Search bar ends 72 px from the right edge, flush with the open nav pill) |
 | Panes | horizontal, fill/fill |
 | Pane / Thread list | fill `surface/list` + Paper, right 1px `border/hairline`, vertical, gap `space/4`, `pad[24,12,24,12]`. Header (`pad[0,12,16,12]`, gap `space/2`): "Inbox" `Serif/Title 22` + "2 conversations · 2 unread" `Sans/Caption 13` `text/muted`, then Thread rows |
 | Pane / Thread | fill `surface/reading` + Paper, vertical, gap `space/24`. Subject `Serif/Display 32` · Sender row (Avatar, name `Sans/Label strong 15` + "to you" `Sans/Caption 13`, time `Sans/Caption 13`; gap `space/12`, bottom border, `pad-b 20`) · Body `Sans/Body 16` · flexible Push · Reply bar |
@@ -184,7 +205,7 @@ Pane / Thread fill, `pad 32`, Back link first · bottom Top bar.
 Pane / Compose fill, `pad 32`, Back link first · bottom Top bar.
 
 ### Mobile / Sidebar open
-Mobile / Inbox plus Sidebar `State=Expanded right`, absolute, 200 × 915, anchored bottom-right (`pad-r 12`, `pad-b 12`), over the content. The Nav toggle is hidden on this screen (Search bar fills the bottom bar), so the Close icon is the only dismiss control.
+Mobile / Inbox plus Sidebar `State=Expanded right`, absolute, 200 × 915, anchored bottom-right (`pad-r 12`, `pad-b 12`), over the content. The Nav toggle keeps its 44×44 slot at opacity 0 (no interaction), so the Search bar has the same geometry as on Mobile / Inbox and does not jump or run under the pill; the Close icon is the only dismiss control.
 - Nav decisions: collapsed, only the 44×44 Nav toggle shows (right of Search). Expanded, the nav is the icon pill with labels to its left, no background behind the labels. Close has no label. No scrim and no background effect, so the Close icon is the only way to dismiss.
 
 ## Flows
@@ -245,19 +266,17 @@ Entry points: Desktop / Inbox, Tablet / Inbox, Mobile / Inbox.
 
 Unbound values:
 1. Icon artwork corner radii stay raw: `Lid` (archive) 0.83 and `Panel` (sidebar icons) 1.67. They are glyph geometry, not layout radii; implement them inside the SVG.
-2. Dimensions are raw by design (no size tokens): 44 tap targets, 40 avatar, 20 icons, rail widths 200/64, pane widths 380/300, desktop search 480, row heights.
-3. Component-set board radius 5 (Folder row, Thread row, Sidebar) is board-only; do not implement. The dashed board border was removed.
-
-Layout:
-4. Leftover hidden panes remain in screens: `Pane / Thread` (Tablet / Inbox, Mobile / Inbox, Mobile / Sidebar open) and `Pane / Thread list` (Tablet / Thread, Tablet / Compose, Mobile / Thread, Mobile / Compose). Not rendered; do not implement.
-5. Mobile / Sidebar open: with the Nav toggle hidden, the Search bar spans the bottom bar and runs under the nav pill.
+2. Component-set board radius 5 (Folder row, Thread row, Sidebar) is board-only; do not implement. The dashed board border was removed. Board and master preview sizes (Folder/Thread row masters 360 wide, Sidebar masters 800 high) are unbound for the same reason.
+3. Raw sizes left unbound on purpose: Thread row `Preview` height 15 (one-line clip, follows `Sans/Regular 14`), Unread dot 8×8 (glyph), the tablet overlay list height (full pane height, 959) and the mobile Sidebar instance frame (200×915, the screen's bottom-right area). Content-driven; not tokens.
+4. Mobile / Sidebar open keeps an invisible (opacity 0) Nav toggle to reserve its slot. Implement it as reserved space, not as a tappable control.
 
 Prototype (prototype-analysis):
-6. Desktop has no Discard control, so only Send returns from Desktop / Compose.
-7. Archive has no destination on desktop (it would be a self-loop on Desktop / Inbox) and Mobile / Thread has no Archive action; on mobile, Archive is reached from Mobile / Sidebar open.
-8. Thread rows on Desktop / Inbox and Desktop / Inbox (sidebar collapsed) have no link (the reading pane already shows the thread; a link would be a self-loop).
-9. Keyboard: Escape uses the history `back` action, not a fixed destination. Enter-to-open on rows is not defined.
+5. Desktop has no Discard control, so only Send returns from Desktop / Compose.
+6. Archive has no destination on desktop (it would be a self-loop on Desktop / Inbox) and Mobile / Thread has no Archive action; on mobile, Archive is reached from Mobile / Sidebar open.
+7. Thread rows on Desktop / Inbox and Desktop / Inbox (sidebar collapsed) have no link (the reading pane already shows the thread; a link would be a self-loop).
+8. Keyboard: Escape uses the history `back` action, not a fixed destination. Enter-to-open on rows is not defined.
 
 ## Changelog
 - 2026-11-11: full build. All `screen:*` (12), `component:*` (19), `token:*` (21) and `style:*` (2) keys.
 - 2026-11-11: open-issues fix sync. Changed: all `component:*` (19) and `screen:*` (12) keys. Added: `token:space/2`, `token:space/10`, `token:space/14`, `token:space/20`, `token:space/40`, `token:space/56`, `token:radius/lg`, and 13 `style:Serif/*` / `style:Sans/*` text styles.
+- 2026-11-11: DTCG tokens sync. `tokens.json` is now the source of truth. Added: `token:size/icon`, `token:size/avatar`, `token:size/control/sm|md|lg`, `token:sidebar/width/expanded|collapsed`, `token:pane/list/width/desktop|tablet`, `token:search/width/desktop`, `token:reading/body/maxWidth`, `token:composeField/label/width`. Changed: all `screen:*` (12) keys (sizes bound; hidden leftover panes deleted; mobile top bar gap `space/4` → `space/16`; Mobile / Sidebar open Nav toggle slot reserved) and 18 `component:*` keys (sizes bound).
