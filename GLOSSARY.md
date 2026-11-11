@@ -56,3 +56,14 @@ _Avoid_: open, spawn
 Pointing a window at a buffer with a fresh window history, dropping its back
 and forward stacks. Not Dock, which moves windows, not buffers.
 _Avoid_: load, bind
+
+**Link**:
+A path, with optional query arguments, that points at a buffer, such as
+`/tasks/42/edit`. Opening a link focuses a window that shows the buffer or
+opens it, as the link policy decides.
+_Avoid_: route, deep link URL
+
+**Link table**:
+The app's map from each buffer kind to one path template, used both ways:
+a link to its buffer, and a buffer to its link.
+_Avoid_: route table, router config

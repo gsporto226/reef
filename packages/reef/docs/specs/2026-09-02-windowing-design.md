@@ -72,8 +72,9 @@ Rules:
   `WindowState` serves both.
 - A window is never empty: `BufferHistory.current` is required. A tab can
   be empty: closing or floating its last tree window leaves the tab with
-  no tree. The reducer never cascades upward; a `focusPolicy` that wants
-  the tab gone replaces the command via the interceptor (§6).
+  no tree. The reducer never cascades upward. A `focusPolicy` that wants
+  the tab gone appends a `CloseTab` to the triggering batch (§6). Appended
+  commands pass through the interceptor like any other.
 - Invariants, enforced in the reducer: every tab belongs to exactly one
   shell; a shell's `tabIds` order is the tab strip order; window trees
   partition tree windows per tab; each floating window has exactly one scope;
@@ -285,9 +286,23 @@ sealed class CommandDecision {
   reports the failure and leaves the doc untouched. Replace rewrites the
   command before the reducer sees it, e.g. a horizontal split into a
   vertical one.
-- `openPolicy`: how "open buffer X" compiles. Focus an existing window
-  (single-instance buffers), push onto the focused window, split, or new tab.
-- `focusPolicy`: what close and split do to focus; focus restoration rules.
+- `openPolicy`: how `controller.openBuffer(buffer)` compiles into one
+  batch of commands (§8).
+- `focusPolicy`: what close, split and back do to focus. The controller
+  runs it after each command of a batch and appends the commands it
+  returns to that batch, so they reach the interceptor and land in the
+  same undo step. Options: `splitTakesFocus` (default true),
+  `closeEmptyTab` (default false; a shell's last tab never closes),
+  `focusAfterClose` (default none: the reducer's neighbour) and
+  `emptyBack` (§8).
+- `linkPolicy`: what a resolved link does (§9).
+
+`interceptor`, `openPolicy`, `focusPolicy` and `linkPolicy` are also
+`WindowingController` constructor parameters. A non-null value on the
+delegate replaces the controller's while `WindowingRoot` is mounted, and
+the previous value comes back on unmount. A policy that must apply before
+the root mounts, such as for a launch link opened at start-up, goes to the
+controller constructor.
 - `persistence`: what the hibernation record keeps. Unlike the other hooks
   it is a `WindowingController` constructor parameter next to the store,
   because restore happens before any widget mounts: a doc-to-doc transform
@@ -358,72 +373,112 @@ Navigator semantics on top of the spatial model. Each window owns a history
 in the doc (§2 `BufferHistory`): `back`, `current`, `forward`.
 
 - `PushBuffer`: demotes current to back, clears forward, sets new current.
-  Push targets are an existing `BufferId` (reuse, live sync) or a spec
-  (kind + args) that `openPolicy` resolves to create-or-focus.
+  The target is a `BufferId`.
 - `ReplaceBuffer`: swaps current, stacks untouched.
 - `PopBuffer` (back) and `NavigateForward`: mirror moves on the stacks.
 - Both stacks are always tracked. Exposing forward is the dev's choice:
   mobile wires back only; desktop may bind Alt+Left/Right and mouse
   buttons.
-- `openPolicy` defaults: mobile/tabbed pushes onto the focused window;
-  desktop opens into a detail window. Pages keep calling `openBuffer(...)`.
+- Pages open buffers with `controller.openBuffer(buffer)`, which
+  dispatches what `openPolicy` returns as one batch. The default,
+  `defaultOpenPolicy`, focuses a window of the focused shell's active tab
+  that already shows the buffer, else pushes. Reef also ships
+  `pushOpenPolicy` (push onto the active window), `splitBesideOpenPolicy`
+  (a new window beside the active one, horizontal split) and
+  `newTabOpenPolicy` (a new tab in the focused shell). Push and split give
+  an empty tab its first window. There is no screen-class default: an app
+  that wants a detail window on desktop picks `splitBesideOpenPolicy`
+  itself.
 
-Platform back = window back. Android's system back (predictive) and an app
-back button bind to `PopBuffer(activeWindow)`. When the back stack empties,
-`focusPolicy` decides (close the tab, background the app). Browser back is
-a different history with different rules (§9).
+Platform back = window back. `controller.back()` pops the focused shell's
+active window and returns true. When that back stack is empty, or no window
+is active, `focusPolicy.emptyBack` decides: `nothing` (handled, no change),
+`closeWindow` (closes the active window) or `unhandled` (returns false).
+`WindowingSystemBack` is an opt-in widget that binds system back, such as
+Android's back gesture, to `controller.back()`. Back it leaves unhandled
+goes on to the platform, which can background the app. Browser back is a
+different history with different rules (§9).
 
 ## 9. Deep linking
 
-True URIs, browser-compatible. A deep link is a `BufferPath` (path + args)
-arriving over any transport: router URL on web and mobile, protocol
-handler or launch args on desktop, push notification payloads. All
-transports normalize into one seam:
+True URIs, browser-compatible. A deep link is a `BufferPath`: path segments
+plus query arguments. It can arrive over any transport: the route
+information (the browser URL on web), launch arguments on desktop, or a
+push notification payload. Every transport ends in one call:
 
 ```
-transport → BufferPath → linkPolicy.resolve(ref, doc) → commands
-          // focus existing | push here | new window | new tab | new shell
+transport → BufferPath → controller.openLink(path, newShell: ...)
+          → links.resolve(path) → linkPolicy, else openPolicy → one batch
 ```
 
-URL rules:
+The link table:
 
-- Buffer kinds register path templates in the app's route table
-  (`tasks` → `/tasks`, `task-edit` → `/tasks/:taskId/edit`). Kind:token
-  stays an internal registry identity; the external form is a proper
-  hierarchical URI.
-- The URL is the focused buffer's path. Query carries buffer args and
-  modifiers. Arrangement never touches the URL; the doc hibernation owns
-  layout, the URL owns content. Same split as the web: the URL says what
-  you are looking at, the site owns how it displays.
-- History mapping: focus switches (another tab, another window) rewrite the
-  current entry (`replaceState`), like browsers, which also leave tab
-  switches out of history. `PushBuffer` navigation adds an entry
-  (`pushState`). Browser back/forward arrive as `popState` and resolve
-  through `linkPolicy`. App-initiated back traverses when the adjacent
-  history entry matches the target location, else rewrites the current
-  entry. The browser stack is the session's location
-  history; window histories are per-window navigation. They interact through
-  the same resolve rule; no strict isomorphism is promised.
-- "Open in new shell" is a link property, like `target=_blank`, decided
-  by policy, not URL state.
-- Ephemeral drafts are addressable when a template exists
-  (`/tasks/new` restores a fresh draft). A ref with no template leaves
-  the URL unchanged (documented; no garbage params).
-- Cold start: restore the doc first, then apply the arriving link as a
-  focus or open delta on top. Fresh install: empty doc, link creates.
+- The link table is a `LinkTable` in reef core, handed to the
+  `WindowingController` as `links`. It maps each buffer kind to one path
+  template (`task-edit` → `/tasks/:taskId/edit`). The template's
+  parameters, joined by `/`, form the buffer token, so `/tasks/42/edit`
+  resolves to `task-edit:42`. The kind:token id stays the internal
+  identity. The path is the external form.
+- `links.pathOf(buffer)` maps back: the path of a buffer, or null when its
+  kind has no template or its token does not fit the template.
+- A template without parameters resolves to a fresh buffer each time
+  (`/tasks/new` → `task-new:<uuid v7>`), so drafts are addressable.
+- Query arguments reach the link policy only. Core has no buffer
+  arguments: the resolved buffer is an id, and the arguments do not enter
+  the doc.
 
-Worked examples (task app, kinds `tasks`, `task-detail`, `task-edit`):
+Opening a link:
 
-1. Push notification `/tasks/42/edit`, fresh install: doc becomes shell →
-   tab → window with `current = task-edit:42`. Address bar shows
+- `openLink` returns false and changes nothing when no template matches.
+- With `newShell: true` and `capabilities.canPopOut`, the buffer opens in
+  a new shell (`openShell`). "Open in new shell" is a property of the call,
+  like `target=_blank`, not URL state. Without pop-out support, or when
+  the shell fails to open, the link goes to the policies below.
+- `linkPolicy(doc, buffer, arguments)` returns the commands to dispatch,
+  or null to let `openPolicy` decide. The default, `defaultLinkPolicy`,
+  focuses a window that shows the buffer, in any shell, preferring the
+  focused shell. Else it returns null.
+- Cold start: the controller restores the doc first (§11), then the app
+  calls `openLink` on top. Fresh install: the initial doc, then the link.
+
+URL sync (`reef_router`, ADR 0003):
+
+- `WindowingLinkSync` sits under `WindowingRoot`. It keeps the route
+  information equal to the path of the focused shell's focused buffer.
+  Arrangement never touches the URL: the doc hibernation owns layout, the
+  URL owns content.
+- Push or replace: a doc change reports a new entry (`navigate`) when the
+  focused window's back stack grew by exactly the buffer that window
+  showed before. Every other change rewrites the current entry
+  (`neglect`): focus switches, `ReplaceBuffer`, `PopBuffer` and other
+  app-initiated back.
+- When the focused buffer has no path, or the path equals the current
+  URL, nothing is reported.
+- The initial route and every later route notification (browser back and
+  forward, a typed URL) go to `openLink`. Changes caused by that call are
+  not reported back. An initial route that does not resolve is then
+  replaced by the focused buffer's path.
+- Limitation: browser back and forward do not traverse window histories.
+  They open the location of the target entry through `openLink` like any
+  other link. If no window shows that buffer, `openPolicy` opens it, which
+  by default pushes, so the window's back stack grows instead of shrinking.
+  A template without parameters opens a fresh buffer on every traversal.
+  The browser stack and the window histories are separate; no mapping
+  between them is promised.
+
+Worked examples (task app, kind `task-edit` at `/tasks/:taskId/edit`,
+default policies):
+
+1. Push notification `/tasks/42/edit`, fresh install: `openLink` resolves
+   `task-edit:42` and pushes it onto the active window. The URL shows
    `/tasks/42/edit`.
-2. Web, one window: on `/tasks`, tap task 42 → push, browser stack
-   `[/tasks, /tasks/42/edit]`. Browser back pops the window. Forward mirrors.
-3. Web, two windows: left list, right detail. Click 43 → right window pushes
-   43, focus follows, `pushState(/tasks/43/edit)`. Click the left window →
-   `replaceState(/tasks)`, no history entry. Browser back revisits
-   `/tasks/42/edit` and focuses that buffer; the right window's own back
-   stack `[42]` is untouched.
+2. Web, one window on task 42. The page opens task 43 with `openBuffer`:
+   the window pushes 43 and the browser gets a new entry,
+   `/tasks/43/edit`. Browser back opens `/tasks/42/edit` as a link. No
+   window shows 42, so the default `openPolicy` pushes it: the window's
+   back stack is now `[42, 43]`.
+3. Web, two windows on tasks 42 and 43, 43 focused. Click the window on
+   42: a focus switch, so `/tasks/42/edit` replaces the current entry.
 
 ## 10. Lifecycles
 
@@ -451,18 +506,37 @@ Rules:
 
 ## 11. Hibernation
 
-The whole doc serializes under one reserved `windowing:` key in the
-existing `HibernationStore`, versioned. Serialized: shells (ordered tabs,
-active tab), tabs (window trees with ratios, floating entries with scope,
-zIndex, geometry hints, active window), focus pointers, version. Unknown
-version discards the doc; buffers are unaffected. Not serialized: undo
-history (in memory only), platform shell state.
+The doc hibernates as one record under the reserved id
+`WindowingController.hibernationKey` (`windowing:`) in the existing
+`HibernationStore`. Buffer providers must not use that id; debug builds
+assert on it.
 
-Restore path: load doc, attach each shell (real shells via platform-first
-`open` on desktop, inline surface on single-shell platforms), windows
-rematerialize buffers through the existing family providers, hibernated
-seeds restore models. Geometry hints are advisory; projections may ignore
-them.
+- The record holds `version` (currently 1), `doc` and `extra`. `doc`
+  holds the shells (ordered tabs, active tab), the tabs (window trees with
+  axes and ratios, active window), every window's history (back, current,
+  forward), the floating entries (scope, zIndex, geometry hint) and the
+  focused shell. Not saved: undo history (in memory only) and platform
+  shell state.
+- `persistence`, a constructor parameter, turns the live doc into the doc
+  that is saved (default: the whole doc). `controller.extra` is an
+  app-owned JSON value saved next to it and restored with it.
+- With a `store`, the controller saves on every published doc change and
+  on every `extra` write.
+- At construction, the controller loads the record. A record with another
+  version, a malformed record and a record whose doc breaks an invariant
+  are deleted and ignored, and the controller starts from `initial`.
+  Buffer records are unaffected.
+- `controller.discardSavedLayout()` deletes the record. The next published
+  doc is saved again.
+
+Restore path: the controller starts on the restored doc before any widget
+mounts. `ShellViews` opens a real shell for each doc shell at mount. A
+shell whose real shell fails to open leaves the doc through a normal
+`CloseShell` dispatch, so an interceptor can veto it; the last shell is
+never closed. On single-shell platforms the focused shell draws inline.
+Windows rematerialize buffers through the existing family providers, and
+hibernated seeds restore models. Geometry hints are advisory; projections
+may ignore them.
 
 ## 12. Migration and phasing
 
@@ -483,7 +557,8 @@ the quartet machinery, `ScreenTypeLayout`, listenable_plus, reef_fp.
 | W2 | `UndoController`, `UndoEntry<S>`, `UndoHost<S>`, `WindowingUndoHost`, `UndoableModel` mixin, `BufferUndoHost` |
 | W3 | Render: `WindowingScope`, containers, overlay layers, `WindowingDelegate`, reference projections + default policy, drag-resize, `WindowingShortcuts` |
 | W4 | `reef_multi_window` adapter, platform-first/doc-first wiring, capabilities |
-| W5 | `windowing:` doc hibernation + restore, rebuilt router adapter (URL ↔ doc), example app showcase |
+| W5 | `windowing:` doc hibernation + restore, `openPolicy`, `focusPolicy`, `controller.back()` and `WindowingSystemBack`, `LinkTable` + `openLink` + `linkPolicy`, `reef_router` (URL ↔ doc), example app showcase |
+| W6 | Integration apps (`docs/integration-apps.md`) |
 
 Testing per phase: reducer and command table tests without Flutter (W1);
 `UndoController` pure tests with fake replay data, host-aware entry tests (W2); pop-out tests with `FakeShellPlatform` (W4); widget tests for containers and projection

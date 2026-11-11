@@ -426,12 +426,17 @@ tabs arrange windows, OS windows host tabs. Decided 2026-09.
   any fresh-construction seed (`hibernatedSeed ?? initial`) — a
   rematerialized buffer restores its hibernated model.
 
-### 10.3 Layering — on top of navigation (W5)
+### 10.3 Layering — on top of navigation — shipped (W5)
 
 Windowing is router-agnostic: `WindowingRoot` renders the windowing doc
 through the app's buffer builder (windowing design spec §5). The old
-split-tree router adapter was deleted in W0; `reef_router` rebuilds deep
-links (spec §9) on the windowing model (ADR 0003).
+split-tree router adapter was deleted in W0. Deep links (spec §9) now sit
+on the windowing model. Reef core holds the link table (`LinkTable`,
+handed to the controller as `links`), `controller.openLink` and the
+`linkPolicy`. The `reef_router` package holds `WindowingLinkSync`, which
+keeps the route information (the browser URL on web) equal to the focused
+buffer's path and sends incoming routes to `openLink`, over Flutter's
+route information API (ADR 0003).
 
 ### 10.4 Multi-window (shells) — shipped (W4)
 
@@ -468,9 +473,12 @@ controls); the manual multi-shell checklist (`docs/multi-shell-checklist.md`)
 for what tests cannot see, including the multi-shell flow on real shells:
 `flutter test integration_test` does not load with the flag set.
 
-**Still open:** a veto for the last shell's close (confirm before quit), and
-reopening real shells from a restored doc beyond what `ShellViews` does at
-mount (W5).
+**Restore (W5):** `ShellViews` opens a real shell for each shell of the
+restored doc at mount. A shell whose real shell fails to open is closed in
+the doc by a normal dispatch, so an interceptor can veto it; the last shell
+stays.
+
+**Still open:** a veto for the last shell's close (confirm before quit).
 
 ### 10.5 Roadmap
 
@@ -480,7 +488,12 @@ mount (W5).
   pinned flag, alive-buffer registry (`:ls`), auto-hibernate + restore.
 - **Phase C — replaced.** The split-tree layout and its auto_route adapter
   were superseded by the windowing model (shells, tabs, windows; see the
-  windowing design spec) and deleted. Router deep links return in W5.
+  windowing design spec) and deleted. Router deep links returned in W5.
 - **Phase D — shipped (W4).** Multi-shell on Flutter master (§10.4): buffers as
   plain shared state across shells, `ShellPlatform` in reef core and the
   `reef_multi_window` adapter.
+- **W5 — shipped.** The windowing doc hibernates under `windowing:` and
+  restores at start-up, the open, focus and link policies, window back and
+  system back, and the `reef_router` package (windowing design spec §8,
+  §9, §11).
+- **W6 — next.** The integration apps (`docs/integration-apps.md`).

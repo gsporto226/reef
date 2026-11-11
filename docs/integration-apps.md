@@ -13,7 +13,8 @@ Rules for every app:
 - Keep scope to what the app's column validates. Features listed as out of
   scope stay out.
 - An app is done when its acceptance flows run green as integration tests.
-- Start an app when the phases it depends on have landed.
+- The apps are planned for phase W6. Start an app when the phases it
+  depends on have landed.
 
 | App | Folder | Depends on | Validates |
 |---|---|---|---|
