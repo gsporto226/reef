@@ -83,6 +83,14 @@ void main() {
     }
   });
 
+  testWidgets('ShellProjection draws a given shell through the policy, by '
+      'the screen class it sits in', (tester) async {
+    await _pump(tester, child: const ShellProjection(_shell));
+    expect(find.byType(DesktopProjection), findsOneWidget);
+    await _resize(tester, 700);
+    expect(find.byType(TabbedProjection), findsOneWidget);
+  });
+
   testWidgets('focusedOnly shows the window activated next', (tester) async {
     final c = await _pump(
       tester,

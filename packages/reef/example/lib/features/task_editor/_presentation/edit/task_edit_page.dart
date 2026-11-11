@@ -4,17 +4,17 @@ import 'package:formularium/features/forms/_data_types/form_field_status.dart';
 import 'package:reef/features/page/_implementations/reef_buffer_scope.dart';
 import 'package:reef/features/page/_implementations/reef_window.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
+import 'package:reef/reef.dart' show WindowingScope;
 import 'package:reef_example/_kit/kit.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_model.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_provider.dart';
-import 'package:reef_example/features/windowing/window_host.dart';
 import 'package:reef_fp/result.dart';
 import 'package:reef_fp/unit.dart';
 
 /// Page layer: layout + wiring only (blueprint §4) — defines the buffer type;
 /// [ReefWindow] owns identity, scope and the provider watch (§4.4, §10).
 class TaskEditPage extends ConsumerWidget {
-  const TaskEditPage({super.key, this.bufferId, this.initial, this.windowHost});
+  const TaskEditPage({super.key, this.bufferId, this.initial});
 
   /// Opens this buffer; null materializes a fresh one.
   final BufferId? bufferId;
@@ -22,9 +22,6 @@ class TaskEditPage extends ConsumerWidget {
   /// Seed for a fresh buffer (the route's task token); a hibernated model
   /// wins over it (§10.2).
   final TaskEditModel? initial;
-
-  /// Pops this buffer out into an OS window (§10.4); null = no affordance.
-  final WindowHost? windowHost;
 
   @override
   Widget build(BuildContext context, WidgetRef ref) =>
@@ -37,38 +34,34 @@ class TaskEditPage extends ConsumerWidget {
           return taskEditViewModelProvider(bufferId: id);
         },
         builder: (context, vm) =>
-            _TaskEditLayout(viewModel: vm, windowHost: windowHost),
+            _TaskEditLayout(viewModel: vm),
       );
 }
 
 class _TaskEditLayout extends StatelessWidget {
-  const _TaskEditLayout({required this.viewModel, this.windowHost});
+  const _TaskEditLayout({required this.viewModel});
 
   final TaskEditViewModel viewModel;
-  final WindowHost? windowHost;
 
   @override
-  Widget build(BuildContext context) => Column(
+  Widget build(BuildContext context) {
+    // Absent outside a WindowingRoot and where shells cannot open.
+    final windowing =
+        context.getInheritedWidgetOfExactType<WindowingScope>()?.controller;
+    return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           const KitHeader(title: 'Reef — task editor'),
-          if (windowHost != null && windowHost!.isSupportedIn(context))
+          if (windowing != null && windowing.capabilities.canPopOut)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
               child: Align(
                 alignment: Alignment.centerRight,
                 child: KitButton(
                   label: 'Open in window',
-                  onPressed: () {
-                    final bufferId = ReefBufferScope.of(context);
-                    windowHost!.open(
-                      context,
-                      BufferWindowRequest(
-                        bufferId: bufferId,
-                        title: bufferId.id,
-                      ),
-                    );
-                  },
+                  onPressed: () => windowing.openShell(
+                    buffer: ReefBufferScope.of(context),
+                  ),
                 ),
               ),
             ),
@@ -177,6 +170,7 @@ class _TaskEditLayout extends StatelessWidget {
           ),
         ],
       );
+  }
 
   Duration _oneWeek() => const Duration(days: 7);
 }

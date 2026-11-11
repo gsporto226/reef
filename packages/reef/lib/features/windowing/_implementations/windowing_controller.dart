@@ -1,8 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show Axis, Rect;
 import 'package:formularium/features/localization/localizable_interface.dart';
+import 'package:reef_fp/result.dart';
 import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
+import 'package:reef/features/windowing/_implementations/shell_platform.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 
@@ -740,8 +742,10 @@ class WindowingController {
   /// With [undo], each layout-changing batch records one entry on it
   /// (spec §4), published back through a [WindowingUndoHost].
   /// With [interceptor], every dispatched command is decided on first.
+  /// With [platform], [openShell] opens real shells.
   WindowingController(
-      {WindowingDoc? initial, UndoController? undo, this.interceptor})
+      {WindowingDoc? initial, UndoController? undo, this.interceptor,
+      this.platform})
       : _doc = ValueNotifier(initial ?? WindowingDoc.initial()),
         _undo = undo {
     undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
@@ -749,6 +753,12 @@ class WindowingController {
 
   final ValueNotifier<WindowingDoc> _doc;
   final UndoController? _undo;
+
+  /// Opens and closes the real shells; null for a single-shell app.
+  final ShellPlatform? platform;
+
+  ShellCapabilities get capabilities =>
+      ShellCapabilities(canPopOut: platform?.isSupported ?? false);
 
   ValueListenable<WindowingDoc> get doc => _doc;
 
@@ -767,16 +777,24 @@ class WindowingController {
   /// unless only focus changed; a changed shell set clears the timeline.
   /// Consecutive batches with an equal [coalesceKey] merge into one entry.
   void dispatchAll(Iterable<WindowingCommand> commands,
-      {Object? coalesceKey}) {
+          {Object? coalesceKey}) =>
+      _dispatch(commands, coalesceKey: coalesceKey);
+
+  /// [dispatchAll], publishing only when [accept] (if given) takes the
+  /// intercepted result. Returns whether it did; vetoes surface either way.
+  bool _dispatch(Iterable<WindowingCommand> commands,
+      {Object? coalesceKey, bool Function(WindowingDoc next)? accept}) {
     final before = _doc.value;
     final vetoes = <CommandVeto>[];
     final next =
         commands.fold(before, (doc, c) => _intercepted(doc, c, vetoes));
-    if (next != before) _publish(before, next, coalesceKey);
+    final accepted = accept?.call(next) ?? true;
+    if (accepted && next != before) _publish(before, next, coalesceKey);
     // After the doc, so veto listeners read the batch result.
     for (final veto in vetoes) {
       _vetoes.value = veto;
     }
+    return accepted;
   }
 
   void _publish(WindowingDoc before, WindowingDoc next, Object? coalesceKey) {
@@ -793,6 +811,12 @@ class WindowingController {
       }
     }
     _doc.value = next;
+    // Doc-first: real shells close only after the doc dropped them.
+    if (platform case final platform?) {
+      before.shells.keys
+          .where((id) => !next.shells.containsKey(id))
+          .forEach(platform.close);
+    }
   }
 
   WindowingDoc _intercepted(WindowingDoc doc, WindowingCommand command,
@@ -828,11 +852,77 @@ class WindowingController {
       dispatch(MoveTab(tabId, shellId: shellId, index: index));
 
   /// Adds a shell holding one empty tab and focuses it. Returns its id.
-  /// The platform shell is not opened here (that is `popOutTab`, later).
+  /// The platform shell is not opened here; [openShell] and [popOutTab] do.
   ShellId attachShell() {
     final shell = ShellId.generate();
     dispatch(AttachShell(shell, tabId: TabId.generate()));
     return shell;
+  }
+
+  /// Opens a real shell, then attaches it to the doc holding one empty tab,
+  /// or one tab showing [buffer], and focuses it. Returns its id. Fails with
+  /// `unsupported` without a supported platform, with the platform's error
+  /// when the open fails (the doc is untouched), and with `refused` when an
+  /// interceptor keeps the batch from landing whole (the real shell closes).
+  Future<Result<ShellError, ShellId>> openShell({BufferId? buffer}) {
+    final tab = TabId.generate();
+    if (buffer == null) {
+      return _openShellWith((shell) => [AttachShell(shell, tabId: tab)], tab);
+    }
+    final shown = TabId.generate();
+    return _openShellWith(
+      (shell) => [
+        AttachShell(shell, tabId: tab),
+        NewTab(
+            shellId: shell,
+            tabId: shown,
+            buffer: (WindowId.generate(), buffer)),
+        CloseTab(tab),
+      ],
+      shown,
+    );
+  }
+
+  /// Opens a real shell, then moves [tabId] into it as its only tab, in one
+  /// batch, and focuses it. Returns its id. Fails like [openShell], and with
+  /// `refused` before opening anything when the doc would refuse the move
+  /// (an unknown tab, or a shell's last tab).
+  Future<Result<ShellError, ShellId>> popOutTab(TabId tabId) {
+    final placeholder = TabId.generate();
+    return _openShellWith(
+      (shell) => [
+        AttachShell(shell, tabId: placeholder),
+        MoveTab(tabId, shellId: shell, index: 1),
+        CloseTab(placeholder),
+      ],
+      tabId,
+    );
+  }
+
+  /// Opens a real shell and applies [batchFor] it, all or nothing: the batch
+  /// lands only when the new shell then holds exactly [onlyTab]. Refused
+  /// before opening when the bare doc would not land it; when an interceptor
+  /// keeps it from landing, nothing is published and the real shell closes.
+  Future<Result<ShellError, ShellId>> _openShellWith(
+      List<WindowingCommand> Function(ShellId shell) batchFor,
+      TabId onlyTab) async {
+    final platform = this.platform;
+    if (platform == null || !platform.isSupported) {
+      return const Err(ShellError(ShellErrorKind.unsupported));
+    }
+    final shell = ShellId.generate();
+    final batch = batchFor(shell);
+    bool landed(WindowingDoc doc) =>
+        listEquals(doc.shells[shell]?.tabIds, [onlyTab]);
+    if (!landed(batch.fold(_doc.value, (doc, c) => c.apply(doc)))) {
+      return const Err(ShellError(ShellErrorKind.refused));
+    }
+    if (await platform.open(shell) case Err(:final value)) return Err(value);
+    if (!_dispatch(batch, accept: landed)) {
+      platform.close(shell);
+      return const Err(ShellError(ShellErrorKind.refused));
+    }
+    return Ok(shell);
   }
 
   void activateShell(ShellId shellId) => dispatch(ActivateShell(shellId));

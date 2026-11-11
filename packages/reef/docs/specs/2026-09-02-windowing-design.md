@@ -107,12 +107,18 @@ Dispatch semantics:
 - Controller methods (`splitWindow(...)`, `moveTab(...)`) construct and
   dispatch commands. Pages call methods; the command record exists for the
   undo timeline and the audit log, not for ceremony.
-- Platform intents are async controller methods and the only impure edge:
-  `popOutTab` opens the real shell first, then dispatches `AttachShell`
-  on success (the doc never claims a shell that does not exist);
-  `closeShell` dispatches first, then closes the real shell best-effort.
-  On platforms without multi-shell support these return a capability failure
-  and the doc stays untouched.
+- Platform intents are async controller methods and the only impure edge.
+  `openShell({BufferId? buffer})` and `popOutTab(TabId)` return
+  `Future<Result<ShellError, ShellId>>` and open the real shell first, then
+  dispatch the batch (`AttachShell`, the tab, close the placeholder tab) on
+  success, so the doc never claims a shell that does not exist. A batch the
+  doc would refuse fails with `refused` before any real shell opens; the batch is
+  all or nothing: if an interceptor keeps it from landing whole, nothing is
+  published and the real shell it opened closes. `closeShell` keeps
+  its signature: it dispatches first, and every shell that leaves a
+  published doc has its real shell closed best-effort. Without a platform, or
+  where it is unsupported, the open intents return `unsupported` and the doc
+  stays untouched.
 
 ## 4. Undo
 
@@ -292,40 +298,55 @@ smarter, never corrupt it.
 
 ## 7. Multi-window
 
-The spike's `WindowHost` seam (renamed `ShellPlatform`) graduates into a `reef_multi_window` adapter
-package (the `reef_auto_route` pattern). `RealShellPlatform` quarantines the
-unstable Flutter-master API (`@internal` imports; per-invocation
-`FLUTTER_WINDOWING=true` env override, never the global config flag).
-`FakeShellPlatform` serves tests.
+The spike's `WindowHost` seam became `ShellPlatform` in reef core, and the
+`reef_multi_window` adapter package implements it. `RealShellPlatform`
+quarantines the unstable Flutter-master API (`@internal` imports;
+per-invocation `FLUTTER_WINDOWING=true` env override, never the global config
+flag). `FakeShellPlatform` ships in reef core so apps can test their pop-out
+flows without the flag.
 
 ```dart
 abstract interface class ShellPlatform {
-  bool get isSupported;                                 // false on single-shell platforms
-  Future<Result<HostError, Unit>> open(ShellId id);  // create a real shell for that doc shell
-  void close(ShellId id);                            // best-effort destroy
+  bool get isSupported;                                // false on single-shell platforms
+  Future<Result<ShellError, Unit>> open(ShellId id);   // create a real shell for that doc shell
+  void close(ShellId id);                              // best-effort destroy
 }
 ```
 
-- Ordering is deliberately asymmetric. Create is platform-first: `popOutTab`
-  opens the real shell, then dispatches `AttachShell`. The doc never
-  claims a shell that does not exist. Close is doc-first: dispatch, then
-  `platform.close` best-effort. The doc is truth; a platform failure is a
-  leak, recoverable by closing the real shell.
-- View plumbing: `runWidget(ProviderScope(WindowManager(...)))`. One scope
-  above the manager, so inherited lookups (including `WindowingScope`)
-  cross view boundaries and every real shell shares providers. The
-  adapter maps each doc shell to a real `View`; each View hosts that
-  shell's `surfaceBuilder` subtree. Buffers stay plain shared state.
+`ShellError` has a kind (`unsupported`, `refused`, `platformFailure`) and an
+optional cause. An app hands its platform to
+`WindowingController(platform: ...)`.
+
+- Ordering is deliberately asymmetric. Create is platform-first: `openShell`
+  and `popOutTab` open the real shell, then dispatch the batch. The doc never
+  claims a shell that does not exist. Close is doc-first: when a published
+  doc has fewer shells than the one before, the controller calls
+  `platform.close` for each shell that left. This covers `closeShell`, raw
+  `CloseShell` commands and interceptor replacements. The doc is truth; a
+  platform failure is a leak, recoverable by closing the real shell.
+- View plumbing: `runWidget(ProviderScope(WindowingRoot(child:
+  ShellViews(...))))`. `ShellViews` takes the controller, the
+  `RealShellPlatform` and a `shellBuilder(context, shellId)`. It opens a real
+  shell for each doc shell at mount and draws one view per open real shell,
+  each with `shellBuilder` inside; apps draw the shell there with
+  `ShellProjection(shellId)`. One scope sits above every view, so inherited
+  lookups (including `WindowingScope`) cross view boundaries and every shell
+  shares providers. Buffers stay plain shared state. Without multi-shell
+  support `ShellViews` draws the focused shell inline in the implicit view,
+  so one entry point serves every platform.
 - `controller.capabilities.canPopOut` gates pop-out UI. On mobile and
   tablet the platform reports unsupported and pop-out UI hides; the
   doc still holds the one shell entity.
 - The last shell can never be closed (reducer invariant). Closing the
   last real shell on desktop is the platform's app exit, outside the doc.
-- Limitation, documented: native close buttons bypass reef. Upstream
-  `onWindowCloseRequested` is fire-and-destroy with no veto. Dev-built
-  title bars call `controller.closeShell` and get the interceptor's
-  veto path; the platform X button does not, until upstream ships a
-  veto-able hook.
+- Native close goes through the doc. With more than one shell in the doc,
+  the platform close button calls `controller.closeShell(id)`: an
+  interceptor can veto it and the shell stays open; otherwise the doc-first
+  close destroys the real shell. Activating a real shell calls
+  `controller.activateShell(id)`.
+- Limitation: the platform close button on the last shell destroys it
+  directly (app exit). No interceptor runs, so there is no confirm before
+  quit.
 
 ## 8. Buffer navigation
 

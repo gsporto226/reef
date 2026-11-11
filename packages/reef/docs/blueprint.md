@@ -406,7 +406,7 @@ tabs arrange windows, OS windows host tabs. Decided 2026-09.
 | Two splits, one buffer, live-synced edits | two windows, one buffer → same family viewmodel → same `ValueListenables`; sync comes free from the contract (§5) |
 | Tab (window layout) | split-tree of windows: leaves = (bufferId, layout params), nodes = orientation + ratios; serializable (Phase C) |
 | `:ls` buffer list | alive-buffer registry (Phase B, with the hibernation store) |
-| Multi-window (OS) | one engine, one isolate, many windows (Phase D, spiked): buffers are plain shared state — no protocol needed |
+| Multi-window (OS) | one engine, one isolate, many windows (Phase D, shipped in W4): buffers are plain shared state — no protocol needed |
 
 ### 10.2 Buffer lifetime — hybrid (shipped, Phase B)
 
@@ -433,60 +433,44 @@ through the app's buffer builder (windowing design spec §5). The old
 split-tree router adapter was deleted in W0; `reef_auto_route` is an empty
 package until W5 rebuilds deep links (spec §9) on the windowing model.
 
-### 10.4 Multi-window (OS) — spiked (Phase D)
+### 10.4 Multi-window (shells) — shipped (W4)
 
-Upstream: `flutter/flutter#30701`. The architecture question is settled:
-Flutter's windowing runs **one engine, one isolate, many OS windows** — each
-window is a `View` in the same `ViewCollection`. The §7 serializable model
-stays what it already was: persistence/hibernation only, *not* a cross-window
-protocol. The buffer/window split makes the rest trivial — the same buffer in
-two OS windows is the same family viewmodel, live sync comes free from the
-contract (§5), exactly like two windows (§10.1).
+Upstream: `flutter/flutter#30701`. Flutter's windowing runs **one engine,
+one isolate, many shells**: each shell is a `View` in the same
+`ViewCollection`. The §7 serializable model stays persistence and
+hibernation only, *not* a cross-shell protocol. The same buffer in two shells
+is the same family viewmodel; live sync comes free from the contract (§5).
 
-**API surface today** (all `@internal` in `flutter/lib/src/widgets/_window.dart`;
-breaking changes even in patch releases — keep it out of reef's public API):
+The spike graduated (windowing design spec §7). Reef core owns the
+`ShellPlatform` seam, `ShellError`, `FakeShellPlatform`,
+`controller.capabilities` and the `openShell` / `popOutTab` intents. The
+`reef_multi_window` package holds the only imports of Flutter's internal
+windowing library and exposes two things: `RealShellPlatform` and the root
+widget `ShellViews`. The example app runs on it from its single `main`:
+`runWidget(ProviderScope(WindowingRoot(child: ShellViews(...))))`.
 
-- `WindowManager` widget + `WindowRegistry` (a `ChangeNotifier`) +
-  `WindowEntry(controller, builder)` — descendants look the registry up and
-  register entries; the manager renders every entry as a `View`.
-- `WindowController` (regular, resizable; window created at construction) and
-  kindred `Dialog`/`Tooltip`/`Popup`/`Satellite` controllers; all extend
-  `BaseWindowController extends ChangeNotifier` (`destroy`, `contentSize`,
-  activation/maximized state). Trap: constructing controllers with
-  **eagerly-evaluated arguments** (e.g. `WindowManager(initialWindows: [...])`)
-  races binding init — the default factory accesses `WidgetsBinding.instance`
-  without ensuring it (only `.shrinkWrap` does); call
-  `WidgetsFlutterBinding.ensureInitialized()` first in `main()`.
-- `WindowControllerDelegate` — lifecycle hooks; `onWindowCloseRequested`
-  (currently fire-and-destroy — no veto, so no unsaved-changes prompt yet).
-- `WindowScope` (InheritedModel, aspect rebuilds).
+**Native close** goes through the doc: with more than one shell the platform
+close button calls `closeShell`, so an interceptor can veto it. The last
+shell's close button exits the app without asking the interceptor.
 
 **Enablement:** Flutter master channel; per-invocation env override
 `FLUTTER_WINDOWING=true` (the tool's `environmentOverride` for the feature).
 Do **not** use the global `flutter config --enable-windowing`: it injects the
 flag into `flutter test` too, where the Win32 windowing owner FFI-initializes
 inside `flutter_tester` and every widget test fails to load. The
-`FLUTTER_ENABLED_FEATURE_FLAGS` dart-define is tool-reserved — setting it
-manually is rejected; the config command was the documented path before the
-env override.
+`FLUTTER_ENABLED_FEATURE_FLAGS` dart-define is tool-reserved. Widget tests of
+the adapter switch the flag on in-test over flutter_test's own windowing
+owner (see `reef_multi_window/test/shell_views_test.dart`).
 
-**Spike** (`example/lib/features/windowing/` + `lib/main_windowed.dart`, run
-with `-t lib/main_windowed.dart`): a narrow **`WindowHost` seam** (`open`,
-`isSupportedIn`) keeps the unstable API quarantined in `RealWindowHost`
-(`// ignore_for_file: invalid_use_of_internal_member,
-implementation_imports`); `FakeWindowHost` makes the intent testable and is
-the future reef-adapter boundary. `runWidget(ProviderScope(WindowManager(...)))`
-— one scope above the manager, so inherited lookups cross view boundaries and
-every window shares the providers. Popped-out buffers reuse the same kind→page
-mapping as the app's buffer builder (`bufferPages` in `main.dart`), wrapped in a
-design-free `BufferWindowPage` (a raw `View` has no `Directionality` — it owns
-one). Verified: Windows build + boot; the interactive checklist (open, live
-edit across windows, close, reopen) is a manual demo.
+**Testing:** unit and widget tests over `FakeShellPlatform` and the in-test
+flag; the example's integration flow without the flag (inline, no pop-out
+controls); the manual multi-shell checklist (`docs/multi-shell-checklist.md`)
+for what tests cannot see, including the multi-shell flow on real shells:
+`flutter test integration_test` does not load with the flag set.
 
-**When it stabilizes:** promote the seam to a `reef_multi_window`-style
-adapter package (the `reef_auto_route` pattern), revisit close-requested
-hibernation once upstream adds a veto-able hook, and fold in whole-tab
-pop-outs (a tab leaves the tree as a window).
+**Still open:** a veto for the last shell's close (confirm before quit), and
+reopening real shells from a restored doc beyond what `ShellViews` does at
+mount (W5).
 
 ### 10.5 Roadmap
 
@@ -497,6 +481,6 @@ pop-outs (a tab leaves the tree as a window).
 - **Phase C — replaced.** The split-tree layout and its auto_route adapter
   were superseded by the windowing model (shells, tabs, windows; see the
   windowing design spec) and deleted. Router deep links return in W5.
-- **Phase D — spiked.** OS multi-window on Flutter master (§10.4): buffers as
-  plain shared state across windows, `WindowHost` seam proven in the example
-  app. Adapter package waits for API stabilization.
+- **Phase D — shipped (W4).** Multi-shell on Flutter master (§10.4): buffers as
+  plain shared state across shells, `ShellPlatform` in reef core and the
+  `reef_multi_window` adapter.
