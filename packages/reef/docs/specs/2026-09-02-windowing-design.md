@@ -468,7 +468,7 @@ them.
 
 Clean slate. Discarded, removed, no shims (done in W0): the old split-tree
 feature in reef core, the per-tab router projection in `reef_auto_route`
-(the package is an empty shell until W5), the old split-tree hibernation
+(replaced by `reef_router` in W5, ADR 0003), the old split-tree hibernation
 records. The kind:token registry concept is reimplemented inside the new
 adapter. Breaking change; reef's version bumps.
 

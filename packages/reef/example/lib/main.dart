@@ -11,6 +11,7 @@ import 'package:reef_example/features/task_editor/_presentation/list/task_list_p
 import 'package:reef_example/_kit/kit.dart';
 import 'package:reef_example/json_file_hibernation_store.dart';
 import 'package:reef_multi_window/reef_multi_window.dart';
+import 'package:reef_router/reef_router.dart';
 import 'package:reef_example/main_windowing.dart' show startingLayout;
 import 'package:reef_example/undo_providers.dart';
 
@@ -66,12 +67,20 @@ HibernationStore exampleStore({
 /// One [ProviderScope] above every shell, so a buffer shown in two shells is
 /// the same viewmodel. Buffers and the layout hibernate into [store]. The
 /// first of [launchArgs], a path in [exampleLinks], opens on top of the
-/// restored layout.
+/// restored layout. The focused task's path is reported to
+/// [routeInformationProvider] (the platform's by default: the browser URL on
+/// web).
 class ReefExampleApp extends StatefulWidget {
-  const ReefExampleApp({super.key, this.store, this.launchArgs = const []});
+  const ReefExampleApp({
+    super.key,
+    this.store,
+    this.launchArgs = const [],
+    this.routeInformationProvider,
+  });
 
   final HibernationStore? store;
   final List<String> launchArgs;
+  final RouteInformationProvider? routeInformationProvider;
 
   @override
   State<ReefExampleApp> createState() => _ReefExampleAppState();
@@ -117,6 +126,7 @@ class _ReefExampleAppState extends State<ReefExampleApp> {
       key: ValueKey(_layout),
       // The launch link applies once, not again after "Reset layout".
       link: _layout == 0 ? widget.launchArgs.firstOrNull : null,
+      routeInformationProvider: widget.routeInformationProvider,
       onResetLayout: () => setState(() => _layout++),
     ),
   );
@@ -127,9 +137,11 @@ class _ExampleShells extends StatefulWidget {
     super.key,
     required this.link,
     required this.onResetLayout,
+    required this.routeInformationProvider,
   });
 
   final String? link;
+  final RouteInformationProvider? routeInformationProvider;
   final VoidCallback onResetLayout;
 
   @override
@@ -169,16 +181,19 @@ class _ExampleShellsState extends State<_ExampleShells> {
   Widget build(BuildContext context) => WindowingRoot(
         controller: _controller,
         bufferBuilder: bufferPageFor,
-        child: WindowingSystemBack(
-          child: ShellViews(
-            controller: _controller,
-            platform: _platform,
-            shellBuilder: (_, shellId) => ExampleShell(
-              shellId,
-              onResetLayout: () {
-                _controller.discardSavedLayout();
-                widget.onResetLayout();
-              },
+        child: WindowingLinkSync(
+          routeInformationProvider: widget.routeInformationProvider,
+          child: WindowingSystemBack(
+            child: ShellViews(
+              controller: _controller,
+              platform: _platform,
+              shellBuilder: (_, shellId) => ExampleShell(
+                shellId,
+                onResetLayout: () {
+                  _controller.discardSavedLayout();
+                  widget.onResetLayout();
+                },
+              ),
             ),
           ),
         ),

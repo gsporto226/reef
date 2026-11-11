@@ -19,7 +19,7 @@ Single-context repo. The Dart workspace has several packages, but they share one
 ├── docs/adr/
 │   ├── 0001-three-layer-tests-merged-coverage.md
 │   └── 0002-window-means-viewport-shell-means-platform-window.md
-├── packages/        ← reef, reef_auto_route, reef_fp, reef_utils, reef_widgets
+├── packages/        ← reef, reef_router, reef_fp, reef_utils, reef_widgets
 └── apps/            ← integration apps (docs/integration-apps.md)
 ```
 

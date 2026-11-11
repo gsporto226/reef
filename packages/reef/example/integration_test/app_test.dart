@@ -56,6 +56,30 @@ void main() {
         reason: 'two lists, each with its filter');
   });
 
+  testWidgets('the route follows the focused task, and a route opens one',
+      (tester) async {
+    final route = _Route();
+    await tester.pumpWidget(
+      app.ReefExampleApp(
+        store: InMemoryHibernationStore(),
+        routeInformationProvider: route,
+      ),
+      wrapWithView: false,
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Buy milk'));
+    await tester.pumpAndSettle();
+    expect(route.value.uri.path, '/tasks/Buy%20milk/edit');
+
+    route.browse('/tasks/Walk%20dog/edit');
+    await tester.pumpAndSettle();
+    expect(
+        find.byWidgetPredicate(
+            (w) => w is EditableText && w.controller.text == 'Walk dog'),
+        findsOneWidget);
+    expect(route.value.uri.path, '/tasks/Walk%20dog/edit');
+  });
+
   testWidgets('undo and redo a title edit', (tester) async {
     app.main();
     await tester.pumpAndSettle();
@@ -192,4 +216,23 @@ void main() {
       expect(find.byType(EditableText), findsOneWidget, reason: 'filter only');
     });
   });
+}
+
+/// A route information provider standing in for the browser.
+class _Route extends RouteInformationProvider with ChangeNotifier {
+  RouteInformation _value = RouteInformation(uri: Uri.parse('/'));
+
+  @override
+  RouteInformation get value => _value;
+
+  void browse(String uri) {
+    _value = RouteInformation(uri: Uri.parse(uri));
+    notifyListeners();
+  }
+
+  @override
+  void routerReportsNewRouteInformation(RouteInformation routeInformation,
+          {RouteInformationReportingType type =
+              RouteInformationReportingType.none}) =>
+      _value = routeInformation;
 }

@@ -39,7 +39,7 @@ consumes `formularium` untouched.
 |---|---|
 | **reef** (this framework) | `ViewModel` base, `Operation`, `bind()`, formularium bridge, `ReefWindow` scaffold, buffer identity & scope, hibernation lifecycle, windowing (shells, tabs, windows; see the windowing design spec), async/result builders, responsive layouts, riverpod composition helpers |
 | **reef_widgets** | Widget-layer features over listenables — currently the infinite-scroll behavior (`InfiniteScrollController`/`InfiniteScrollWidget`); design-system-agnostic (§5.7) |
-| **reef_auto_route** | The auto_route adapter (§10.3): empty until W5 rebuilds routing on the windowing model |
+| **reef_router** | The link adapter (§10.3): the URL follows the focused buffer over Flutter's route information API (ADR 0003) |
 | **reef_fp** | Sync value types: `Either`, `Result`, `Optional`, `Async` (`Idle`/`Pending`/`Ready`) |
 | **listenable_plus** | Pure reactive combinators over `ValueListenable` (`map`, `select`, `where`, `distinct`, `debounceTime`, `combineWith`, `switchListen`) |
 | **task_graph** | DAG bootstrap scheduler (pre-init / post-init), Zig-inspired |
@@ -430,8 +430,8 @@ tabs arrange windows, OS windows host tabs. Decided 2026-09.
 
 Windowing is router-agnostic: `WindowingRoot` renders the windowing doc
 through the app's buffer builder (windowing design spec §5). The old
-split-tree router adapter was deleted in W0; `reef_auto_route` is an empty
-package until W5 rebuilds deep links (spec §9) on the windowing model.
+split-tree router adapter was deleted in W0; `reef_router` rebuilds deep
+links (spec §9) on the windowing model (ADR 0003).
 
 ### 10.4 Multi-window (shells) — shipped (W4)
 
