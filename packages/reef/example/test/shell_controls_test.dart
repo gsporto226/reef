@@ -11,7 +11,8 @@ const _edit = BufferId.manual('task-edit:Buy milk');
 /// One shell with two tabs, the task list and the editor (active), drawn by
 /// the example's shell chrome over [platform].
 Future<WindowingController> _pump(
-    WidgetTester tester, FakeShellPlatform platform) async {
+    WidgetTester tester, FakeShellPlatform platform,
+    {VoidCallback? onResetLayout}) async {
   tester.view
     ..physicalSize = const Size(1200, 800)
     ..devicePixelRatio = 1;
@@ -25,7 +26,7 @@ Future<WindowingController> _pump(
     child: WindowingRoot(
       controller: controller,
       bufferBuilder: bufferPageFor,
-      child: ExampleShell(shell),
+      child: ExampleShell(shell, onResetLayout: onResetLayout ?? () {}),
     ),
   ));
   await tester.pump();
@@ -83,5 +84,15 @@ void main() {
     ]) {
       expect(find.text(label), findsNothing, reason: label);
     }
+  });
+
+  testWidgets('"Reset layout" shows with or without pop-out support',
+      (tester) async {
+    var resets = 0;
+    await _pump(tester, FakeShellPlatform(isSupported: false),
+        onResetLayout: () => resets++);
+
+    await tester.tap(find.text('Reset layout'));
+    expect(resets, 1);
   });
 }

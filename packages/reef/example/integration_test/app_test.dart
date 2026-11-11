@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:reef/reef.dart';
+import 'package:reef_example/json_file_hibernation_store.dart';
 import 'package:reef_example/undo_providers.dart';
 import 'package:reef_example/main.dart' as app;
 
@@ -87,4 +90,58 @@ void main() {
       );
     },
   );
+
+  group('on a file store', () {
+    late Directory dir;
+    late File file;
+    setUp(() {
+      dir = Directory.systemTemp.createTempSync('reef_example_app');
+      file = File('${dir.path}/store.json');
+    });
+    tearDown(() => dir.deleteSync(recursive: true));
+
+    Future<void> boot(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox()); // tears any app down
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        app.ReefExampleApp(store: JsonFileHibernationStore.load(file)),
+        wrapWithView: false,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Finder titled(String text) => find.byWidgetPredicate(
+        (w) => w is EditableText && w.controller.text == text);
+
+    testWidgets('layout and an edited title come back after a restart, and '
+        '"Reset layout" returns to the first-run layout', (tester) async {
+      await boot(tester);
+      await tester.tap(find.text('Buy milk'));
+      await tester.pumpAndSettle();
+      await tester.enterText(titled('Buy milk'), 'Buy bread');
+      await tester.pumpAndSettle();
+
+      await boot(tester);
+      expect(titled('Buy bread'), findsOneWidget,
+          reason: 'the editor window and its edited title are restored');
+
+      await tester.tap(find.text('Reset layout'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EditableText), findsOneWidget, reason: 'filter only');
+
+      await tester.tap(find.text('Buy milk'));
+      await tester.pumpAndSettle();
+      expect(titled('Buy bread'), findsOneWidget,
+          reason: 'the buffer survives the reset');
+    });
+
+    testWidgets('an unreadable file starts on the first-run layout',
+        (tester) async {
+      file.writeAsStringSync('{not json');
+      await boot(tester);
+
+      expect(find.text('Buy milk'), findsOneWidget);
+      expect(find.byType(EditableText), findsOneWidget, reason: 'filter only');
+    });
+  });
 }
