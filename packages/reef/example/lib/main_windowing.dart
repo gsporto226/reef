@@ -8,6 +8,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_example/features/windowing/windowing_demo.dart';
+import 'package:reef_example/main.dart' show exampleStore, runsOnDesktop;
 import 'package:reef_example/undo_providers.dart';
 import 'package:reef_multi_window/reef_multi_window.dart';
 
@@ -24,11 +25,18 @@ WindowingDoc startingLayout(BufferId buffer) {
   return doc;
 }
 
-void main() => runWidget(const ProviderScope(child: PlaygroundApp()));
+void main() => runWidget(ProviderScope(
+      child: PlaygroundApp(
+        store: exampleStore(desktop: runsOnDesktop(), name: 'reef_playground'),
+      ),
+    ));
 
-/// The playground on [ShellViews]: one [PlaygroundShell] per real shell.
+/// The playground on [ShellViews]: one [PlaygroundShell] per real shell. The
+/// layout and the projection switch hibernate into [store].
 class PlaygroundApp extends ConsumerStatefulWidget {
-  const PlaygroundApp({super.key});
+  const PlaygroundApp({super.key, this.store});
+
+  final HibernationStore? store;
 
   @override
   ConsumerState<PlaygroundApp> createState() => _PlaygroundAppState();
@@ -40,6 +48,7 @@ class _PlaygroundAppState extends ConsumerState<PlaygroundApp> {
     initial: startingLayout(const BufferId.manual('welcome')),
     undo: ref.read(undoControllerProvider),
     platform: _platform,
+    store: widget.store,
   );
 
   @override

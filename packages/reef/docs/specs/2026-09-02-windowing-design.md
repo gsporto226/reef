@@ -288,8 +288,12 @@ sealed class CommandDecision {
 - `openPolicy`: how "open buffer X" compiles. Focus an existing window
   (single-instance buffers), push onto the focused window, split, or new tab.
 - `focusPolicy`: what close and split do to focus; focus restoration rules.
-- `persistence`: what the hibernation record keeps; whether the projection
-  choice persists.
+- `persistence`: what the hibernation record keeps. Unlike the other hooks
+  it is a `WindowingController` constructor parameter next to the store,
+  because restore happens before any widget mounts: a doc-to-doc transform
+  applied before saving (default: the whole doc). The controller's `extra`
+  is an app-owned JSON value saved next to the doc and restored with it
+  (default: none), e.g. the projection choice.
 
 Non-overridable core: doc invariants (reducer), the command set, the undo
 timeline, buffer live sync. Delegates work through the pipeline

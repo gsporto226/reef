@@ -108,6 +108,23 @@ void main() {
     expect(windows(), findsNWidgets(2));
     await project('Auto');
     expect(windows(), findsOneWidget);
+    expect(c.extra, 'auto');
+  });
+
+  testWidgets('the projection switch is saved in extra and restored from it', (
+    tester,
+  ) async {
+    await pump(tester);
+    await tester.tap(find.byTooltip('Split right'));
+    await tester.tap(find.byTooltip('Projection'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Tabbed').last);
+    await tester.pumpAndSettle();
+    expect(c.extra, 'tabbed');
+
+    await tester.pumpWidget(const SizedBox());
+    await show(tester);
+    expect(find.byTooltip('Close window'), findsOneWidget);
   });
 
   testWidgets('New shell and Pop out tab are absent when shells cannot pop '

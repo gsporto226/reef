@@ -32,21 +32,28 @@ Widget bufferPageFor(BuildContext context, BufferId id) =>
 ///   $env:FLUTTER_WINDOWING = "true"
 ///   fvm flutter run -d windows
 void main() => runWidget(ReefExampleApp(
-      store: exampleStore(
-        desktop: !kIsWeb &&
-            (Platform.isWindows || Platform.isLinux || Platform.isMacOS) &&
-            // A test binding is already up when a test calls main.
-            BindingBase.debugBindingType() == null,
-      ),
+      store: exampleStore(desktop: runsOnDesktop()),
     ));
 
-/// The app's store: a JSON file in [directory] (next to the executable by
-/// default) on [desktop], in memory on web and in tests.
-HibernationStore exampleStore({required bool desktop, Directory? directory}) =>
+/// Whether this run is a desktop app outside tests.
+bool runsOnDesktop() =>
+    !kIsWeb &&
+    (Platform.isWindows || Platform.isLinux || Platform.isMacOS) &&
+    // A test binding is already up when a test calls main.
+    BindingBase.debugBindingType() == null;
+
+/// The app's store: the JSON file `[name]_hibernation.json` in [directory]
+/// (next to the executable by default) on [desktop], in memory on web and in
+/// tests.
+HibernationStore exampleStore({
+  required bool desktop,
+  Directory? directory,
+  String name = 'reef_example',
+}) =>
     desktop
         ? JsonFileHibernationStore.load(File(
             '${(directory ?? File(Platform.resolvedExecutable).parent).path}'
-            '/reef_example_hibernation.json'))
+            '/${name}_hibernation.json'))
         : InMemoryHibernationStore();
 
 /// One [ProviderScope] above every shell, so a buffer shown in two shells is

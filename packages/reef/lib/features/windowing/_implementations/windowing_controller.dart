@@ -737,6 +737,9 @@ class CommandVeto {
   final ILocalizable reason;
 }
 
+/// Returns the doc a [WindowingController] saves in place of [doc].
+typedef WindowingPersistence = WindowingDoc Function(WindowingDoc doc);
+
 /// Owns the [WindowingDoc] and publishes it through [doc]. Pages call the
 /// intent methods; [dispatch] and [dispatchAll] take commands directly.
 class WindowingController {
@@ -746,23 +749,44 @@ class WindowingController {
   /// With [platform], [openShell] opens real shells.
   /// With [store], it starts from the doc saved there (over [initial]) and
   /// saves every published doc under [hibernationKey] (spec §11). A bad
-  /// record is deleted and ignored.
+  /// record is deleted and ignored. [persistence] shapes each saved doc
+  /// and [extra] is saved next to it.
   WindowingController({
     WindowingDoc? initial,
     UndoController? undo,
     this.interceptor,
     this.platform,
     HibernationStore? store,
+    this.persistence = _saveWholeDoc,
   }) : _doc = ValueNotifier(
          _restore(store) ?? initial ?? WindowingDoc.initial(),
        ),
+       _extra = store?.load(hibernationKey)?['extra'],
        _undo = undo,
        _store = store {
     undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
-    if (store != null) {
-      _doc.addListener(() => store.save(hibernationKey, _doc.value.toRecord()));
-    }
+    if (store != null) _doc.addListener(_save);
   }
+
+  static WindowingDoc _saveWholeDoc(WindowingDoc doc) => doc;
+
+  /// Turns the live doc into the doc that is saved; the live doc is kept.
+  final WindowingPersistence persistence;
+
+  Object? _extra;
+
+  /// An app-owned JSON value saved next to the doc; restored from the
+  /// record, null without one.
+  Object? get extra => _extra;
+  set extra(Object? value) {
+    _extra = value;
+    _save();
+  }
+
+  void _save() => _store?.save(hibernationKey, {
+    ...persistence(_doc.value).toRecord(),
+    'extra': _extra,
+  });
 
   /// The reserved store id the doc hibernates under.
   static const hibernationKey = BufferId.manual('windowing:');

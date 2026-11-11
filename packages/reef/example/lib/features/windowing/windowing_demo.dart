@@ -53,8 +53,17 @@ class _WindowingPlaygroundState extends ConsumerState<WindowingPlayground> {
   UndoController get _undo => ref.read(undoControllerProvider);
   int _buffers = 0;
 
+  /// The projection switch by the name it is saved under in the
+  /// controller's `extra`.
+  static const _projections = {
+    'auto': defaultWindowingProjection,
+    'desktop': _desktop,
+    'tabbed': _tabbed,
+  };
+
   /// The projection switch: by screen class, or forced.
-  WindowingProjectionPolicy _policy = defaultWindowingProjection;
+  late WindowingProjectionPolicy _policy =
+      _projections[_c.extra] ?? defaultWindowingProjection;
 
   BufferId _nextBuffer() => BufferId.manual('buffer ${++_buffers}');
 
@@ -134,7 +143,12 @@ class _WindowingPlaygroundState extends ConsumerState<WindowingPlayground> {
             tooltip: 'Projection',
             icon: const Icon(Icons.view_quilt_outlined),
             initialValue: WindowingDelegateScope.of(context).projectionPolicy,
-            onSelected: (policy) => setState(() => _policy = policy),
+            onSelected: (policy) {
+              setState(() => _policy = policy);
+              _c.extra = _projections.entries
+                  .firstWhere((e) => e.value == policy)
+                  .key;
+            },
             itemBuilder: (_) => const [
               PopupMenuItem(
                 value: defaultWindowingProjection,

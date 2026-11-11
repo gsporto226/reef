@@ -51,6 +51,38 @@ void main() {
     ]);
   });
 
+  test('the persistence transform shapes the record, not the live doc', () {
+    final first = WindowingController(
+      store: store,
+      persistence: (doc) => WindowingDoc(
+        shells: doc.shells,
+        tabs: doc.tabs,
+        windows: {
+          for (final e in doc.windows.entries)
+            if (!doc.floating.containsKey(e.key)) e.key: e.value,
+        },
+        focusedShellId: doc.focusedShellId,
+      ),
+    );
+    addTearDown(first.dispose);
+    final tab = first.newTab(buffer: const BufferId.manual('a'));
+    final a = first.doc.value.tabs[tab]!.activeWindowId!;
+    final b = first.splitWindow(a, axis: Axis.vertical);
+    first.floatWindow(b, scope: TabScope(tab));
+
+    expect(first.doc.value.floating.keys, [b]);
+    final second = controller();
+    expect(second.doc.value.floating, isEmpty);
+    expect(second.doc.value.windows.keys, [a]);
+  });
+
+  test('extra round-trips through a second controller', () {
+    final first = controller();
+    expect(first.extra, isNull);
+    first.extra = {'projection': 'tabbed'};
+    expect(controller().extra, {'projection': 'tabbed'});
+  });
+
   test('the record is plain JSON with a version', () {
     final first = controller();
     first.newTab(buffer: const BufferId.manual('a'));

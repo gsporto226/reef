@@ -70,6 +70,30 @@ void main() {
     expect(status('Focus: Shell 1 > Tab 1 > welcome'), findsOneWidget);
   });
 
+  testWidgets('the projection switch comes back after a restart on the same '
+      'store', (tester) async {
+    final store = InMemoryHibernationStore();
+    Future<void> boot() async {
+      await tester.pumpWidget(const SizedBox()); // tears any app down
+      await tester.pumpWidget(
+        ProviderScope(child: playground.PlaygroundApp(store: store)),
+        wrapWithView: false,
+      );
+      await tester.pumpAndSettle();
+    }
+
+    await tester.binding.setSurfaceSize(const Size(1200, 800));
+    await boot();
+    await tap(tester, find.byTooltip('Split right'));
+    expect(find.byTooltip('Close window'), findsNWidgets(2));
+    await menu(tester, 'Projection', 'Tabbed');
+    expect(find.byTooltip('Close window'), findsOneWidget);
+
+    await boot();
+    expect(find.byTooltip('Close window'), findsOneWidget,
+        reason: 'Tabbed is restored over the desktop screen class');
+  });
+
   testWidgets('new tab, activate, close', (tester) async {
     await pump(tester);
     expect(find.textContaining('Empty tab'), findsOneWidget);
