@@ -30,13 +30,20 @@ Widget bufferPageFor(BuildContext context, BufferId id) =>
 void main() => runWidget(const ReefExampleApp());
 
 /// One [ProviderScope] above every shell, so a buffer shown in two shells is
-/// the same viewmodel.
+/// the same viewmodel. Buffers and the layout hibernate into [store].
 class ReefExampleApp extends StatelessWidget {
-  const ReefExampleApp({super.key});
+  const ReefExampleApp({super.key, this.store});
+
+  final HibernationStore? store;
 
   @override
-  Widget build(BuildContext context) =>
-      const ProviderScope(child: _ExampleShells());
+  Widget build(BuildContext context) => ProviderScope(
+    overrides: [
+      if (store case final store?)
+        hibernationStoreProvider.overrideWithValue(store),
+    ],
+    child: const _ExampleShells(),
+  );
 }
 
 class _ExampleShells extends StatefulWidget {
@@ -48,11 +55,12 @@ class _ExampleShells extends StatefulWidget {
 
 class _ExampleShellsState extends State<_ExampleShells> {
   final _platform = RealShellPlatform(title: 'Reef example');
+  late final _container = ProviderScope.containerOf(context, listen: false);
   late final _controller = WindowingController(
     initial: startingLayout(const BufferId.manual('task-list:all')),
-    undo: ProviderScope.containerOf(context, listen: false)
-        .read(undoControllerProvider),
+    undo: _container.read(undoControllerProvider),
     platform: _platform,
+    store: _container.read(hibernationStoreProvider),
   );
 
   @override

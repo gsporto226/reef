@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show Axis, Rect;
 import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef_fp/result.dart';
+import 'package:reef/features/hibernation/_interfaces/hibernation_store.dart';
 import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/shell_platform.dart';
@@ -743,16 +744,42 @@ class WindowingController {
   /// (spec §4), published back through a [WindowingUndoHost].
   /// With [interceptor], every dispatched command is decided on first.
   /// With [platform], [openShell] opens real shells.
-  WindowingController(
-      {WindowingDoc? initial, UndoController? undo, this.interceptor,
-      this.platform})
-      : _doc = ValueNotifier(initial ?? WindowingDoc.initial()),
-        _undo = undo {
+  /// With [store], it starts from the doc saved there (over [initial]) and
+  /// saves every published doc under [hibernationKey] (spec §11). A bad
+  /// record is deleted and ignored.
+  WindowingController({
+    WindowingDoc? initial,
+    UndoController? undo,
+    this.interceptor,
+    this.platform,
+    HibernationStore? store,
+  }) : _doc = ValueNotifier(
+         _restore(store) ?? initial ?? WindowingDoc.initial(),
+       ),
+       _undo = undo,
+       _store = store {
     undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
+    if (store != null) {
+      _doc.addListener(() => store.save(hibernationKey, _doc.value.toRecord()));
+    }
+  }
+
+  /// The reserved store id the doc hibernates under.
+  static const hibernationKey = BufferId.manual('windowing:');
+
+  static WindowingDoc? _restore(HibernationStore? store) {
+    final record = store?.load(hibernationKey);
+    final doc = WindowingDoc.fromRecord(record);
+    if (doc == null && record != null) store!.delete(hibernationKey);
+    return doc;
   }
 
   final ValueNotifier<WindowingDoc> _doc;
   final UndoController? _undo;
+  final HibernationStore? _store;
+
+  /// Deletes the saved doc; the next published doc is saved again.
+  void discardSavedLayout() => _store?.delete(hibernationKey);
 
   /// Opens and closes the real shells; null for a single-shell app.
   final ShellPlatform? platform;

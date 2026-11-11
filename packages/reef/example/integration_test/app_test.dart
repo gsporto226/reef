@@ -2,6 +2,7 @@ import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:reef/reef.dart';
 import 'package:reef_example/undo_providers.dart';
 import 'package:reef_example/main.dart' as app;
 
@@ -54,4 +55,36 @@ void main() {
     await tester.pumpAndSettle();
     expect(text.text, 'Buy bread');
   });
+
+  testWidgets(
+    'the layout comes back after the app restarts on the same store',
+    (tester) async {
+      final store = InMemoryHibernationStore();
+      await tester.pumpWidget(
+        app.ReefExampleApp(store: store),
+        wrapWithView: false,
+      );
+      await tester.pumpAndSettle();
+      expect(find.byType(EditableText), findsOneWidget, reason: 'filter only');
+      await tester.tap(find.text('Buy milk'));
+      await tester.pumpAndSettle();
+      expect(find.byType(EditableText), findsWidgets);
+
+      await tester.pumpWidget(const SizedBox()); // tears the app down
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        app.ReefExampleApp(store: store),
+        wrapWithView: false,
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byWidgetPredicate(
+          (w) => w is EditableText && w.controller.text == 'Buy milk',
+        ),
+        findsOneWidget,
+        reason: 'the editor window is restored',
+      );
+    },
+  );
 }
