@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui' show AppExitResponse;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -72,12 +73,37 @@ class _ReefExampleAppState extends State<ReefExampleApp> {
   /// layout while the buffers above it stay.
   var _layout = 0;
 
+  late final _container = ProviderContainer(overrides: [
+    if (widget.store case final store?)
+      hibernationStoreProvider.overrideWithValue(store),
+  ]);
+
+  /// A closing desktop app may never dispose its tree, so the buffers are
+  /// disposed, and so hibernated, when the app is asked to exit or detaches.
+  late final AppLifecycleListener _exit;
+
   @override
-  Widget build(BuildContext context) => ProviderScope(
-    overrides: [
-      if (widget.store case final store?)
-        hibernationStoreProvider.overrideWithValue(store),
-    ],
+  void initState() {
+    super.initState();
+    _exit = AppLifecycleListener(
+      onExitRequested: () async {
+        _container.dispose();
+        return AppExitResponse.exit;
+      },
+      onDetach: _container.dispose,
+    );
+  }
+
+  @override
+  void dispose() {
+    _exit.dispose();
+    _container.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => UncontrolledProviderScope(
+    container: _container,
     child: _ExampleShells(
       key: ValueKey(_layout),
       onResetLayout: () => setState(() => _layout++),
