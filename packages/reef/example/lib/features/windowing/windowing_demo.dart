@@ -4,23 +4,51 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_example/undo_providers.dart';
 
-/// A playground over a [WindowingController]: shells, the projection switch
-/// and tabs across the top, the active tab's windows in the middle as the
-/// projection lays them out (drag the dividers to resize),
-/// its floating windows on top, and the focus chain in the status bar. Every
-/// control dispatches one controller intent. Drives the windowing integration
-/// flow. Needs a [MaterialApp] and a [ProviderScope] above it; Undo and Redo
-/// drive [undoControllerProvider], which [controller] must record on.
-class WindowingDemo extends ConsumerStatefulWidget {
-  const WindowingDemo({super.key, required this.controller});
+/// The windowing playground's root: a [WindowingRoot] over [controller] with
+/// the playground's delegate (window headers, tab bar, app rules, the
+/// projection switch). Place it above every shell's view, with a
+/// [PlaygroundShell] per shell below it and a [ProviderScope] above; Undo and
+/// Redo drive [undoControllerProvider], which [controller] must record on.
+class WindowingPlayground extends ConsumerStatefulWidget {
+  const WindowingPlayground({
+    super.key,
+    required this.controller,
+    required this.child,
+  });
 
   final WindowingController controller;
+  final Widget child;
 
   @override
-  ConsumerState<WindowingDemo> createState() => _WindowingDemoState();
+  ConsumerState<WindowingPlayground> createState() =>
+      _WindowingPlaygroundState();
 }
 
-class _WindowingDemoState extends ConsumerState<WindowingDemo> {
+/// Shell [shellId]'s surface in the playground: the shell controls and the
+/// projection switch across the top, the shell as its projection lays it out
+/// in the middle (drag the dividers to resize), its focus chain and the
+/// latest veto in the status bar. Every control dispatches one controller
+/// intent. Needs a [WindowingPlayground] above it.
+class PlaygroundShell extends StatelessWidget {
+  const PlaygroundShell(this.shellId, {super.key});
+
+  final ShellId shellId;
+
+  @override
+  Widget build(BuildContext context) => MaterialApp(
+    title: 'Reef windowing',
+    theme: ThemeData(useMaterial3: true),
+    home: Scaffold(
+      body: Builder(
+        builder: (context) => context
+            .findAncestorStateOfType<_WindowingPlaygroundState>()!
+            ._shell(context, shellId),
+      ),
+    ),
+  );
+}
+
+class _WindowingPlaygroundState extends ConsumerState<WindowingPlayground> {
   WindowingController get _c => widget.controller;
   UndoController get _undo => ref.read(undoControllerProvider);
   int _buffers = 0;
@@ -34,43 +62,36 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
   Widget build(BuildContext context) => WindowingRoot(
     controller: _c,
     bufferBuilder: (context, _) =>
-        _windowBody(_c.doc.value, WindowHost.of(context)),
+        _windowBody(context, _c.doc.value, WindowHost.of(context)),
     delegate: WindowingDelegate(
       windowChrome: _chrome,
-      tabStrip: (context, shellId) => _tabBar(_c.doc.value, shellId),
-      interceptor: _atMostFourWindows,
+      tabStrip: (context, shellId) => _tabBar(context, _c.doc.value, shellId),
+      interceptor: _rules,
+      projectionPolicy: _policy,
       emptyBuilder: (_, _) => const Center(
         child: Text('Empty tab: dock a floating window here, or close it'),
       ),
     ),
-    child: WindowingShortcuts(
-      undo: _undo,
-      child: ValueListenableBuilder<WindowingDoc>(
-        valueListenable: _c.doc,
-        builder: (context, doc, _) {
-          final shellIds = doc.shells.keys.toList();
-          final shell = doc.shells[doc.focusedShellId]!;
-          return Column(
-            children: [
-              _shellBar(doc, shellIds),
-              const Divider(height: 1),
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(4),
-                  child: Builder(
-                    builder: (context) => _policy(
-                      context,
-                      _c,
-                      doc.focusedShellId,
-                    )(context, _c, doc.focusedShellId),
-                  ),
-                ),
-              ),
-              _statusBar(doc, shellIds, shell),
-            ],
-          );
-        },
-    ),
+    child: widget.child,
+  );
+
+  Widget _shell(BuildContext context, ShellId shellId) => WindowingShortcuts(
+    undo: _undo,
+    child: ValueListenableBuilder<WindowingDoc>(
+      valueListenable: _c.doc,
+      builder: (context, doc, _) => Column(
+        children: [
+          _shellBar(context, doc, shellId),
+          const Divider(height: 1),
+          Expanded(
+            child: Padding(
+              padding: const EdgeInsets.all(4),
+              child: ShellProjection(shellId),
+            ),
+          ),
+          _statusBar(context, doc, shellId),
+        ],
+      ),
     ),
   );
 
@@ -86,35 +107,33 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     ShellId _,
   ) => (_, _, shellId) => TabbedProjection(shellId);
 
-  Widget _shellBar(WindowingDoc doc, List<ShellId> shellIds) {
+  Widget _shellBar(BuildContext context, WindowingDoc doc, ShellId shellId) {
     final scheme = Theme.of(context).colorScheme;
+    final number = doc.shells.keys.toList().indexOf(shellId) + 1;
     return Container(
       color: scheme.surfaceContainerHighest,
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
         children: [
-          const Text('Shells'),
+          Text('Shell $number'),
           const SizedBox(width: 8),
-          for (final (i, id) in shellIds.indexed) ...[
-            InputChip(
-              label: Text('Shell ${i + 1}'),
-              selected: id == doc.focusedShellId,
-              onPressed: () => _c.activateShell(id),
-              onDeleted: shellIds.length > 1 ? () => _c.closeShell(id) : null,
-              deleteButtonTooltipMessage: 'Close shell ${i + 1}',
+          if (_c.capabilities.canPopOut)
+            IconButton(
+              tooltip: 'New shell',
+              icon: const Icon(Icons.add_to_queue),
+              onPressed: _c.openShell,
             ),
-            const SizedBox(width: 4),
-          ],
-          IconButton(
-            tooltip: 'New shell',
-            icon: const Icon(Icons.add_to_queue),
-            onPressed: _c.attachShell,
-          ),
+          if (doc.shells.length > 1)
+            IconButton(
+              tooltip: 'Close shell',
+              icon: const Icon(Icons.cancel_presentation),
+              onPressed: () => _c.closeShell(shellId),
+            ),
           const Spacer(),
           PopupMenuButton<WindowingProjectionPolicy>(
             tooltip: 'Projection',
             icon: const Icon(Icons.view_quilt_outlined),
-            initialValue: _policy,
+            initialValue: WindowingDelegateScope.of(context).projectionPolicy,
             onSelected: (policy) => setState(() => _policy = policy),
             itemBuilder: (_) => const [
               PopupMenuItem(
@@ -132,9 +151,9 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     );
   }
 
-  /// The delegate's tab strip: chips over [TabStripSlot], plus new-tab and
-  /// move-to-shell controls.
-  Widget _tabBar(WindowingDoc doc, ShellId shellId) {
+  /// The delegate's tab strip: chips over [TabStripSlot], plus new-tab,
+  /// pop-out and move-to-shell controls.
+  Widget _tabBar(BuildContext context, WindowingDoc doc, ShellId shellId) {
     final scheme = Theme.of(context).colorScheme;
     final shellIds = doc.shells.keys.toList();
     return TabStripSlot(
@@ -160,6 +179,12 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
               onPressed: () => _c.newTab(buffer: _nextBuffer()),
             ),
             const Spacer(),
+            if (_c.capabilities.canPopOut)
+              IconButton(
+                tooltip: 'Pop out tab',
+                icon: const Icon(Icons.open_in_new),
+                onPressed: () => _c.popOutTab(strip.activeTabId),
+              ),
             if (shellIds.length > 1)
               PopupMenuButton<ShellId>(
                 tooltip: 'Move tab to shell',
@@ -201,7 +226,7 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
         padding: const EdgeInsets.all(2),
         child: Column(
           children: [
-            _windowHeader(_c.doc.value, id, floating: floating),
+            _windowHeader(context, _c.doc.value, id, floating: floating),
             Expanded(child: page),
           ],
         ),
@@ -218,12 +243,16 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
   }
 
   Widget _windowHeader(
+    BuildContext context,
     WindowingDoc doc,
     WindowId id, {
     required bool floating,
   }) {
     final history = doc.windows[id]!.history;
-    final shell = doc.shells[doc.focusedShellId]!;
+    final shellId = context
+        .findAncestorWidgetOfExactType<PlaygroundShell>()!
+        .shellId;
+    final shell = doc.shells[shellId]!;
     return Container(
       color: Theme.of(context).colorScheme.surfaceContainer,
       child: Row(
@@ -301,7 +330,7 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
                   child: const Text('Float over tab'),
                 ),
                 PopupMenuItem(
-                  value: ShellScope(doc.focusedShellId),
+                  value: ShellScope(shellId),
                   child: const Text('Float over shell'),
                 ),
               ],
@@ -322,7 +351,7 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     ];
     return PopupMenuButton<TabId>(
       tooltip: 'Move to tab',
-      icon: const Icon(Icons.open_in_new, size: 18),
+      icon: const Icon(Icons.low_priority, size: 18),
       onSelected: (tabId) => _c.moveWindow(id, tabId: tabId),
       itemBuilder: (_) => [
         for (final (tabId, label) in targets)
@@ -331,7 +360,7 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     );
   }
 
-  Widget _windowBody(WindowingDoc doc, WindowId id) {
+  Widget _windowBody(BuildContext context, WindowingDoc doc, WindowId id) {
     final h = doc.windows[id]!.history;
     final style = Theme.of(context).textTheme.bodySmall;
     return Center(
@@ -344,28 +373,33 @@ class _WindowingDemoState extends ConsumerState<WindowingDemo> {
     );
   }
 
-  /// The playground's app rule: a split that would put a fifth window in a
-  /// tab is vetoed, and the status bar shows why.
-  static CommandDecision _atMostFourWindows(
-    WindowingDoc doc,
-    WindowingCommand command,
-  ) => command is SplitWindow &&
-          doc.tabs.values.any(
-            (t) => (t.root?.windowIds.length ?? 0) >= 4 &&
-                t.root!.windowIds.contains(command.windowId),
-          )
-      ? const CommandDecision.veto(UndoLabel('At most 4 windows per tab'))
-      : const CommandDecision.approve();
+  /// The playground's app rules: a split that would put a fifth window in a
+  /// tab and closing a shell that holds more than one tab are vetoed, and
+  /// the status bar shows why.
+  static CommandDecision _rules(WindowingDoc doc, WindowingCommand command) =>
+      switch (command) {
+        SplitWindow(:final windowId)
+            when doc.tabs.values.any(
+              (t) =>
+                  (t.root?.windowIds.length ?? 0) >= 4 &&
+                  t.root!.windowIds.contains(windowId),
+            ) =>
+          const CommandDecision.veto(UndoLabel('At most 4 windows per tab')),
+        CloseShell(:final shellId)
+            when (doc.shells[shellId]?.tabIds.length ?? 0) > 1 =>
+          const CommandDecision.veto(
+            UndoLabel("Close the shell's other tabs first"),
+          ),
+        _ => const CommandDecision.approve(),
+      };
 
-  Widget _statusBar(
-    WindowingDoc doc,
-    List<ShellId> shellIds,
-    ShellState shell,
-  ) {
+  /// Shell [shellId]'s own focus chain, with the latest veto above it.
+  Widget _statusBar(BuildContext context, WindowingDoc doc, ShellId shellId) {
+    final shell = doc.shells[shellId]!;
     final tab = doc.tabs[shell.activeTabId]!;
     final window = tab.activeWindowId;
     final chain = [
-      'Shell ${shellIds.indexOf(doc.focusedShellId) + 1}',
+      'Shell ${doc.shells.keys.toList().indexOf(shellId) + 1}',
       'Tab ${shell.tabIds.indexOf(shell.activeTabId) + 1}',
       if (window != null) doc.windows[window]!.history.current.value,
     ].join(' > ');

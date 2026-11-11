@@ -53,7 +53,10 @@ class RealShellPlatform extends ChangeNotifier implements ShellPlatform {
 
   void _activated(ShellId id, windowing.WindowController window) {
     final controller = _controller;
-    if (controller == null || !window.isActivated) return;
+    // Destroying a window notifies too, and a destroyed one throws on reads.
+    if (controller == null || window.isDestroyed || !window.isActivated) {
+      return;
+    }
     if (controller.doc.value.focusedShellId != id) {
       controller.activateShell(id);
     }

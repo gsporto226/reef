@@ -7,14 +7,34 @@ import 'package:reef/reef.dart';
 import 'package:reef_example/features/windowing/windowing_demo.dart';
 import 'package:reef_example/main_windowing.dart' as playground;
 import 'package:reef_example/undo_providers.dart';
+import 'package:reef_multi_window/reef_multi_window.dart';
 
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
-  Widget demo(WindowingController c, UndoController undo) => ProviderScope(
+  // Without FLUTTER_WINDOWING, ShellViews draws the focused shell inline.
+  Future<void> show(
+    WidgetTester tester,
+    WindowingController c,
+    UndoController undo,
+  ) {
+    final platform = RealShellPlatform();
+    addTearDown(platform.dispose);
+    return tester.pumpWidget(
+      wrapWithView: false,
+      ProviderScope(
         overrides: [undoControllerProvider.overrideWithValue(undo)],
-        child: MaterialApp(home: Scaffold(body: WindowingDemo(controller: c))),
-      );
+        child: WindowingPlayground(
+          controller: c,
+          child: ShellViews(
+            controller: c,
+            platform: platform,
+            shellBuilder: (_, shellId) => PlaygroundShell(shellId),
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<WindowingController> pump(WidgetTester tester,
       {BufferId? buffer}) async {
@@ -23,7 +43,7 @@ void main() {
         initial: buffer == null ? null : playground.startingLayout(buffer),
         undo: undo);
     await tester.binding.setSurfaceSize(const Size(1200, 800));
-    await tester.pumpWidget(demo(controller, undo));
+    await show(tester, controller, undo);
     return controller;
   }
 
@@ -128,13 +148,16 @@ void main() {
   });
 
   testWidgets('shells, move tab, move window', (tester) async {
-    await pump(tester, buffer: const BufferId.manual('b'));
+    final c = await pump(tester, buffer: const BufferId.manual('b'));
+    final first = c.doc.value.focusedShellId;
 
-    await tap(tester, find.byTooltip('New shell'));
+    c.attachShell();
+    await tester.pumpAndSettle();
     expect(status('Focus: Shell 2 > Tab 1'), findsOneWidget);
     expect(find.textContaining('Empty tab'), findsOneWidget);
 
-    await tap(tester, find.text('Shell 1'));
+    c.activateShell(first);
+    await tester.pumpAndSettle();
     await tap(tester, find.byTooltip('New tab'));
     await menu(tester, 'Move tab to shell', 'To shell 2');
     expect(status('Focus: Shell 2 > Tab 2 > buffer 1'), findsOneWidget);
@@ -142,10 +165,12 @@ void main() {
     await menu(tester, 'Move to tab', 'To Shell 2, tab 1');
     expect(status('Focus: Shell 2 > Tab 1 > buffer 1'), findsOneWidget);
 
-    await tap(tester, find.byTooltip('Close shell 1'));
-    expect(find.text('Shell 2'), findsNothing);
+    c.activateShell(first);
+    await tester.pumpAndSettle();
+    await tap(tester, find.byTooltip('Close shell'));
+    expect(status('Focus: Shell 1 > Tab 1 > buffer 1'), findsOneWidget);
     expect(find.text('b'), findsNothing);
-    expect(find.text('buffer 1'), findsOneWidget);
+    expect(find.byTooltip('Close shell'), findsNothing);
   });
 
   testWidgets('undo and redo a split, focus changes not recorded',
@@ -154,7 +179,7 @@ void main() {
     final c = WindowingController(undo: undo)
       ..newTab(buffer: const BufferId.manual('b'));
     await tester.binding.setSurfaceSize(const Size(1200, 800));
-    await tester.pumpWidget(demo(c, undo));
+    await show(tester, c, undo);
 
     await tap(tester, find.byTooltip('Split right'));
     expect(status('windows in tab: 2'), findsOneWidget);

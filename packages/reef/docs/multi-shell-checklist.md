@@ -44,3 +44,31 @@ tab" and "Close shell" controls at the top.
    It stays open. Remove the interceptor afterwards.
 8. **Last-shell close quits.** Close shells until one is left, then click
    its platform close button. The app exits.
+
+## Windowing playground
+
+Start it with the flag set as above:
+
+```powershell
+fvm flutter run -t lib/main_windowing.dart -d windows
+```
+
+It opens one shell showing the "welcome" buffer, with "New shell" in the
+shell bar and "Pop out tab" in the tab bar.
+
+1. **New shell.** Tap "New shell". A second shell opens with an empty tab,
+   and both shells show "Close shell".
+2. **Pop out keeps the tab.** In the first shell, tap "Open new buffer",
+   "Split right", then "Float" > "Float over tab" on one window, then
+   "New tab" and go back to tab 1. Tap "Pop out tab". Tab 1 opens in a new
+   shell with its split, its floating window and its Back history.
+3. **Projection by size.** Make the popped-out shell narrow: it switches to
+   the tabbed projection while the wide shells stay on desktop.
+4. **Vetoed close.** In a shell with two tabs, tap "Close shell", then click
+   its platform close button. Each time it stays open and the status bar
+   shows "Vetoed: Close the shell's other tabs first".
+5. **Close.** Close a one-tab shell from "Close shell" and another from the
+   platform close button. Each closes without a "Window has been destroyed"
+   error in the console.
+6. **Without the flag.** Run without `FLUTTER_WINDOWING`. The focused shell
+   draws inline, and "New shell" and "Pop out tab" are gone.
