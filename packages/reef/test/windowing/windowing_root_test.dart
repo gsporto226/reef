@@ -304,4 +304,32 @@ void main() {
       expect(c.interceptor, own);
     });
   });
+
+  group('open policy ownership', () {
+    List<WindowingCommand> delegated(WindowingDoc _, BufferId _) => const [];
+
+    Widget root(WindowingController c, WindowingDelegate delegate) =>
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: WindowingRoot(
+            controller: c,
+            bufferBuilder: (_, _) => const SizedBox.expand(),
+            delegate: delegate,
+          ),
+        );
+
+    testWidgets("the delegate's is installed on mount and on change, and "
+        'the previous one comes back on unmount', (tester) async {
+      final c = WindowingController(initial: _mixed(), openPolicy: pushOpenPolicy);
+      addTearDown(c.dispose);
+      await tester.pumpWidget(root(c, WindowingDelegate(openPolicy: delegated)));
+      expect(c.openPolicy, delegated);
+      await tester.pumpWidget(root(c, const WindowingDelegate()));
+      expect(c.openPolicy, pushOpenPolicy);
+      await tester.pumpWidget(root(c, WindowingDelegate(openPolicy: delegated)));
+      expect(c.openPolicy, delegated);
+      await tester.pumpWidget(const SizedBox());
+      expect(c.openPolicy, pushOpenPolicy);
+    });
+  });
 }

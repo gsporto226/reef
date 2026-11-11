@@ -110,6 +110,7 @@ class WindowingDelegate {
     this.splitter = _thinDivider,
     this.floating = _floatingFrame,
     this.interceptor,
+    this.openPolicy,
     this.projectionPolicy = defaultWindowingProjection,
   });
 
@@ -146,6 +147,10 @@ class WindowingDelegate {
   /// command applies.
   final WindowingInterceptor? interceptor;
 
+  /// Handed to the controller by [WindowingRoot]. Default: none, the
+  /// controller's applies.
+  final WindowingOpenPolicy? openPolicy;
+
   /// Picks the projection [WindowingRoot] draws when given no child.
   /// Default: [defaultWindowingProjection].
   final WindowingProjectionPolicy projectionPolicy;
@@ -160,6 +165,7 @@ class WindowingDelegate {
     SplitterBuilder? splitter,
     FloatingBuilder? floating,
     WindowingInterceptor? interceptor,
+    WindowingOpenPolicy? openPolicy,
     WindowingProjectionPolicy? projectionPolicy,
   }) => WindowingDelegate(
     windowChrome: windowChrome ?? this.windowChrome,
@@ -171,6 +177,7 @@ class WindowingDelegate {
     splitter: splitter ?? this.splitter,
     floating: floating ?? this.floating,
     interceptor: interceptor ?? this.interceptor,
+    openPolicy: openPolicy ?? this.openPolicy,
     projectionPolicy: projectionPolicy ?? this.projectionPolicy,
   );
 

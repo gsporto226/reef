@@ -737,6 +737,67 @@ class CommandVeto {
   final ILocalizable reason;
 }
 
+/// Compiles "open [buffer]" against [doc] into the commands
+/// [WindowingController.openBuffer] dispatches as one batch.
+typedef WindowingOpenPolicy = List<WindowingCommand> Function(
+    WindowingDoc doc, BufferId buffer);
+
+/// Focuses a window of the focused shell's active tab that shows [buffer];
+/// else [pushOpenPolicy].
+List<WindowingCommand> defaultOpenPolicy(WindowingDoc doc, BufferId buffer) {
+  final tab = _activeTab(doc);
+  for (final w in tab.root?.windowIds ?? const <WindowId>[]) {
+    if (doc.windows[w]!.history.current == buffer) return [ActivateWindow(w)];
+  }
+  return pushOpenPolicy(doc, buffer);
+}
+
+/// Pushes [buffer] onto the active window; an empty tab gets its first
+/// window.
+List<WindowingCommand> pushOpenPolicy(WindowingDoc doc, BufferId buffer) =>
+    switch (_activeTab(doc).activeWindowId) {
+      final w? => [PushBuffer(w, buffer)],
+      null => _firstWindow(doc, buffer),
+    };
+
+/// Opens [buffer] in a new window beside the active one; an empty tab gets
+/// its first window.
+List<WindowingCommand> splitBesideOpenPolicy(
+        WindowingDoc doc, BufferId buffer) =>
+    switch (_activeTab(doc).activeWindowId) {
+      final w? => [
+          SplitWindow(w,
+              newWindowId: WindowId.generate(),
+              axis: Axis.horizontal,
+              buffer: buffer),
+        ],
+      null => _firstWindow(doc, buffer),
+    };
+
+/// Opens [buffer] in a new tab of the focused shell.
+List<WindowingCommand> newTabOpenPolicy(WindowingDoc doc, BufferId buffer) => [
+      NewTab(
+          shellId: doc.focusedShellId,
+          tabId: TabId.generate(),
+          buffer: (WindowId.generate(), buffer)),
+    ];
+
+TabState _activeTab(WindowingDoc doc) =>
+    doc.tabs[doc.shells[doc.focusedShellId]!.activeTabId]!;
+
+/// Gives the focused shell's empty active tab a first window showing
+/// [buffer], built in a scratch tab and moved in.
+List<WindowingCommand> _firstWindow(WindowingDoc doc, BufferId buffer) {
+  final shell = doc.focusedShellId;
+  final scratch = TabId.generate();
+  final window = WindowId.generate();
+  return [
+    NewTab(shellId: shell, tabId: scratch, buffer: (window, buffer)),
+    MoveWindow(window, tabId: doc.shells[shell]!.activeTabId),
+    CloseTab(scratch),
+  ];
+}
+
 /// Returns the doc a [WindowingController] saves in place of [doc].
 typedef WindowingPersistence = WindowingDoc Function(WindowingDoc doc);
 
@@ -755,6 +816,7 @@ class WindowingController {
     WindowingDoc? initial,
     UndoController? undo,
     this.interceptor,
+    this.openPolicy = defaultOpenPolicy,
     this.platform,
     HibernationStore? store,
     this.persistence = _saveWholeDoc,
@@ -815,6 +877,13 @@ class WindowingController {
 
   /// Decides on each dispatched command; undo and redo bypass it.
   WindowingInterceptor? interceptor;
+
+  /// Decides where [openBuffer] puts a buffer.
+  WindowingOpenPolicy openPolicy;
+
+  /// Dispatches what [openPolicy] compiles for [buffer] as one batch.
+  void openBuffer(BufferId buffer) =>
+      dispatchAll(openPolicy(_doc.value, buffer));
 
   final _vetoes = ValueNotifier<CommandVeto?>(null);
 

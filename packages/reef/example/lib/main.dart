@@ -141,6 +141,8 @@ class _ExampleShellsState extends State<_ExampleShells> {
   Widget build(BuildContext context) => WindowingRoot(
         controller: _controller,
         bufferBuilder: bufferPageFor,
+        // Editors open beside the list.
+        delegate: const WindowingDelegate(openPolicy: splitBesideOpenPolicy),
         child: ShellViews(
           controller: _controller,
           platform: _platform,
