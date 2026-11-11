@@ -110,6 +110,9 @@ class WindowingDelegate {
     this.splitter = _thinDivider,
     this.floating = _floatingFrame,
     this.interceptor,
+    this.openPolicy,
+    this.focusPolicy,
+    this.linkPolicy,
     this.projectionPolicy = defaultWindowingProjection,
   });
 
@@ -146,6 +149,18 @@ class WindowingDelegate {
   /// command applies.
   final WindowingInterceptor? interceptor;
 
+  /// Handed to the controller by [WindowingRoot]. Default: none, the
+  /// controller's applies.
+  final WindowingOpenPolicy? openPolicy;
+
+  /// Handed to the controller by [WindowingRoot]. Default: none, the
+  /// controller's applies.
+  final WindowingFocusPolicy? focusPolicy;
+
+  /// Handed to the controller by [WindowingRoot]. Default: none, the
+  /// controller's applies.
+  final WindowingLinkPolicy? linkPolicy;
+
   /// Picks the projection [WindowingRoot] draws when given no child.
   /// Default: [defaultWindowingProjection].
   final WindowingProjectionPolicy projectionPolicy;
@@ -160,6 +175,9 @@ class WindowingDelegate {
     SplitterBuilder? splitter,
     FloatingBuilder? floating,
     WindowingInterceptor? interceptor,
+    WindowingOpenPolicy? openPolicy,
+    WindowingFocusPolicy? focusPolicy,
+    WindowingLinkPolicy? linkPolicy,
     WindowingProjectionPolicy? projectionPolicy,
   }) => WindowingDelegate(
     windowChrome: windowChrome ?? this.windowChrome,
@@ -171,6 +189,9 @@ class WindowingDelegate {
     splitter: splitter ?? this.splitter,
     floating: floating ?? this.floating,
     interceptor: interceptor ?? this.interceptor,
+    openPolicy: openPolicy ?? this.openPolicy,
+    focusPolicy: focusPolicy ?? this.focusPolicy,
+    linkPolicy: linkPolicy ?? this.linkPolicy,
     projectionPolicy: projectionPolicy ?? this.projectionPolicy,
   );
 

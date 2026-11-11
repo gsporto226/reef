@@ -25,8 +25,9 @@ typedef ShellSurfaceBuilder = Widget Function(
 
 /// The top of a windowing UI: installs [WindowingScope] and [delegate] over
 /// [child]. Without a [child] it draws the focused shell as a
-/// [ShellProjection]. While mounted, a [WindowingDelegate.interceptor]
-/// replaces the controller's; the previous one comes back on unmount.
+/// [ShellProjection]. While mounted, a [WindowingDelegate.interceptor],
+/// [WindowingDelegate.openPolicy], [WindowingDelegate.focusPolicy] and
+/// [WindowingDelegate.linkPolicy] replace the controller's; the previous ones come back on unmount.
 class WindowingRoot extends StatefulWidget {
   const WindowingRoot({
     super.key,
@@ -47,6 +48,9 @@ class WindowingRoot extends StatefulWidget {
 
 class _WindowingRootState extends State<WindowingRoot> {
   WindowingInterceptor? _previous;
+  late WindowingOpenPolicy _previousOpenPolicy;
+  late WindowingFocusPolicy _previousFocusPolicy;
+  late WindowingLinkPolicy _previousLinkPolicy;
 
   @override
   void initState() {
@@ -58,25 +62,46 @@ class _WindowingRootState extends State<WindowingRoot> {
   void didUpdateWidget(WindowingRoot old) {
     super.didUpdateWidget(old);
     if (old.controller == widget.controller &&
-        old.delegate.interceptor == widget.delegate.interceptor) {
+        old.delegate.interceptor == widget.delegate.interceptor &&
+        old.delegate.openPolicy == widget.delegate.openPolicy &&
+        old.delegate.focusPolicy == widget.delegate.focusPolicy &&
+        old.delegate.linkPolicy == widget.delegate.linkPolicy) {
       return;
     }
-    old.controller.interceptor = _previous;
+    _uninstall(old.controller);
     _install();
   }
 
   @override
   void dispose() {
-    widget.controller.interceptor = _previous;
+    _uninstall(widget.controller);
     super.dispose();
   }
 
   void _install() {
     _previous = widget.controller.interceptor;
+    _previousOpenPolicy = widget.controller.openPolicy;
+    _previousFocusPolicy = widget.controller.focusPolicy;
+    _previousLinkPolicy = widget.controller.linkPolicy;
     if (widget.delegate.interceptor case final interceptor?) {
       widget.controller.interceptor = interceptor;
     }
+    if (widget.delegate.openPolicy case final openPolicy?) {
+      widget.controller.openPolicy = openPolicy;
+    }
+    if (widget.delegate.focusPolicy case final focusPolicy?) {
+      widget.controller.focusPolicy = focusPolicy;
+    }
+    if (widget.delegate.linkPolicy case final linkPolicy?) {
+      widget.controller.linkPolicy = linkPolicy;
+    }
   }
+
+  void _uninstall(WindowingController controller) => controller
+    ..interceptor = _previous
+    ..openPolicy = _previousOpenPolicy
+    ..focusPolicy = _previousFocusPolicy
+    ..linkPolicy = _previousLinkPolicy;
 
   @override
   Widget build(BuildContext context) {

@@ -18,6 +18,7 @@ export 'package:reef/features/view_model/_implementations/view_model.dart';
 export 'package:reef/features/windowing/_implementations/shell_platform.dart';
 export 'package:reef/features/windowing/_implementations/window_resize_handle.dart';
 export 'package:reef/features/windowing/_implementations/windowing_controller.dart';
+export 'package:reef/features/windowing/_implementations/windowing_links.dart';
 export 'package:reef/features/windowing/_implementations/windowing_delegate.dart';
 export 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 export 'package:reef/features/windowing/_implementations/windowing_ids.dart';

@@ -304,4 +304,92 @@ void main() {
       expect(c.interceptor, own);
     });
   });
+
+  group('open policy ownership', () {
+    List<WindowingCommand> delegated(WindowingDoc _, BufferId _) => const [];
+
+    Widget root(WindowingController c, WindowingDelegate delegate) =>
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: WindowingRoot(
+            controller: c,
+            bufferBuilder: (_, _) => const SizedBox.expand(),
+            delegate: delegate,
+          ),
+        );
+
+    testWidgets("the delegate's is installed on mount and on change, and "
+        'the previous one comes back on unmount', (tester) async {
+      final c = WindowingController(initial: _mixed(), openPolicy: pushOpenPolicy);
+      addTearDown(c.dispose);
+      await tester.pumpWidget(root(c, WindowingDelegate(openPolicy: delegated)));
+      expect(c.openPolicy, delegated);
+      await tester.pumpWidget(root(c, const WindowingDelegate()));
+      expect(c.openPolicy, pushOpenPolicy);
+      await tester.pumpWidget(root(c, WindowingDelegate(openPolicy: delegated)));
+      expect(c.openPolicy, delegated);
+      await tester.pumpWidget(const SizedBox());
+      expect(c.openPolicy, pushOpenPolicy);
+    });
+  });
+
+  group('focus policy ownership', () {
+    const delegated = WindowingFocusPolicy(splitTakesFocus: false);
+    const own = WindowingFocusPolicy(closeEmptyTab: true);
+
+    Widget root(WindowingController c, WindowingDelegate delegate) =>
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: WindowingRoot(
+            controller: c,
+            bufferBuilder: (_, _) => const SizedBox.expand(),
+            delegate: delegate,
+          ),
+        );
+
+    testWidgets("the delegate's is installed on mount and on change, and "
+        'the previous one comes back on unmount', (tester) async {
+      final c = WindowingController(initial: _mixed(), focusPolicy: own);
+      addTearDown(c.dispose);
+      await tester.pumpWidget(root(c, const WindowingDelegate(focusPolicy: delegated)));
+      expect(c.focusPolicy, delegated);
+      await tester.pumpWidget(root(c, const WindowingDelegate()));
+      expect(c.focusPolicy, own);
+      await tester.pumpWidget(root(c, const WindowingDelegate(focusPolicy: delegated)));
+      expect(c.focusPolicy, delegated);
+      await tester.pumpWidget(const SizedBox());
+      expect(c.focusPolicy, own);
+    });
+  });
+
+  group('link policy ownership', () {
+    List<WindowingCommand>? delegated(WindowingDoc _, BufferId _, Map<String, String> _) =>
+        null;
+    List<WindowingCommand>? own(WindowingDoc _, BufferId _, Map<String, String> _) =>
+        const [];
+
+    Widget root(WindowingController c, WindowingDelegate delegate) =>
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: WindowingRoot(
+            controller: c,
+            bufferBuilder: (_, _) => const SizedBox.expand(),
+            delegate: delegate,
+          ),
+        );
+
+    testWidgets("the delegate's is installed on mount and on change, and "
+        'the previous one comes back on unmount', (tester) async {
+      final c = WindowingController(initial: _mixed(), linkPolicy: own);
+      addTearDown(c.dispose);
+      await tester.pumpWidget(root(c, WindowingDelegate(linkPolicy: delegated)));
+      expect(c.linkPolicy, delegated);
+      await tester.pumpWidget(root(c, const WindowingDelegate()));
+      expect(c.linkPolicy, own);
+      await tester.pumpWidget(root(c, WindowingDelegate(linkPolicy: delegated)));
+      expect(c.linkPolicy, delegated);
+      await tester.pumpWidget(const SizedBox());
+      expect(c.linkPolicy, own);
+    });
+  });
 }

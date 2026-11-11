@@ -1,7 +1,7 @@
 import 'package:flutter/widgets.dart';
 import 'package:reef/features/page/_implementations/reef_window.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
-import 'package:reef/reef.dart' show WindowHost, WindowingScope;
+import 'package:reef/reef.dart' show WindowingScope;
 import 'package:reef_example/_kit/kit.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_model.dart'
     show TaskError;
@@ -49,13 +49,10 @@ class _TaskListLayout extends StatelessWidget {
               footerBuilder: (_) => const Center(child: KitSpinner(size: 14)),
               itemBuilder: (context, task, index) => _TaskRow(
                 task: task,
-                // Opens the task in a new window beside this one.
-                onTap: () =>
-                    WindowingScope.of(context).controller.splitWindow(
-                          WindowHost.of(context),
-                          axis: Axis.horizontal,
-                          buffer: BufferId.manual('task-edit:$task'),
-                        ),
+                // The app's open policy decides where the editor lands.
+                onTap: () => WindowingScope.of(context)
+                    .controller
+                    .openBuffer(BufferId.manual('task-edit:$task')),
               ),
             ),
           ),

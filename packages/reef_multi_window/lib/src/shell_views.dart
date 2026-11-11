@@ -53,7 +53,10 @@ class RealShellPlatform extends ChangeNotifier implements ShellPlatform {
 
   void _activated(ShellId id, windowing.WindowController window) {
     final controller = _controller;
-    if (controller == null || !window.isActivated) return;
+    // Destroying a window notifies too, and a destroyed one throws on reads.
+    if (controller == null || window.isDestroyed || !window.isActivated) {
+      return;
+    }
     if (controller.doc.value.focusedShellId != id) {
       controller.activateShell(id);
     }
@@ -90,7 +93,8 @@ class _ShellDelegate with windowing.WindowControllerDelegate {
 
 /// The root widget of a multi-shell app: one platform view per open shell of
 /// [platform], each drawn by [shellBuilder]. Shells already in the doc get a
-/// real shell at mount. Without multi-shell support it draws the doc's
+/// real shell at mount; one that fails to open is closed in the doc, unless
+/// it is the last shell. Without multi-shell support it draws the doc's
 /// focused shell inline in the implicit view. Place it under a single
 /// provider scope and [WindowingRoot] so every view shares them.
 class ShellViews extends StatefulWidget {
@@ -123,7 +127,24 @@ class _ShellViewsState extends State<ShellViews> {
     final platform = widget.platform.._controller = widget.controller;
     if (!platform.isSupported) return;
     for (final id in widget.controller.doc.value.shells.keys) {
-      if (!platform._windows.containsKey(id)) platform.open(id);
+      if (!platform._windows.containsKey(id)) _restore(platform, id);
+    }
+  }
+
+  /// A shell whose real shell fails to open leaves the doc, unless it is
+  /// the last one. The close bypasses the interceptor: the shell does not
+  /// exist, so no rule may keep it in the doc.
+  Future<void> _restore(RealShellPlatform platform, ShellId id) async {
+    if (await platform.open(id) case Ok()) return;
+    final controller = widget.controller;
+    if (controller.doc.value.shells.length > 1) {
+      final interceptor = controller.interceptor;
+      controller.interceptor = null;
+      try {
+        controller.dispatch(CloseShell(id));
+      } finally {
+        controller.interceptor = interceptor;
+      }
     }
   }
 

@@ -44,3 +44,81 @@ tab" and "Close shell" controls at the top.
    It stays open. Remove the interceptor afterwards.
 8. **Last-shell close quits.** Close shells until one is left, then click
    its platform close button. The app exits.
+
+## Restore on real shells
+
+The example saves its layout and its buffers to
+`reef_example_hibernation.json` next to the executable.
+
+1. **Restore.** Open a second shell with "Open in window", split or open a
+   task in the first shell, then close the app from the last shell's
+   platform close button. Start it again. Both shells open with the same
+   tabs, windows, focus and task titles.
+2. **Edited buffers.** Change a task title, quit, and start again. The
+   editor shows the changed title.
+3. **Reset layout.** Tap "Reset layout". The app shows the first-run
+   layout, one shell on the task list. Quit and start again: the first-run
+   layout comes back.
+
+## Launch-argument link
+
+Start the example with a task path as its first argument:
+
+```powershell
+fvm flutter run -d windows -a "/tasks/Buy milk/edit"
+```
+
+The saved layout restores first. Then the "Buy milk" editor opens beside
+the list, or its window is focused if a window already shows it. A path
+that matches no template changes nothing.
+
+## Browser pass for URL sync
+
+Run the example on web (no flag needed; web has one shell):
+
+```powershell
+fvm flutter run -d chrome
+```
+
+1. **Push.** Tap "Buy milk". The address bar shows `/tasks/Buy%20milk/edit`
+   and the browser history gets a new entry.
+2. **Replace on focus.** Open a second task, then click the window of the
+   first one. The address bar shows the first task's path, and no new
+   history entry is added.
+3. **Typed URL.** Type `/tasks/Walk dog/edit` in the address bar. The "Walk
+   dog" editor opens.
+4. **Unknown path.** Load `/nowhere`. The address bar changes to the
+   focused task's path, or stays unchanged when the focused buffer has no
+   path (the task list has none).
+5. **Browser back.** Press browser back. The previous entry's task opens or
+   is focused. Window histories are not traversed (spec §9).
+
+## Windowing playground
+
+Start it with the flag set as above:
+
+```powershell
+fvm flutter run -t lib/main_windowing.dart -d windows
+```
+
+On a first run it opens one shell showing the "welcome" buffer, with "New
+shell" in the shell bar and "Pop out tab" in the tab bar. Later runs restore
+the saved layout from `reef_playground_hibernation.json` next to the
+executable. Delete that file to start from the first-run layout.
+
+1. **New shell.** Tap "New shell". A second shell opens with an empty tab,
+   and both shells show "Close shell".
+2. **Pop out keeps the tab.** In the first shell, tap "Open new buffer",
+   "Split right", then "Float" > "Float over tab" on one window, then
+   "New tab" and go back to tab 1. Tap "Pop out tab". Tab 1 opens in a new
+   shell with its split, its floating window and its Back history.
+3. **Projection by size.** Make the popped-out shell narrow: it switches to
+   the tabbed projection while the wide shells stay on desktop.
+4. **Vetoed close.** In a shell with two tabs, tap "Close shell", then click
+   its platform close button. Each time it stays open and the status bar
+   shows "Vetoed: Close the shell's other tabs first".
+5. **Close.** Close a one-tab shell from "Close shell" and another from the
+   platform close button. Each closes without a "Window has been destroyed"
+   error in the console.
+6. **Without the flag.** Run without `FLUTTER_WINDOWING`. The focused shell
+   draws inline, and "New shell" and "Pop out tab" are gone.

@@ -2,11 +2,14 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/painting.dart' show Axis, Rect;
 import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef_fp/result.dart';
+import 'package:reef/features/hibernation/_interfaces/hibernation_store.dart';
+import 'package:reef/features/hibernation/_implementations/lifecycle.dart';
 import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/shell_platform.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
+import 'package:reef/features/windowing/_implementations/windowing_links.dart';
 
 /// A windowing mutation (spec §3). Commands carry pre-generated ids for what
 /// they create, so the reducer stays pure. A command invalid in the current
@@ -736,6 +739,152 @@ class CommandVeto {
   final ILocalizable reason;
 }
 
+/// Compiles "open [buffer]" against [doc] into the commands
+/// [WindowingController.openBuffer] dispatches as one batch.
+typedef WindowingOpenPolicy = List<WindowingCommand> Function(
+    WindowingDoc doc, BufferId buffer);
+
+/// Focuses a window of the focused shell's active tab that shows [buffer];
+/// else [pushOpenPolicy].
+List<WindowingCommand> defaultOpenPolicy(WindowingDoc doc, BufferId buffer) {
+  final tab = _activeTab(doc);
+  for (final w in tab.root?.windowIds ?? const <WindowId>[]) {
+    if (doc.windows[w]!.history.current == buffer) return [ActivateWindow(w)];
+  }
+  return pushOpenPolicy(doc, buffer);
+}
+
+/// Pushes [buffer] onto the active window; an empty tab gets its first
+/// window.
+List<WindowingCommand> pushOpenPolicy(WindowingDoc doc, BufferId buffer) =>
+    switch (_activeTab(doc).activeWindowId) {
+      final w? => [PushBuffer(w, buffer)],
+      null => _firstWindow(doc, buffer),
+    };
+
+/// Opens [buffer] in a new window beside the active one; an empty tab gets
+/// its first window.
+List<WindowingCommand> splitBesideOpenPolicy(
+        WindowingDoc doc, BufferId buffer) =>
+    switch (_activeTab(doc).activeWindowId) {
+      final w? => [
+          SplitWindow(w,
+              newWindowId: WindowId.generate(),
+              axis: Axis.horizontal,
+              buffer: buffer),
+        ],
+      null => _firstWindow(doc, buffer),
+    };
+
+/// Opens [buffer] in a new tab of the focused shell.
+List<WindowingCommand> newTabOpenPolicy(WindowingDoc doc, BufferId buffer) => [
+      NewTab(
+          shellId: doc.focusedShellId,
+          tabId: TabId.generate(),
+          buffer: (WindowId.generate(), buffer)),
+    ];
+
+TabState _activeTab(WindowingDoc doc) =>
+    doc.tabs[doc.shells[doc.focusedShellId]!.activeTabId]!;
+
+/// Gives the focused shell's empty active tab a first window showing
+/// [buffer], built in a scratch tab and moved in.
+List<WindowingCommand> _firstWindow(WindowingDoc doc, BufferId buffer) {
+  final shell = doc.focusedShellId;
+  final scratch = TabId.generate();
+  final window = WindowId.generate();
+  return [
+    NewTab(shellId: shell, tabId: scratch, buffer: (window, buffer)),
+    MoveWindow(window, tabId: doc.shells[shell]!.activeTabId),
+    CloseTab(scratch),
+  ];
+}
+
+/// Compiles a resolved link to [buffer], carrying [arguments], against
+/// [doc] into the commands [WindowingController.openLink] dispatches as one
+/// batch; null opens [buffer] through [WindowingController.openPolicy].
+typedef WindowingLinkPolicy = List<WindowingCommand>? Function(
+    WindowingDoc doc, BufferId buffer, Map<String, String> arguments);
+
+/// Focuses a window showing [buffer], in any shell, the focused shell's
+/// first; else null, so the open policy decides.
+List<WindowingCommand>? defaultLinkPolicy(
+    WindowingDoc doc, BufferId buffer, Map<String, String> arguments) {
+  final shown = [
+    for (final MapEntry(:key, :value) in doc.windows.entries)
+      if (value.history.current == buffer) key,
+  ];
+  if (shown.isEmpty) return null;
+  final here = shown.where((w) =>
+      ActivateWindow(w).apply(doc).focusedShellId == doc.focusedShellId);
+  return [ActivateWindow(here.firstOrNull ?? shown.first)];
+}
+
+/// What [WindowingController.back] does when the active window's history
+/// has nothing to go back to.
+enum EmptyBackAction {
+  /// Nothing; back reports handled.
+  nothing,
+
+  /// Closes the active window; back reports handled.
+  closeWindow,
+
+  /// Nothing; back reports unhandled, so system back reaches the platform.
+  unhandled,
+}
+
+/// What close, split and back do to focus (spec §6). Each effect is
+/// dispatched right after the command it reacts to was intercepted and
+/// applied, and passes through the interceptor itself; the defaults add
+/// nothing.
+class WindowingFocusPolicy {
+  const WindowingFocusPolicy({
+    this.splitTakesFocus = true,
+    this.closeEmptyTab = false,
+    this.focusAfterClose,
+    this.emptyBack = EmptyBackAction.nothing,
+  });
+
+  /// Whether the new window of a split takes focus; else the split window
+  /// keeps it.
+  final bool splitTakesFocus;
+
+  /// Whether closing a tab's last tree window also closes the tab (a
+  /// shell's last tab never closes).
+  final bool closeEmptyTab;
+
+  /// Picks, against the doc before the close, the window to focus when the
+  /// active window [closed] closes; null keeps the reducer's neighbour.
+  final WindowId? Function(WindowingDoc doc, WindowId closed)? focusAfterClose;
+
+  final EmptyBackAction emptyBack;
+
+  /// The commands to append after [command] took [before] to [after].
+  List<WindowingCommand> _effects(
+          WindowingDoc before, WindowingCommand command, WindowingDoc after) =>
+      switch (command) {
+        SplitWindow(:final windowId, :final newWindowId)
+            when !splitTakesFocus && !before.windows.containsKey(newWindowId) &&
+                after.windows.containsKey(newWindowId) =>
+          [ActivateWindow(windowId)],
+        CloseWindow(:final windowId) when !after.windows.containsKey(windowId) =>
+          switch (_tabOf(before, windowId)) {
+            final tab? when closeEmptyTab && after.tabs[tab]?.root == null =>
+              [CloseTab(tab)],
+            final tab? when before.tabs[tab]!.activeWindowId == windowId =>
+              [
+                if (focusAfterClose?.call(before, windowId) case final w?)
+                  ActivateWindow(w),
+              ],
+            _ => const [],
+          },
+        _ => const [],
+      };
+}
+
+/// Returns the doc a [WindowingController] saves in place of [doc].
+typedef WindowingPersistence = WindowingDoc Function(WindowingDoc doc);
+
 /// Owns the [WindowingDoc] and publishes it through [doc]. Pages call the
 /// intent methods; [dispatch] and [dispatchAll] take commands directly.
 class WindowingController {
@@ -743,16 +892,68 @@ class WindowingController {
   /// (spec §4), published back through a [WindowingUndoHost].
   /// With [interceptor], every dispatched command is decided on first.
   /// With [platform], [openShell] opens real shells.
-  WindowingController(
-      {WindowingDoc? initial, UndoController? undo, this.interceptor,
-      this.platform})
-      : _doc = ValueNotifier(initial ?? WindowingDoc.initial()),
-        _undo = undo {
+  /// With [store], it starts from the doc saved there (over [initial]) and
+  /// saves every published doc under [hibernationKey] (spec §11). A bad
+  /// record is deleted and ignored. [persistence] shapes each saved doc
+  /// and [extra] is saved next to it.
+  WindowingController({
+    WindowingDoc? initial,
+    UndoController? undo,
+    this.interceptor,
+    this.openPolicy = defaultOpenPolicy,
+    this.linkPolicy = defaultLinkPolicy,
+    this.links = const LinkTable({}),
+    this.focusPolicy = const WindowingFocusPolicy(),
+    this.platform,
+    HibernationStore? store,
+    this.persistence = _saveWholeDoc,
+  }) : _doc = ValueNotifier(
+         _restore(store) ?? initial ?? WindowingDoc.initial(),
+       ),
+       _undo = undo,
+       _store = store {
     undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
+    // A discarded record was deleted by _restore, so it yields no extra.
+    _extra = store?.load(hibernationKey)?['extra'];
+    if (store != null) _doc.addListener(_save);
+  }
+
+  static WindowingDoc _saveWholeDoc(WindowingDoc doc) => doc;
+
+  /// Turns the live doc into the doc that is saved; the live doc is kept.
+  final WindowingPersistence persistence;
+
+  Object? _extra;
+
+  /// An app-owned JSON value saved next to the doc; restored from the
+  /// record, null without one.
+  Object? get extra => _extra;
+  set extra(Object? value) {
+    _extra = value;
+    _save();
+  }
+
+  void _save() => _store?.save(hibernationKey, {
+    ...persistence(_doc.value).toRecord(),
+    'extra': _extra,
+  });
+
+  /// The reserved store id the doc hibernates under.
+  static const hibernationKey = windowingHibernationKey;
+
+  static WindowingDoc? _restore(HibernationStore? store) {
+    final record = store?.load(hibernationKey);
+    final doc = WindowingDoc.fromRecord(record);
+    if (doc == null && record != null) store!.delete(hibernationKey);
+    return doc;
   }
 
   final ValueNotifier<WindowingDoc> _doc;
   final UndoController? _undo;
+  final HibernationStore? _store;
+
+  /// Deletes the saved doc; the next published doc is saved again.
+  void discardSavedLayout() => _store?.delete(hibernationKey);
 
   /// Opens and closes the real shells; null for a single-shell app.
   final ShellPlatform? platform;
@@ -764,6 +965,61 @@ class WindowingController {
 
   /// Decides on each dispatched command; undo and redo bypass it.
   WindowingInterceptor? interceptor;
+
+  /// Decides where [openBuffer] puts a buffer.
+  WindowingOpenPolicy openPolicy;
+
+  /// Dispatches what [openPolicy] compiles for [buffer] as one batch.
+  void openBuffer(BufferId buffer) =>
+      dispatchAll(openPolicy(_doc.value, buffer));
+
+  /// Resolves the paths [openLink] takes.
+  final LinkTable links;
+
+  /// Decides what [openLink] does with a resolved buffer.
+  WindowingLinkPolicy linkPolicy;
+
+  /// Resolves [path] through [links] and returns whether it resolved. With
+  /// [newShell] and pop-out support the buffer opens in a new shell;
+  /// otherwise, or when that shell fails to open, [linkPolicy] decides.
+  Future<bool> openLink(BufferPath path, {bool newShell = false}) async {
+    final link = links.resolve(path);
+    if (link == null) return false;
+    if (newShell &&
+        capabilities.canPopOut &&
+        (await openShell(buffer: link.buffer)).isOk) {
+      return true;
+    }
+    final doc = _doc.value;
+    dispatchAll(linkPolicy(doc, link.buffer, link.arguments) ??
+        openPolicy(doc, link.buffer));
+    return true;
+  }
+
+  /// Decides what close, split and [back] do to focus.
+  WindowingFocusPolicy focusPolicy;
+
+  /// Steps the focused shell's active window back. With nothing to go back
+  /// to in its window history,
+  /// or without an active window, [focusPolicy] decides. Returns whether
+  /// back was handled.
+  bool back() {
+    final window = _activeTab(_doc.value).activeWindowId;
+    if (window != null &&
+        _doc.value.windows[window]!.history.back.isNotEmpty) {
+      dispatch(PopBuffer(window));
+      return true;
+    }
+    switch (focusPolicy.emptyBack) {
+      case EmptyBackAction.nothing:
+        return true;
+      case EmptyBackAction.closeWindow:
+        if (window != null) dispatch(CloseWindow(window));
+        return true;
+      case EmptyBackAction.unhandled:
+        return false;
+    }
+  }
 
   final _vetoes = ValueNotifier<CommandVeto?>(null);
 
@@ -786,8 +1042,12 @@ class WindowingController {
       {Object? coalesceKey, bool Function(WindowingDoc next)? accept}) {
     final before = _doc.value;
     final vetoes = <CommandVeto>[];
-    final next =
-        commands.fold(before, (doc, c) => _intercepted(doc, c, vetoes));
+    WindowingDoc step(WindowingDoc doc, WindowingCommand c) {
+      final after = _intercepted(doc, c, vetoes);
+      return focusPolicy._effects(doc, c, after).fold(after, step);
+    }
+
+    final next = commands.fold(before, step);
     final accepted = accept?.call(next) ?? true;
     if (accepted && next != before) _publish(before, next, coalesceKey);
     // After the doc, so veto listeners read the batch result.

@@ -65,6 +65,207 @@ class WindowingDoc {
   @override
   int get hashCode => Object.hash(focusedShellId, shells.length, tabs.length,
       windows.length);
+
+  /// The record version [toRecord] writes and [fromRecord] reads.
+  static const recordVersion = 1;
+
+  /// This doc as a versioned JSON record (spec §11).
+  Map<String, dynamic> toRecord() => {
+    'version': recordVersion,
+    'doc': {
+      'focusedShell': focusedShellId.id,
+      'shells': {
+        for (final MapEntry(:key, :value) in shells.entries)
+          key.id: {
+            'tabs': [for (final t in value.tabIds) t.id],
+            'activeTab': value.activeTabId.id,
+          },
+      },
+      'tabs': {
+        for (final MapEntry(:key, :value) in tabs.entries)
+          key.id: {
+            'root': value.root.let(_nodeToJson),
+            'activeWindow': value.activeWindowId?.id,
+          },
+      },
+      'windows': {
+        for (final MapEntry(:key, :value) in windows.entries)
+          key.id: {
+            'back': [for (final b in value.history.back) b.id],
+            'current': value.history.current.id,
+            'forward': [for (final b in value.history.forward) b.id],
+          },
+      },
+      'floating': {
+        for (final MapEntry(:key, :value) in floating.entries)
+          key.id: {
+            'scope': switch (value.scope) {
+              ShellScope(:final id) => {'shell': id.id},
+              TabScope(:final id) => {'tab': id.id},
+              WindowScope(:final id) => {'window': id.id},
+            },
+            'z': value.zIndex,
+            'geometry': value.geometry.let(
+              (g) => [g.left, g.top, g.width, g.height],
+            ),
+          },
+      },
+    },
+  };
+
+  /// The doc in [record], or null when the record is missing, has another
+  /// version, is malformed or breaks an invariant ([isValid]). Never throws.
+  static WindowingDoc? fromRecord(Map<String, dynamic>? record) {
+    if (record == null || record['version'] != recordVersion) return null;
+    try {
+      final json = record['doc'] as Map<String, dynamic>;
+      List<BufferId> buffers(Object? l) => [
+        for (final b in l! as List) BufferId.manual(b as String),
+      ];
+      final doc = WindowingDoc(
+        focusedShellId: ShellId.manual(json['focusedShell'] as String),
+        shells: {
+          for (final MapEntry(:key, :value)
+              in (json['shells'] as Map<String, dynamic>).entries)
+            ShellId.manual(key): ShellState(
+              tabIds: [
+                for (final t in value['tabs'] as List)
+                  TabId.manual(t as String),
+              ],
+              activeTabId: TabId.manual(value['activeTab'] as String),
+            ),
+        },
+        tabs: {
+          for (final MapEntry(:key, :value)
+              in (json['tabs'] as Map<String, dynamic>).entries)
+            TabId.manual(key): TabState(
+              root: (value['root'] as Object?).let(_nodeFromJson),
+              activeWindowId: (value['activeWindow'] as String?).let(
+                WindowId.manual,
+              ),
+            ),
+        },
+        windows: {
+          for (final MapEntry(:key, :value)
+              in (json['windows'] as Map<String, dynamic>).entries)
+            WindowId.manual(key): WindowState(
+              history: BufferHistory(
+                back: buffers(value['back']),
+                current: BufferId.manual(value['current'] as String),
+                forward: buffers(value['forward']),
+              ),
+            ),
+        },
+        floating: {
+          for (final MapEntry(:key, :value)
+              in (json['floating'] as Map<String, dynamic>).entries)
+            WindowId.manual(key): FloatingState(
+              scope: switch (value['scope']) {
+                {'shell': final String id} => ShellScope(ShellId.manual(id)),
+                {'tab': final String id} => TabScope(TabId.manual(id)),
+                {'window': final String id} => WindowScope(WindowId.manual(id)),
+                _ => throw const FormatException('scope'),
+              },
+              zIndex: value['z'] as int,
+              geometry: (value['geometry'] as List?).let(
+                (g) => Rect.fromLTWH(
+                  (g[0] as num).toDouble(),
+                  (g[1] as num).toDouble(),
+                  (g[2] as num).toDouble(),
+                  (g[3] as num).toDouble(),
+                ),
+              ),
+            ),
+        },
+      );
+      return doc.isValid ? doc : null;
+    } on Object {
+      return null; // malformed: any cast or shape failure
+    }
+  }
+
+  /// Whether this doc holds the invariants the reducer keeps: every
+  /// reference resolves, each tab sits in one shell, each window in one tree
+  /// or floating, branches have two or more children with positive ratios
+  /// summing to one, and floating scopes form no cycle.
+  bool get isValid {
+    if (!shells.containsKey(focusedShellId)) return false;
+    final ownedTabs = [for (final s in shells.values) ...s.tabIds];
+    for (final s in shells.values) {
+      if (!s.tabIds.contains(s.activeTabId)) return false;
+    }
+    if (ownedTabs.length != tabs.length ||
+        !setEquals(ownedTabs.toSet(), tabs.keys.toSet())) {
+      return false;
+    }
+    final placed = [...floating.keys];
+    for (final t in tabs.values) {
+      final ids = t.root?.windowIds.toList() ?? const [];
+      if (t.activeWindowId case final a? when !ids.contains(a)) return false;
+      if (t.root case final root? when !_validNode(root)) return false;
+      placed.addAll(ids);
+    }
+    if (placed.length != windows.length ||
+        !setEquals(placed.toSet(), windows.keys.toSet())) {
+      return false;
+    }
+    for (final id in floating.keys) {
+      final seen = {id};
+      for (var scope = floating[id]!.scope; ;) {
+        final exists = switch (scope) {
+          ShellScope(:final id) => shells.containsKey(id),
+          TabScope(:final id) => tabs.containsKey(id),
+          WindowScope(:final id) => windows.containsKey(id),
+        };
+        if (!exists) return false;
+        if (scope is! WindowScope || !floating.containsKey(scope.id)) break;
+        if (!seen.add(scope.id)) return false;
+        scope = floating[scope.id]!.scope;
+      }
+    }
+    return true;
+  }
+}
+
+bool _validNode(WindowNode node) => switch (node) {
+  WindowLeaf() => true,
+  WindowBranch(:final children, :final ratios) =>
+    children.length >= 2 &&
+        ratios.length == children.length &&
+        ratios.every((r) => r > 0) &&
+        (ratios.fold(0.0, (a, b) => a + b) - 1).abs() < 1e-6 &&
+        children.every(_validNode),
+};
+
+Object _nodeToJson(WindowNode node) => switch (node) {
+  WindowLeaf(:final id) => {'window': id.id},
+  WindowBranch(:final axis, :final children, :final ratios) => {
+    'axis': axis.name,
+    'children': [for (final c in children) _nodeToJson(c)],
+    'ratios': ratios,
+  },
+};
+
+WindowNode _nodeFromJson(Object json) => switch (json) {
+  {'window': final String id} => WindowLeaf(WindowId.manual(id)),
+  {
+    'axis': final String axis,
+    'children': final List children,
+    'ratios': final List ratios,
+  } =>
+    WindowBranch(
+      axis: Axis.values.byName(axis),
+      children: [for (final c in children) _nodeFromJson(c as Object)],
+      ratios: [for (final r in ratios) (r as num).toDouble()],
+    ),
+  _ => throw const FormatException('window node'),
+};
+
+extension<T extends Object> on T? {
+  R? let<R>(R Function(T) f) => switch (this) {
+    final v? => f(v),
+    _ => null,
+  };
 }
 
 /// A shell's ordered tab strip and its active tab.

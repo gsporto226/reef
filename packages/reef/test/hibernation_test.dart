@@ -101,6 +101,21 @@ void main() {
       expect(reopened, 'task');
       expect(registry.$alive.value.map((e) => e.id), ['task']);
     });
+
+    test('the windowing: id is reserved for the layout record', () {
+      const reserved = BufferId.manual('windowing:');
+      final seeded = rp.Provider.autoDispose(
+        (ref) => hibernatedSeed<Object>(ref, reserved, (json) => json),
+      );
+      final hibernated = rp.Provider.autoDispose(
+        (ref) => hibernateOnDispose(ref, reserved, () => {}),
+      );
+      final refused = throwsA(
+        predicate((e) => '$e'.contains('reserved for the layout record')),
+      );
+      expect(() => container.read(seeded), refused);
+      expect(() => container.read(hibernated), refused);
+    });
   });
 }
 
