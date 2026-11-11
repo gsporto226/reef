@@ -18,7 +18,7 @@ final links = LinkTable({
   'task-edit': '/tasks/:taskId/edit',
   'task-draft': '/tasks/new',
   'pair': '/a/:x/b/:y',
-});
+}, drafts: {'task-draft'});
 
 BufferPath path(String uri) => BufferPath.fromUri(Uri.parse(uri));
 
@@ -94,6 +94,22 @@ void main() {
       expect(links.pathOf(a), path('/tasks/new'));
     });
 
+    test('a template without parameters is one stable buffer by default', () {
+      expect(links.resolve(path('/tasks'))!.buffer, list);
+      expect(links.resolve(path('/tasks'))!.buffer, list);
+      expect(links.pathOf(list), path('/tasks'));
+    });
+
+    test('pathOf inverts resolve for tokens with reserved characters', () {
+      for (final uri in ['/a/x%2Fy/b/%3F%23%25', '/tasks/a%20b%3Ac/edit']) {
+        final buffer = links.resolve(path(uri))!.buffer;
+        expect(links.pathOf(buffer), path(uri));
+        expect(links.pathOf(buffer).toString(), uri);
+      }
+      expect(links.resolve(path('/a/x%2Fy/b/a%20b'))!.buffer,
+          const BufferId.manual('pair:x%2Fy/a b'));
+    });
+
     test('an unmatched path resolves to nothing', () {
       expect(links.resolve(path('/nope')), isNull);
       expect(links.resolve(path('/tasks/42')), isNull);
@@ -149,7 +165,19 @@ void main() {
       expect(active(c.doc.value), w3);
     });
 
-    test('a buffer not shown opens through the open policy, in one batch',
+    test("a buffer shown in a floating window focuses that window's shell",
+        () async {
+      final floated = const FloatWindow(w3, scope: TabScope(t2))
+          .apply(twoShells(s2Shows: edit43));
+      final c = controller(floated);
+      expect(await c.openLink(path('/tasks/43/edit')), isTrue);
+      final d = c.doc.value;
+      expect(d.focusedShellId, s2);
+      expect(d.floating.keys, [w3]);
+      expect(d.windows.length, 3, reason: 'no new window opened');
+    });
+
+        test('a buffer not shown opens through the open policy, in one batch',
         () async {
       final c = controller(twoShells())..openPolicy = newTabOpenPolicy;
       expect(await c.openLink(path('/tasks/43/edit')), isTrue);

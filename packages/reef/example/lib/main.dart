@@ -105,17 +105,26 @@ class _ReefExampleAppState extends State<ReefExampleApp> {
     super.initState();
     _exit = AppLifecycleListener(
       onExitRequested: () async {
-        _container.dispose();
+        _disposeContainer();
         return AppExitResponse.exit;
       },
-      onDetach: _container.dispose,
+      onDetach: _disposeContainer,
     );
+  }
+
+  var _disposed = false;
+
+  /// An exit request, a detach and the state's dispose may all arrive.
+  void _disposeContainer() {
+    if (_disposed) return;
+    _disposed = true;
+    _container.dispose();
   }
 
   @override
   void dispose() {
     _exit.dispose();
-    _container.dispose();
+    _disposeContainer();
     super.dispose();
   }
 

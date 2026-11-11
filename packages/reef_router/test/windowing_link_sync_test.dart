@@ -85,6 +85,17 @@ WindowingDoc doc({
   focusedShellId: focusedShell,
 );
 
+/// Opens links only after a delay, as a late async openLink would.
+class SlowController extends WindowingController {
+  SlowController({super.initial, super.links});
+
+  @override
+  Future<bool> openLink(BufferPath path, {bool newShell = false}) async {
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    return super.openLink(path, newShell: newShell);
+  }
+}
+
 void main() {
   group('reportType', () {
     test('the focused window pushing its previous buffer is a push', () {
@@ -130,8 +141,11 @@ void main() {
       WidgetTester tester,
       WindowingDoc initial, {
       String route = '/',
+      bool slow = false,
     }) async {
-      controller = WindowingController(initial: initial, links: links);
+      controller = slow
+          ? SlowController(initial: initial, links: links)
+          : WindowingController(initial: initial, links: links);
       provider = FakeRouteInformationProvider(route);
       await tester.pumpWidget(
         WindowingRoot(
@@ -202,9 +216,21 @@ void main() {
       expect(
         controller.doc.value.windows[right]!.history,
         BufferHistory(current: edit43, back: [edit42]),
-        reason: "the right window's own back stack is untouched",
+        reason: "the right window's own window history is untouched",
       );
       expect(provider.reports, hasLength(2));
+    });
+
+    testWidgets('a link opened late is still not echoed back', (tester) async {
+      await mount(tester, WindowingDoc.initial(), route: '/tasks/42/edit',
+          slow: true);
+      await tester.pump(const Duration(milliseconds: 10));
+      expect(focusedPath(), '/tasks/42/edit');
+      expect(provider.reports, isEmpty);
+
+      controller.dispatch(
+          PushBuffer(controller.doc.value.windows.keys.single, edit43));
+      expect(provider.reports, [('/tasks/43/edit', push)]);
     });
 
     testWidgets('an empty tab reports nothing', (tester) async {
@@ -241,7 +267,25 @@ void main() {
       expect(provider.reports, [('/tasks/43/edit', replace)]);
     });
 
-    testWidgets('stops listening when removed', (tester) async {
+    testWidgets('keeps its provider on rebuild and refuses a new one', (
+      tester,
+    ) async {
+      await mount(tester, doc(), route: '/tasks');
+      Widget app(RouteInformationProvider p) => WindowingRoot(
+        controller: controller,
+        bufferBuilder: (_, _) => const SizedBox(),
+        child: WindowingLinkSync(
+          routeInformationProvider: p,
+          child: const SizedBox(),
+        ),
+      );
+      await tester.pumpWidget(app(provider));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(app(FakeRouteInformationProvider('/')));
+      expect(tester.takeException(), isAssertionError);
+    });
+
+        testWidgets('stops listening when removed', (tester) async {
       await mount(tester, doc(), route: '/tasks');
       await tester.pumpWidget(const SizedBox());
       controller.dispatch(PushBuffer(left, edit42));

@@ -3,7 +3,7 @@ import 'package:flutter/widgets.dart';
 import 'package:reef/reef.dart';
 
 /// How a change from [before] to [after] enters the browser history (spec
-/// §9): a push when the focused window's back stack grew by the buffer it
+/// §9): a push when the focused window's history grew by the buffer it
 /// showed before, else a replace of the current entry.
 RouteInformationReportingType reportType(
   WindowingDoc before,
@@ -57,7 +57,7 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
       widget.routeInformationProvider ?? _owned!;
   late final WindowingController _controller;
   late WindowingDoc _before;
-  var _incoming = false;
+  var _incoming = 0;
 
   @override
   void initState() {
@@ -67,8 +67,9 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     _before = _controller.doc.value;
     _controller.doc.addListener(_report);
     _provider.addListener(_open);
-    _open();
-    _report();
+    _open().whenComplete(() {
+      if (mounted) _report();
+    });
   }
 
   @override
@@ -79,17 +80,28 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     super.dispose();
   }
 
-  void _open() {
-    _incoming = true;
-    // Without newShell, openLink dispatches before its first await.
-    _controller.openLink(BufferPath.fromUri(_provider.value.uri));
-    _incoming = false;
+  @override
+  void didUpdateWidget(WindowingLinkSync oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    assert(
+      identical(oldWidget.routeInformationProvider,
+          widget.routeInformationProvider),
+      'WindowingLinkSync cannot switch route information providers',
+    );
+  }
+
+  Future<void> _open() {
+    // Echoes are muted until openLink completes, however late that is.
+    _incoming++;
+    return _controller
+        .openLink(BufferPath.fromUri(_provider.value.uri))
+        .whenComplete(() => _incoming--);
   }
 
   void _report() {
     final before = _before;
     final after = _before = _controller.doc.value;
-    if (_incoming) return;
+    if (_incoming > 0) return;
     final window = after.windows[_focusedWindow(after)];
     if (window == null) return;
     final path = _controller.links.pathOf(window.history.current)?.toUri();
@@ -101,5 +113,14 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
   }
 
   @override
-  Widget build(BuildContext context) => widget.child;
+  Widget build(BuildContext context) {
+    assert(
+      identical(
+        context.getInheritedWidgetOfExactType<WindowingScope>()!.controller,
+        _controller,
+      ),
+      'WindowingLinkSync cannot switch windowing controllers',
+    );
+    return widget.child;
+  }
 }

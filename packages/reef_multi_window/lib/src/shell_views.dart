@@ -132,12 +132,19 @@ class _ShellViewsState extends State<ShellViews> {
   }
 
   /// A shell whose real shell fails to open leaves the doc, unless it is
-  /// the last one.
+  /// the last one. The close bypasses the interceptor: the shell does not
+  /// exist, so no rule may keep it in the doc.
   Future<void> _restore(RealShellPlatform platform, ShellId id) async {
     if (await platform.open(id) case Ok()) return;
     final controller = widget.controller;
     if (controller.doc.value.shells.length > 1) {
-      controller.dispatch(CloseShell(id));
+      final interceptor = controller.interceptor;
+      controller.interceptor = null;
+      try {
+        controller.dispatch(CloseShell(id));
+      } finally {
+        controller.interceptor = interceptor;
+      }
     }
   }
 

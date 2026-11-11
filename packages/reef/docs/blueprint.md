@@ -395,7 +395,7 @@ by `BufferId` (§4.4, §10). `get_it` is dropped.
 ## 10. Page management — buffers, windows, tabs
 
 The navigation model is **neovim**: buffers hold state, windows show buffers,
-tabs arrange windows, OS windows host tabs. Decided 2026-09.
+tabs arrange windows, shells host tabs. Decided 2026-09.
 
 ### 10.1 Vocabulary
 
@@ -406,7 +406,7 @@ tabs arrange windows, OS windows host tabs. Decided 2026-09.
 | Two splits, one buffer, live-synced edits | two windows, one buffer → same family viewmodel → same `ValueListenables`; sync comes free from the contract (§5) |
 | Tab (window layout) | split-tree of windows: leaves = (bufferId, layout params), nodes = orientation + ratios; serializable (Phase C) |
 | `:ls` buffer list | alive-buffer registry (Phase B, with the hibernation store) |
-| Multi-window (OS) | one engine, one isolate, many windows (Phase D, shipped in W4): buffers are plain shared state — no protocol needed |
+| Multi-window | one engine, one isolate, many shells (Phase D, shipped in W4): buffers are plain shared state — no protocol needed |
 
 ### 10.2 Buffer lifetime — hybrid (shipped, Phase B)
 

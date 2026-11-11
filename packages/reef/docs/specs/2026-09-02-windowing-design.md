@@ -391,7 +391,7 @@ in the doc (§2 `BufferHistory`): `back`, `current`, `forward`.
   itself.
 
 Platform back = window back. `controller.back()` pops the focused shell's
-active window and returns true. When that back stack is empty, or no window
+active window and returns true. When that window history has nothing behind it, or no window
 is active, `focusPolicy.emptyBack` decides: `nothing` (handled, no change),
 `closeWindow` (closes the active window) or `unhandled` (returns false).
 `WindowingSystemBack` is an opt-in widget that binds system back, such as
@@ -416,13 +416,17 @@ The link table:
 - The link table is a `LinkTable` in reef core, handed to the
   `WindowingController` as `links`. It maps each buffer kind to one path
   template (`task-edit` → `/tasks/:taskId/edit`). The template's
-  parameters, joined by `/`, form the buffer token, so `/tasks/42/edit`
+  parameters, with `%` and `/` percent-encoded, joined by `/` form the
+  buffer token, so `/tasks/42/edit`
   resolves to `task-edit:42`. The kind:token id stays the internal
   identity. The path is the external form.
 - `links.pathOf(buffer)` maps back: the path of a buffer, or null when its
   kind has no template or its token does not fit the template.
-- A template without parameters resolves to a fresh buffer each time
-  (`/tasks/new` → `task-new:<uuid v7>`), so drafts are addressable.
+- A template without parameters resolves to one buffer with an empty
+  token (`/tasks` → `tasks:`), so the link focuses the buffer already
+  open. A kind listed in `drafts` resolves to a fresh buffer each time
+  instead (`/tasks/new` → `task-new:<uuid v7>`), so drafts are
+  addressable.
 - Query arguments reach the link policy only. Core has no buffer
   arguments: the resolved buffer is an id, and the arguments do not enter
   the doc.
@@ -448,7 +452,7 @@ URL sync (`reef_router`, ADR 0003):
   Arrangement never touches the URL: the doc hibernation owns layout, the
   URL owns content.
 - Push or replace: a doc change reports a new entry (`navigate`) when the
-  focused window's back stack grew by exactly the buffer that window
+  focused window's history grew by exactly the buffer that window
   showed before. Every other change rewrites the current entry
   (`neglect`): focus switches, `ReplaceBuffer`, `PopBuffer` and other
   app-initiated back.
@@ -461,7 +465,7 @@ URL sync (`reef_router`, ADR 0003):
 - Limitation: browser back and forward do not traverse window histories.
   They open the location of the target entry through `openLink` like any
   other link. If no window shows that buffer, `openPolicy` opens it, which
-  by default pushes, so the window's back stack grows instead of shrinking.
+  by default pushes, so the window's history grows instead of shrinking.
   A template without parameters opens a fresh buffer on every traversal.
   The browser stack and the window histories are separate; no mapping
   between them is promised.
@@ -476,7 +480,7 @@ default policies):
    the window pushes 43 and the browser gets a new entry,
    `/tasks/43/edit`. Browser back opens `/tasks/42/edit` as a link. No
    window shows 42, so the default `openPolicy` pushes it: the window's
-   back stack is now `[42, 43]`.
+   back history is now `[42, 43]`.
 3. Web, two windows on tasks 42 and 43, 43 focused. Click the window on
    42: a focus switch, so `/tasks/42/edit` replaces the current entry.
 
@@ -531,9 +535,9 @@ assert on it.
 
 Restore path: the controller starts on the restored doc before any widget
 mounts. `ShellViews` opens a real shell for each doc shell at mount. A
-shell whose real shell fails to open leaves the doc through a normal
-`CloseShell` dispatch, so an interceptor can veto it; the last shell is
-never closed. On single-shell platforms the focused shell draws inline.
+shell whose real shell fails to open leaves the doc through a raw
+`CloseShell` dispatch that bypasses the interceptor, since no rule may keep
+a shell that does not exist; the last shell is never closed. On single-shell platforms the focused shell draws inline.
 Windows rematerialize buffers through the existing family providers, and
 hibernated seeds restore models. Geometry hints are advisory; projections
 may ignore them.

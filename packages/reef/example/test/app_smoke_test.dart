@@ -76,5 +76,13 @@ void main() {
       tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
       expect(saved(store), contains('Buy bread'));
     });
+
+    testWidgets('detaches after an exit request', (tester) async {
+      final store = await edit(tester);
+      await tester.binding.handleRequestAppExit();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.detached);
+      await tester.pumpWidget(const SizedBox());
+      expect(saved(store), contains('Buy bread'));
+    });
   });
 }

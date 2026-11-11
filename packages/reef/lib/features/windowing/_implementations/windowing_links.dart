@@ -41,13 +41,19 @@ typedef BufferLink = ({BufferId buffer, Map<String, String> arguments});
 
 /// Maps each buffer kind to one path template, both ways (spec §9). A
 /// template like `/tasks/:taskId/edit` maps to buffer `task-edit:42`; the
-/// parameters, joined by `/`, form the token. A template without
-/// parameters resolves to a fresh draft buffer each time.
+/// parameters, with `%` and `/` percent-encoded, joined by `/` form the
+/// token. A
+/// template without parameters resolves to one buffer with an empty token
+/// (`/tasks` → `tasks:`), or to a fresh draft each time when its kind is in
+/// [drafts].
 class LinkTable {
-  const LinkTable(this.templates);
+  const LinkTable(this.templates, {this.drafts = const {}});
 
   /// Path template per buffer kind.
   final Map<String, String> templates;
+
+  /// Kinds whose parameterless template opens a fresh draft per resolve.
+  final Set<String> drafts;
 
   /// The buffer [path] points at, or null when no template matches.
   BufferLink? resolve(BufferPath path) {
@@ -64,7 +70,9 @@ class LinkTable {
         }
       }
       if (!matches) continue;
-      final token = params.isEmpty ? BufferId.generate().id : params.join('/');
+      final token = params.isEmpty && drafts.contains(kind)
+          ? BufferId.generate().id
+          : params.map(_escape).join('/');
       return (buffer: BufferId.manual('$kind:$token'), arguments: path.arguments);
     }
     return null;
@@ -79,13 +87,21 @@ class LinkTable {
     if (template == null) return null;
     final pattern = _segments(template);
     final params = pattern.where((s) => s.startsWith(':')).length;
-    final values = buffer.id.substring(colon + 1).split('/');
+    final values = [
+      for (final v in buffer.id.substring(colon + 1).split('/'))
+        Uri.decodeComponent(v),
+    ];
     if (params > 0 && values.length != params) return null;
     var next = 0;
     return BufferPath([
       for (final s in pattern) s.startsWith(':') ? values[next++] : s,
     ], arguments);
   }
+
+  /// Escapes only what would make the token ambiguous, so `task-edit:42`
+  /// and `task-edit:Walk dog` stay readable.
+  static String _escape(String param) =>
+      param.replaceAll('%', '%25').replaceAll('/', '%2F');
 
   static List<String> _segments(String template) =>
       [...template.split('/').where((s) => s.isNotEmpty)];

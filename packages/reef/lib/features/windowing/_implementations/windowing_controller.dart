@@ -3,6 +3,7 @@ import 'package:flutter/painting.dart' show Axis, Rect;
 import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef_fp/result.dart';
 import 'package:reef/features/hibernation/_interfaces/hibernation_store.dart';
+import 'package:reef/features/hibernation/_implementations/lifecycle.dart';
 import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/shell_platform.dart';
@@ -819,8 +820,8 @@ List<WindowingCommand>? defaultLinkPolicy(
   return [ActivateWindow(here.firstOrNull ?? shown.first)];
 }
 
-/// What [WindowingController.back] does when the active window's back stack
-/// is empty.
+/// What [WindowingController.back] does when the active window's history
+/// has nothing to go back to.
 enum EmptyBackAction {
   /// Nothing; back reports handled.
   nothing,
@@ -832,9 +833,10 @@ enum EmptyBackAction {
   unhandled,
 }
 
-/// What close, split and back do to focus (spec §6). The controller appends
-/// its effects to the triggering batch, before the interceptor; the defaults
-/// add nothing.
+/// What close, split and back do to focus (spec §6). Each effect is
+/// dispatched right after the command it reacts to was intercepted and
+/// applied, and passes through the interceptor itself; the defaults add
+/// nothing.
 class WindowingFocusPolicy {
   const WindowingFocusPolicy({
     this.splitTakesFocus = true,
@@ -908,10 +910,11 @@ class WindowingController {
   }) : _doc = ValueNotifier(
          _restore(store) ?? initial ?? WindowingDoc.initial(),
        ),
-       _extra = store?.load(hibernationKey)?['extra'],
        _undo = undo,
        _store = store {
     undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
+    // A discarded record was deleted by _restore, so it yields no extra.
+    _extra = store?.load(hibernationKey)?['extra'];
     if (store != null) _doc.addListener(_save);
   }
 
@@ -936,7 +939,7 @@ class WindowingController {
   });
 
   /// The reserved store id the doc hibernates under.
-  static const hibernationKey = BufferId.manual('windowing:');
+  static const hibernationKey = windowingHibernationKey;
 
   static WindowingDoc? _restore(HibernationStore? store) {
     final record = store?.load(hibernationKey);
@@ -996,7 +999,8 @@ class WindowingController {
   /// Decides what close, split and [back] do to focus.
   WindowingFocusPolicy focusPolicy;
 
-  /// Steps the focused shell's active window back. On an empty back stack,
+  /// Steps the focused shell's active window back. With nothing to go back
+  /// to in its window history,
   /// or without an active window, [focusPolicy] decides. Returns whether
   /// back was handled.
   bool back() {

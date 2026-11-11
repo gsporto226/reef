@@ -152,6 +152,19 @@ void main() {
     });
   });
 
+  test('closing a window that is not active keeps focus and asks nothing',
+      () {
+    var asked = 0;
+    final c = controller(WindowingFocusPolicy(focusAfterClose: (_, _) {
+      asked++;
+      return w1;
+    }))
+      ..closeWindow(w3);
+    expect(active(c), w2);
+    expect(asked, 0);
+    expect(seen, [isA<CloseWindow>()]);
+  });
+
   group('back', () {
     test('pops the active window and reports it handled', () {
       final c = controller()..activateWindow(w1);
