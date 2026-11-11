@@ -8,6 +8,7 @@ import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/shell_platform.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
+import 'package:reef/features/windowing/_implementations/windowing_links.dart';
 
 /// A windowing mutation (spec §3). Commands carry pre-generated ids for what
 /// they create, so the reducer stays pure. A command invalid in the current
@@ -798,6 +799,26 @@ List<WindowingCommand> _firstWindow(WindowingDoc doc, BufferId buffer) {
   ];
 }
 
+/// Compiles a resolved link to [buffer], carrying [arguments], against
+/// [doc] into the commands [WindowingController.openLink] dispatches as one
+/// batch; null opens [buffer] through [WindowingController.openPolicy].
+typedef WindowingLinkPolicy = List<WindowingCommand>? Function(
+    WindowingDoc doc, BufferId buffer, Map<String, String> arguments);
+
+/// Focuses a window showing [buffer], in any shell, the focused shell's
+/// first; else null, so the open policy decides.
+List<WindowingCommand>? defaultLinkPolicy(
+    WindowingDoc doc, BufferId buffer, Map<String, String> arguments) {
+  final shown = [
+    for (final MapEntry(:key, :value) in doc.windows.entries)
+      if (value.history.current == buffer) key,
+  ];
+  if (shown.isEmpty) return null;
+  final here = shown.where((w) =>
+      ActivateWindow(w).apply(doc).focusedShellId == doc.focusedShellId);
+  return [ActivateWindow(here.firstOrNull ?? shown.first)];
+}
+
 /// What [WindowingController.back] does when the active window's back stack
 /// is empty.
 enum EmptyBackAction {
@@ -878,6 +899,8 @@ class WindowingController {
     UndoController? undo,
     this.interceptor,
     this.openPolicy = defaultOpenPolicy,
+    this.linkPolicy = defaultLinkPolicy,
+    this.links = const LinkTable({}),
     this.focusPolicy = const WindowingFocusPolicy(),
     this.platform,
     HibernationStore? store,
@@ -946,6 +969,29 @@ class WindowingController {
   /// Dispatches what [openPolicy] compiles for [buffer] as one batch.
   void openBuffer(BufferId buffer) =>
       dispatchAll(openPolicy(_doc.value, buffer));
+
+  /// Resolves the paths [openLink] takes.
+  final LinkTable links;
+
+  /// Decides what [openLink] does with a resolved buffer.
+  WindowingLinkPolicy linkPolicy;
+
+  /// Resolves [path] through [links] and returns whether it resolved. With
+  /// [newShell] and pop-out support the buffer opens in a new shell;
+  /// otherwise, or when that shell fails to open, [linkPolicy] decides.
+  Future<bool> openLink(BufferPath path, {bool newShell = false}) async {
+    final link = links.resolve(path);
+    if (link == null) return false;
+    if (newShell &&
+        capabilities.canPopOut &&
+        (await openShell(buffer: link.buffer)).isOk) {
+      return true;
+    }
+    final doc = _doc.value;
+    dispatchAll(linkPolicy(doc, link.buffer, link.arguments) ??
+        openPolicy(doc, link.buffer));
+    return true;
+  }
 
   /// Decides what close, split and [back] do to focus.
   WindowingFocusPolicy focusPolicy;

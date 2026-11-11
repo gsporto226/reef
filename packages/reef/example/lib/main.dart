@@ -23,6 +23,9 @@ final Map<String, Widget Function(BuildContext, BufferId)> bufferPages = {
       ),
 };
 
+/// The paths of the buffers a link can reach: `/tasks/Buy milk/edit`.
+const exampleLinks = LinkTable({'task-edit': '/tasks/:title/edit'});
+
 /// Builds the page for any buffer id the app knows.
 Widget bufferPageFor(BuildContext context, BufferId id) =>
     bufferPages[id.id.split(':').first]?.call(context, id) ?? const SizedBox.shrink();
@@ -32,8 +35,11 @@ Widget bufferPageFor(BuildContext context, BufferId id) =>
 /// windowing through the global Flutter config):
 ///   $env:FLUTTER_WINDOWING = "true"
 ///   fvm flutter run -d windows
-void main() => runWidget(ReefExampleApp(
+/// A task path given as the first launch argument opens that editor:
+///   fvm flutter run -d windows -a "/tasks/Buy milk/edit"
+void main([List<String> args = const []]) => runWidget(ReefExampleApp(
       store: exampleStore(desktop: runsOnDesktop()),
+      launchArgs: args,
     ));
 
 /// Whether this run is a desktop app outside tests.
@@ -58,11 +64,14 @@ HibernationStore exampleStore({
         : InMemoryHibernationStore();
 
 /// One [ProviderScope] above every shell, so a buffer shown in two shells is
-/// the same viewmodel. Buffers and the layout hibernate into [store].
+/// the same viewmodel. Buffers and the layout hibernate into [store]. The
+/// first of [launchArgs], a path in [exampleLinks], opens on top of the
+/// restored layout.
 class ReefExampleApp extends StatefulWidget {
-  const ReefExampleApp({super.key, this.store});
+  const ReefExampleApp({super.key, this.store, this.launchArgs = const []});
 
   final HibernationStore? store;
+  final List<String> launchArgs;
 
   @override
   State<ReefExampleApp> createState() => _ReefExampleAppState();
@@ -106,14 +115,21 @@ class _ReefExampleAppState extends State<ReefExampleApp> {
     container: _container,
     child: _ExampleShells(
       key: ValueKey(_layout),
+      // The launch link applies once, not again after "Reset layout".
+      link: _layout == 0 ? widget.launchArgs.firstOrNull : null,
       onResetLayout: () => setState(() => _layout++),
     ),
   );
 }
 
 class _ExampleShells extends StatefulWidget {
-  const _ExampleShells({super.key, required this.onResetLayout});
+  const _ExampleShells({
+    super.key,
+    required this.link,
+    required this.onResetLayout,
+  });
 
+  final String? link;
   final VoidCallback onResetLayout;
 
   @override
@@ -128,7 +144,19 @@ class _ExampleShellsState extends State<_ExampleShells> {
     undo: _container.read(undoControllerProvider),
     platform: _platform,
     store: _container.read(hibernationStoreProvider),
+    // Editors open beside the list, the launch link's too.
+    openPolicy: splitBesideOpenPolicy,
+    links: exampleLinks,
   );
+
+  @override
+  void initState() {
+    super.initState();
+    // Restored first, then the link on top (spec §9 cold start).
+    if (widget.link case final link?) {
+      _controller.openLink(BufferPath.fromUri(Uri.parse(link)));
+    }
+  }
 
   @override
   void dispose() {
@@ -141,8 +169,6 @@ class _ExampleShellsState extends State<_ExampleShells> {
   Widget build(BuildContext context) => WindowingRoot(
         controller: _controller,
         bufferBuilder: bufferPageFor,
-        // Editors open beside the list.
-        delegate: const WindowingDelegate(openPolicy: splitBesideOpenPolicy),
         child: WindowingSystemBack(
           child: ShellViews(
             controller: _controller,

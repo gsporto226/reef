@@ -112,6 +112,7 @@ class WindowingDelegate {
     this.interceptor,
     this.openPolicy,
     this.focusPolicy,
+    this.linkPolicy,
     this.projectionPolicy = defaultWindowingProjection,
   });
 
@@ -156,6 +157,10 @@ class WindowingDelegate {
   /// controller's applies.
   final WindowingFocusPolicy? focusPolicy;
 
+  /// Handed to the controller by [WindowingRoot]. Default: none, the
+  /// controller's applies.
+  final WindowingLinkPolicy? linkPolicy;
+
   /// Picks the projection [WindowingRoot] draws when given no child.
   /// Default: [defaultWindowingProjection].
   final WindowingProjectionPolicy projectionPolicy;
@@ -172,6 +177,7 @@ class WindowingDelegate {
     WindowingInterceptor? interceptor,
     WindowingOpenPolicy? openPolicy,
     WindowingFocusPolicy? focusPolicy,
+    WindowingLinkPolicy? linkPolicy,
     WindowingProjectionPolicy? projectionPolicy,
   }) => WindowingDelegate(
     windowChrome: windowChrome ?? this.windowChrome,
@@ -185,6 +191,7 @@ class WindowingDelegate {
     interceptor: interceptor ?? this.interceptor,
     openPolicy: openPolicy ?? this.openPolicy,
     focusPolicy: focusPolicy ?? this.focusPolicy,
+    linkPolicy: linkPolicy ?? this.linkPolicy,
     projectionPolicy: projectionPolicy ?? this.projectionPolicy,
   );
 

@@ -44,13 +44,16 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Buy milk'));
     await tester.pumpAndSettle();
-    expect(find.byType(EditableText), findsWidgets);
+    final editor = find.byWidgetPredicate(
+        (w) => w is EditableText && w.controller.text == 'Buy milk');
+    expect(editor, findsOneWidget);
 
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
 
+    expect(editor, findsNothing, reason: 'the editor window stepped back');
     expect(find.byType(EditableText), findsNWidgets(2),
-        reason: 'two lists, each with its filter; no editor');
+        reason: 'two lists, each with its filter');
   });
 
   testWidgets('undo and redo a title edit', (tester) async {
@@ -108,6 +111,33 @@ void main() {
       );
     },
   );
+
+  testWidgets('a task path as a launch argument opens that editor on top of '
+      'the restored layout', (tester) async {
+    final store = InMemoryHibernationStore();
+    await tester.pumpWidget(
+      app.ReefExampleApp(store: store),
+      wrapWithView: false,
+    );
+    await tester.pumpAndSettle();
+    await tester.pumpWidget(const SizedBox()); // tears the app down
+    await tester.pumpAndSettle();
+
+    await tester.pumpWidget(
+      app.ReefExampleApp(store: store, launchArgs: const ['/tasks/Walk dog/edit']),
+      wrapWithView: false,
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+      find.byWidgetPredicate(
+          (w) => w is EditableText && w.controller.text == 'Walk dog'),
+      findsOneWidget,
+      reason: 'the linked editor is open',
+    );
+    expect(find.text('Buy milk'), findsOneWidget,
+        reason: 'the restored list is kept beside it');
+  });
 
   group('on a file store', () {
     late Directory dir;

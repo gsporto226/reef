@@ -361,4 +361,35 @@ void main() {
       expect(c.focusPolicy, own);
     });
   });
+
+  group('link policy ownership', () {
+    List<WindowingCommand>? delegated(WindowingDoc _, BufferId _, Map<String, String> _) =>
+        null;
+    List<WindowingCommand>? own(WindowingDoc _, BufferId _, Map<String, String> _) =>
+        const [];
+
+    Widget root(WindowingController c, WindowingDelegate delegate) =>
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: WindowingRoot(
+            controller: c,
+            bufferBuilder: (_, _) => const SizedBox.expand(),
+            delegate: delegate,
+          ),
+        );
+
+    testWidgets("the delegate's is installed on mount and on change, and "
+        'the previous one comes back on unmount', (tester) async {
+      final c = WindowingController(initial: _mixed(), linkPolicy: own);
+      addTearDown(c.dispose);
+      await tester.pumpWidget(root(c, WindowingDelegate(linkPolicy: delegated)));
+      expect(c.linkPolicy, delegated);
+      await tester.pumpWidget(root(c, const WindowingDelegate()));
+      expect(c.linkPolicy, own);
+      await tester.pumpWidget(root(c, WindowingDelegate(linkPolicy: delegated)));
+      expect(c.linkPolicy, delegated);
+      await tester.pumpWidget(const SizedBox());
+      expect(c.linkPolicy, own);
+    });
+  });
 }
