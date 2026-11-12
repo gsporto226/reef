@@ -59,11 +59,24 @@ _Avoid_: load, bind
 
 **Link**:
 A path, with optional query arguments, that points at a buffer, such as
-`/tasks/42/edit`. Opening a link focuses a window that shows the buffer or
-opens it, as the link policy decides.
-_Avoid_: route, deep link URL
+`/tasks/42/edit`, and the typed route value it stands for. Opening a link
+focuses a window that shows the buffer or opens it, as the link policy decides.
+_Avoid_: deep link URL
+
+**Link tree**:
+The app's declaration of every link and how they nest: a child link extends
+its parent's path and query. It replaces the link table.
+_Avoid_: route table, router config
+
+**Fresh link**:
+A link that opens a new buffer each time, as a browser tab does, instead of
+reaching the buffer already open for the same path.
+_Avoid_: draft
+
+**Guard**:
+A rule on a link tree node that allows, blocks or redirects opening a link at
+or below that node.
+_Avoid_: middleware, route guard
 
 **Link table**:
-The app's map from each buffer kind to one path template, used both ways:
-a link to its buffer, and a buffer to its link.
-_Avoid_: route table, router config
+Replaced by the link tree (ADR 0004).
