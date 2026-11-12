@@ -260,7 +260,8 @@ List<WindowingCommand> mailOpenPolicy(WindowingDoc doc, BufferId buffer,
   }
   if (route is! FoldersRoute && route is! FolderRoute && detail != null) {
     return [
-      if (doc.windows[detail]!.history.current.buffer != buffer)
+      if (doc.windows[detail]!.history.current !=
+          HistoryEntry(buffer, arguments: arguments))
         PushBuffer(detail, buffer, arguments: arguments),
       ActivateWindow(detail),
     ];
