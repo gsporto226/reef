@@ -74,7 +74,7 @@ reaching the buffer already open for the same path.
 _Avoid_: draft
 
 **Guard**:
-A rule on a link tree node that allows, blocks or redirects opening a link at
+A rule on a link tree node that allows or redirects opening a link at
 or below that node.
 _Avoid_: middleware, route guard
 
