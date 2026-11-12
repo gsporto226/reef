@@ -38,7 +38,7 @@ void main() {
       .value
       .windows
       .values
-      .singleWhere((w) => w.history.current == buffer);
+      .singleWhere((w) => w.history.current.buffer == buffer);
 
   testWidgets('the entrypoint boots on the folder list beside the inbox', (
     tester,
@@ -123,7 +123,7 @@ void main() {
     final doc = c.doc.value;
     expect(doc.shells, hasLength(1));
     expect(doc.tabs, hasLength(1));
-    expect(doc.windows.values.single.history.current, thread('42'));
+    expect(doc.windows.values.single.history.current.buffer, thread('42'));
     expect(find.text('Reply to Maya…'), findsOneWidget);
   });
 
@@ -137,14 +137,14 @@ void main() {
     // Not shown anywhere: the open policy pushes it on the detail window.
     c = await boot(tester, store, launchLink: Uri.parse('/threads/42'));
     expect(c.doc.value.windows, hasLength(3));
-    expect(showing(c, thread('42')).history.back, [noThread]);
+    expect(showing(c, thread('42')).history.back, [HistoryEntry(noThread)]);
     expect(showing(c, folder('archive')), isNotNull);
     expect(find.text('Old receipts'), findsOneWidget);
     expect(find.text('Reply to Maya…'), findsOneWidget);
 
     // Shown already: focused, nothing pushed.
     final list = c.doc.value.windows.entries
-        .singleWhere((e) => e.value.history.current == folderList)
+        .singleWhere((e) => e.value.history.current.buffer == folderList)
         .key;
     c.activateWindow(list);
     final before = c.doc.value.windows;
@@ -152,7 +152,7 @@ void main() {
     final tab = c.doc.value.tabs.values.single;
     expect(c.doc.value.windows, before);
     expect(
-      c.doc.value.windows[tab.activeWindowId]!.history.current,
+      c.doc.value.windows[tab.activeWindowId]!.history.current.buffer,
       thread('42'),
     );
   });

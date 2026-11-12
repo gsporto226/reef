@@ -9,7 +9,6 @@ import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/shell_platform.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
-import 'package:reef/features/windowing/_implementations/windowing_links.dart';
 
 /// A windowing mutation (spec §3). Commands carry pre-generated ids for what
 /// they create, so the reducer stays pure. A command invalid in the current
@@ -31,11 +30,21 @@ extension WindowingDocApply on WindowingDoc {
 /// Appends a tab to [shellId], activates it and focuses the shell. With a
 /// [buffer], the tab's first window ([WindowId]) shows that buffer.
 class NewTab extends WindowingCommand {
-  const NewTab({required this.shellId, required this.tabId, this.buffer});
+  NewTab({
+    required this.shellId,
+    required this.tabId,
+    this.buffer,
+    this.arguments = const {},
+    HistoryEntryId? entryId,
+  }) : entryId = entryId ?? HistoryEntryId.generate();
+
+  /// The id of the entry [buffer] opens with; made here so [apply] is pure.
+  final HistoryEntryId entryId;
 
   final ShellId shellId;
   final TabId tabId;
   final (WindowId, BufferId)? buffer;
+  final Map<String, String> arguments;
 
   @override
   WindowingDoc apply(WindowingDoc doc) {
@@ -57,7 +66,10 @@ class NewTab extends WindowingCommand {
       windows: {
         ...doc.windows,
         if (buffer case (final w, final b))
-          w: WindowState(history: BufferHistory(current: b)),
+          w: WindowState(
+              history: BufferHistory(
+                  current: HistoryEntry(b,
+                      arguments: arguments, id: entryId))),
       },
       focusedShellId: shellId,
     );
@@ -115,17 +127,24 @@ class CloseTab extends WindowingCommand {
 /// window copies the window history, with [buffer] pushed on top when given,
 /// and takes focus.
 class SplitWindow extends WindowingCommand {
-  const SplitWindow(
+  SplitWindow(
     this.windowId, {
     required this.newWindowId,
     required this.axis,
     this.buffer,
-  });
+    this.arguments = const {},
+    HistoryEntryId? entryId,
+  }) : entryId = entryId ?? HistoryEntryId.generate();
+
+  /// The id of the entry [buffer] is pushed with; made here so [apply] is
+  /// pure.
+  final HistoryEntryId entryId;
 
   final WindowId windowId;
   final WindowId newWindowId;
   final Axis axis;
   final BufferId? buffer;
+  final Map<String, String> arguments;
 
   @override
   WindowingDoc apply(WindowingDoc doc) {
@@ -134,7 +153,9 @@ class SplitWindow extends WindowingCommand {
     final history = doc.windows[windowId]!.history;
     final copy = switch (buffer) {
       null => history,
-      final b => BufferHistory(back: [...history.back, history.current], current: b),
+      final b => BufferHistory(
+          back: [...history.back, history.current],
+          current: HistoryEntry(b, arguments: arguments, id: entryId)),
     };
     // ponytail: always nests a new branch; flatten into a same-axis parent
     // if deep trees from repeated splits become a problem.
@@ -355,23 +376,41 @@ sealed class _HistoryCommand extends WindowingCommand {
 
 /// Points [windowId] at [buffer] with a fresh window history.
 class AttachBuffer extends _HistoryCommand {
-  const AttachBuffer(super.windowId, this.buffer);
+  AttachBuffer(super.windowId, this.buffer,
+      {this.arguments = const {}, HistoryEntryId? entryId})
+      : entryId = entryId ?? HistoryEntryId.generate();
+
+  /// The new entry's id; made here so [apply] is pure.
+  final HistoryEntryId entryId;
 
   final BufferId buffer;
+  final Map<String, String> arguments;
+
+  HistoryEntry get _entry =>
+      HistoryEntry(buffer, arguments: arguments, id: entryId);
 
   @override
-  BufferHistory edit(BufferHistory history) => BufferHistory(current: buffer);
+  BufferHistory edit(BufferHistory history) => BufferHistory(current: _entry);
 }
 
 /// Moves the current buffer onto back, clears forward and shows [buffer].
 class PushBuffer extends _HistoryCommand {
-  const PushBuffer(super.windowId, this.buffer);
+  PushBuffer(super.windowId, this.buffer,
+      {this.arguments = const {}, HistoryEntryId? entryId})
+      : entryId = entryId ?? HistoryEntryId.generate();
+
+  /// The new entry's id; made here so [apply] is pure.
+  final HistoryEntryId entryId;
 
   final BufferId buffer;
+  final Map<String, String> arguments;
+
+  HistoryEntry get _entry =>
+      HistoryEntry(buffer, arguments: arguments, id: entryId);
 
   @override
   BufferHistory edit(BufferHistory history) => BufferHistory(
-      back: [...history.back, history.current], current: buffer);
+      back: [...history.back, history.current], current: _entry);
 }
 
 /// Back: moves the current buffer onto forward and shows the top of back.
@@ -405,13 +444,33 @@ class NavigateForward extends _HistoryCommand {
 
 /// Shows [buffer] in place of the current one; both stacks stay untouched.
 class ReplaceBuffer extends _HistoryCommand {
-  const ReplaceBuffer(super.windowId, this.buffer);
+  ReplaceBuffer(super.windowId, this.buffer,
+      {this.arguments = const {}, HistoryEntryId? entryId})
+      : entryId = entryId ?? HistoryEntryId.generate();
+
+  /// The new entry's id; made here so [apply] is pure.
+  final HistoryEntryId entryId;
 
   final BufferId buffer;
+  final Map<String, String> arguments;
+
+  HistoryEntry get _entry =>
+      HistoryEntry(buffer, arguments: arguments, id: entryId);
 
   @override
   BufferHistory edit(BufferHistory history) => BufferHistory(
-      back: history.back, current: buffer, forward: history.forward);
+      back: history.back, current: _entry, forward: history.forward);
+}
+
+/// [commands] applied in order as one command, for an interceptor that
+/// replaces one command with several (a guard redirecting a back).
+class CommandSequence extends WindowingCommand {
+  const CommandSequence(this.commands);
+
+  final List<WindowingCommand> commands;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) => doc.applyAll(commands);
 }
 
 /// Activates tree window [windowId] in its tab, then that tab and its shell.
@@ -743,73 +802,119 @@ class CommandVeto {
 /// Compiles "open [buffer]" against [doc] into the commands
 /// [WindowingController.openBuffer] dispatches as one batch.
 typedef WindowingOpenPolicy = List<WindowingCommand> Function(
-    WindowingDoc doc, BufferId buffer);
+    WindowingDoc doc, BufferId buffer,
+    {Map<String, String> arguments});
 
-/// Focuses a window of the focused shell's active tab that shows [buffer];
+/// Focuses a window of the focused shell's active tab that shows [buffer]
+/// with [arguments];
 /// else [pushOpenPolicy].
-List<WindowingCommand> defaultOpenPolicy(WindowingDoc doc, BufferId buffer) {
+List<WindowingCommand> defaultOpenPolicy(WindowingDoc doc, BufferId buffer,
+    {Map<String, String> arguments = const {}}) {
   final tab = doc.activeTab;
   for (final w in tab.root?.windowIds ?? const <WindowId>[]) {
-    if (doc.windows[w]!.history.current == buffer) return [ActivateWindow(w)];
+    if (doc.windows[w]!.history.current ==
+        HistoryEntry(buffer, arguments: arguments)) {
+      return [ActivateWindow(w)];
+    }
   }
-  return pushOpenPolicy(doc, buffer);
+  return pushOpenPolicy(doc, buffer, arguments: arguments);
 }
 
 /// Pushes [buffer] onto the active window; an empty tab gets its first
 /// window.
-List<WindowingCommand> pushOpenPolicy(WindowingDoc doc, BufferId buffer) =>
+List<WindowingCommand> pushOpenPolicy(WindowingDoc doc, BufferId buffer,
+        {Map<String, String> arguments = const {}}) =>
     switch (doc.activeTab.activeWindowId) {
-      final w? => [PushBuffer(w, buffer)],
-      null => _firstWindow(doc, buffer),
+      final w? => [PushBuffer(w, buffer, arguments: arguments)],
+      null => _firstWindow(doc, buffer, arguments),
     };
 
 /// Opens [buffer] in a new window beside the active one; an empty tab gets
 /// its first window.
 List<WindowingCommand> splitBesideOpenPolicy(
-        WindowingDoc doc, BufferId buffer) =>
+        WindowingDoc doc, BufferId buffer,
+        {Map<String, String> arguments = const {}}) =>
     switch (doc.activeTab.activeWindowId) {
       final w? => [
           SplitWindow(w,
               newWindowId: WindowId.generate(),
               axis: Axis.horizontal,
-              buffer: buffer),
+              buffer: buffer,
+              arguments: arguments),
         ],
-      null => _firstWindow(doc, buffer),
+      null => _firstWindow(doc, buffer, arguments),
     };
 
 /// Opens [buffer] in a new tab of the focused shell.
-List<WindowingCommand> newTabOpenPolicy(WindowingDoc doc, BufferId buffer) => [
+List<WindowingCommand> newTabOpenPolicy(WindowingDoc doc, BufferId buffer,
+        {Map<String, String> arguments = const {}}) =>
+    [
       NewTab(
           shellId: doc.focusedShellId,
           tabId: TabId.generate(),
-          buffer: (WindowId.generate(), buffer)),
+          buffer: (WindowId.generate(), buffer),
+          arguments: arguments),
     ];
 
 /// Gives the focused shell's empty active tab a first window showing
 /// [buffer], built in a scratch tab and moved in.
-List<WindowingCommand> _firstWindow(WindowingDoc doc, BufferId buffer) {
+List<WindowingCommand> _firstWindow(
+    WindowingDoc doc, BufferId buffer, Map<String, String> arguments) {
   final shell = doc.focusedShellId;
   final scratch = TabId.generate();
   final window = WindowId.generate();
   return [
-    NewTab(shellId: shell, tabId: scratch, buffer: (window, buffer)),
+    NewTab(
+        shellId: shell,
+        tabId: scratch,
+        buffer: (window, buffer),
+        arguments: arguments),
     MoveWindow(window, tabId: doc.shells[shell]!.activeTabId),
     CloseTab(scratch),
   ];
 }
 
+/// How [WindowingController.openLink] follows a link (ADR 0004 D22,
+/// ADR 0005).
+enum LinkVerb {
+  /// As the link and open policies decide.
+  go,
+
+  /// Pushes onto the focused window.
+  push,
+
+  /// Replaces the focused window's current entry.
+  replace,
+}
+
 /// Compiles a resolved link to [buffer], carrying [arguments], against
 /// [doc] into the commands [WindowingController.openLink] dispatches as one
-/// batch; null opens [buffer] through [WindowingController.openPolicy].
+/// batch; null leaves it to [verb]: go opens [buffer] through
+/// [WindowingController.openPolicy], push and replace push onto or replace
+/// the focused window.
 typedef WindowingLinkPolicy = List<WindowingCommand>? Function(
-    WindowingDoc doc, BufferId buffer, Map<String, String> arguments);
+    WindowingDoc doc, BufferId buffer, Map<String, String> arguments,
+    {LinkVerb verb});
 
-/// Focuses a window showing [buffer], in any shell, the focused shell's
-/// first; else null, so the open policy decides.
+/// Focuses a window showing [buffer] with [arguments], in any shell, the
+/// focused shell's first. When [buffer] shows only with other arguments,
+/// go opens another window beside the active one (ADR 0005); else null, so
+/// [verb] decides.
 List<WindowingCommand>? defaultLinkPolicy(
-    WindowingDoc doc, BufferId buffer, Map<String, String> arguments) {
-  final shown = doc.windowsShowing(buffer).toList();
-  if (shown.isEmpty) return null;
+    WindowingDoc doc, BufferId buffer, Map<String, String> arguments,
+    {LinkVerb verb = LinkVerb.go}) {
+  final any = doc.windowsShowing(buffer);
+  if (any.isEmpty) return null;
+  final shown = any
+      .where((w) =>
+          mapEquals(doc.windows[w]!.history.current.arguments, arguments))
+      .toList();
+  if (shown.isEmpty) {
+    return switch (verb) {
+      LinkVerb.go => splitBesideOpenPolicy(doc, buffer, arguments: arguments),
+      LinkVerb.push || LinkVerb.replace => null,
+    };
+  }
   final here = shown.where((w) =>
       ActivateWindow(w).apply(doc).focusedShellId == doc.focusedShellId);
   return [ActivateWindow(here.firstOrNull ?? shown.first)];
@@ -902,7 +1007,6 @@ class WindowingController {
     this.interceptor,
     this.openPolicy = defaultOpenPolicy,
     this.linkPolicy = defaultLinkPolicy,
-    this.links = const LinkTable({}),
     this.focusPolicy = const WindowingFocusPolicy(),
     this.platform,
     HibernationStore? store,
@@ -973,27 +1077,35 @@ class WindowingController {
   void openBuffer(BufferId buffer) =>
       dispatchAll(openPolicy(_doc.value, buffer));
 
-  /// Resolves the paths [openLink] takes.
-  final LinkTable links;
-
   /// Decides what [openLink] does with a resolved buffer.
   WindowingLinkPolicy linkPolicy;
 
-  /// Resolves [path] through [links] and returns whether it resolved. With
-  /// [newShell] and pop-out support the buffer opens in a new shell;
-  /// otherwise, or when that shell fails to open, [linkPolicy] decides.
-  Future<bool> openLink(BufferPath path, {bool newShell = false}) async {
-    final link = links.resolve(path);
-    if (link == null) return false;
+  /// Opens [buffer], a resolved link, with [arguments]. With [newShell]
+  /// and pop-out support it opens in a new shell; otherwise, or when that
+  /// shell fails to open, [linkPolicy] decides, then [verb]. Push and
+  /// replace with no focused window fall back to go.
+  Future<void> openLink(
+    BufferId buffer, {
+    Map<String, String> arguments = const {},
+    bool newShell = false,
+    LinkVerb verb = LinkVerb.go,
+  }) async {
     if (newShell &&
         capabilities.canPopOut &&
-        (await openShell(buffer: link.buffer)).isOk) {
-      return true;
+        (await openShell(buffer: buffer, arguments: arguments)).isOk) {
+      return;
     }
     final doc = _doc.value;
-    dispatchAll(linkPolicy(doc, link.buffer, link.arguments) ??
-        openPolicy(doc, link.buffer));
-    return true;
+    final window = doc.activeTab.activeWindowId;
+    if (window == null) verb = LinkVerb.go;
+    dispatchAll(linkPolicy(doc, buffer, arguments, verb: verb) ??
+        switch (verb) {
+          LinkVerb.go => openPolicy(doc, buffer, arguments: arguments),
+          LinkVerb.push => [PushBuffer(window!, buffer, arguments: arguments)],
+          LinkVerb.replace => [
+              ReplaceBuffer(window!, buffer, arguments: arguments),
+            ],
+        });
   }
 
   /// Decides what close, split and [back] do to focus.
@@ -1120,7 +1232,8 @@ class WindowingController {
   /// `unsupported` without a supported platform, with the platform's error
   /// when the open fails (the doc is untouched), and with `refused` when an
   /// interceptor keeps the batch from landing whole (the real shell closes).
-  Future<Result<ShellError, ShellId>> openShell({BufferId? buffer}) {
+  Future<Result<ShellError, ShellId>> openShell(
+      {BufferId? buffer, Map<String, String> arguments = const {}}) {
     final tab = TabId.generate();
     if (buffer == null) {
       return _openShellWith((shell) => [AttachShell(shell, tabId: tab)], tab);
@@ -1132,7 +1245,8 @@ class WindowingController {
         NewTab(
             shellId: shell,
             tabId: shown,
-            buffer: (WindowId.generate(), buffer)),
+            buffer: (WindowId.generate(), buffer),
+            arguments: arguments),
         CloseTab(tab),
       ],
       shown,
@@ -1236,8 +1350,9 @@ class WindowingController {
   void attachBuffer(WindowId windowId, BufferId buffer) =>
       dispatch(AttachBuffer(windowId, buffer));
 
-  void pushBuffer(WindowId windowId, BufferId buffer) =>
-      dispatch(PushBuffer(windowId, buffer));
+  void pushBuffer(WindowId windowId, BufferId buffer,
+          {Map<String, String> arguments = const {}}) =>
+      dispatch(PushBuffer(windowId, buffer, arguments: arguments));
 
   void popBuffer(WindowId windowId) => dispatch(PopBuffer(windowId));
 

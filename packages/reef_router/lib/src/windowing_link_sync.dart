@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:reef/reef.dart';
+import 'package:reef_router/src/links.dart';
 
 /// How a change from [before] to [after] enters the browser history (spec
 /// §9): a push when the focused window's history grew by the buffer it
@@ -24,16 +25,28 @@ RouteInformationReportingType reportType(
 WindowId? _focusedWindow(WindowingDoc doc) =>
     doc.tabs[doc.shells[doc.focusedShellId]?.activeTabId]?.activeWindowId;
 
-/// Keeps the route information (the browser URL on web) equal to the
-/// focused shell's focused buffer path, and sends the initial route and
-/// every later route notification (browser back, forward, a typed URL) to
+/// Keeps the route information (the browser URL on web) equal to the URL
+/// [tree] gives the focused shell's focused buffer, and resolves the
+/// initial route and every later route notification (browser back,
+/// forward, a typed URL) through [tree] into
 /// [WindowingController.openLink]. Place it under a [WindowingRoot].
 class WindowingLinkSync extends StatefulWidget {
   const WindowingLinkSync({
     super.key,
+    required this.tree,
     this.routeInformationProvider,
+    this.entryState = kIsWeb,
     required this.child,
   });
+
+  /// Whether the route information state carries the current history entry's
+  /// id, so a route notification naming a live entry moves the owning
+  /// window's history to it instead of opening the URL (ADR 0004 D2).
+  /// Default: on web only; other platforms use the URL only.
+  final bool entryState;
+
+  /// Maps URLs to buffers and back.
+  final LinkTree<Object?> tree;
 
   /// Default: the platform's, starting on its initial route.
   final RouteInformationProvider? routeInformationProvider;
@@ -67,9 +80,7 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     _before = _controller.doc.value;
     _controller.doc.addListener(_report);
     _provider.addListener(_open);
-    _open().whenComplete(() {
-      if (mounted) _report();
-    });
+    _open();
   }
 
   @override
@@ -90,12 +101,51 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     );
   }
 
+  /// Echoes are muted until the move or openLink completes, however late;
+  /// then one report puts the URL on the final entry, which a guard
+  /// redirect may have changed.
   Future<void> _open() {
-    // Echoes are muted until openLink completes, however late that is.
+    void done() {
+      _incoming--;
+      if (mounted) _report();
+    }
+
     _incoming++;
+    if (widget.entryState && _travel(_provider.value.state)) {
+      done();
+      return Future.value();
+    }
+    final (:buffer, :arguments) = widget.tree.resolve(_provider.value.uri);
     return _controller
-        .openLink(BufferPath.fromUri(_provider.value.uri))
-        .whenComplete(() => _incoming--);
+        .openLink(
+          buffer,
+          arguments: arguments,
+          verb: widget.tree.isFresh(buffer) ? LinkVerb.push : LinkVerb.go,
+        )
+        .whenComplete(done);
+  }
+
+  /// Moves the window owning entry [id] to it and focuses that window;
+  /// false when no window holds it.
+  bool _travel(Object? id) {
+    if (id is! String) return false;
+    for (final MapEntry(key: window, value: state)
+        in _controller.doc.value.windows.entries) {
+      final h = state.history;
+      final back = h.back.indexWhere((e) => e.id.id == id);
+      final forward = h.forward.indexWhere((e) => e.id.id == id);
+      if (back < 0 && forward < 0 && h.current.id.id != id) continue;
+      _controller.dispatchAll([
+        ActivateWindow(window),
+        if (back >= 0)
+          for (var i = back; i < h.back.length; i++) PopBuffer(window),
+        if (forward >= 0)
+          for (var i = forward; i < h.forward.length; i++)
+            NavigateForward(window),
+      ]);
+      return true;
+    }
+    return false;
   }
 
   void _report() {
@@ -104,10 +154,15 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     if (_incoming > 0) return;
     final window = after.windows[_focusedWindow(after)];
     if (window == null) return;
-    final path = _controller.links.pathOf(window.history.current)?.toUri();
-    if (path == null || path == _provider.value.uri) return;
+    final entry = window.history.current;
+    final path = widget.tree.uriOfBuffer(entry.buffer, entry.arguments);
+    final state = widget.entryState ? entry.id.id : null;
+    if (path == null ||
+        (path == _provider.value.uri && state == _provider.value.state)) {
+      return;
+    }
     _provider.routerReportsNewRouteInformation(
-      RouteInformation(uri: path),
+      RouteInformation(uri: path, state: state),
       type: reportType(before, after),
     );
   }

@@ -1,0 +1,17 @@
+# ADR 0004 D21: the committed link stages must match the generator.
+# ponytail: generator check only; the package tests need the private
+# listenable_plus and formularium checkouts, add them with a token secret.
+name: link stages
+on:
+  push:
+  pull_request:
+jobs:
+  generated:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+      - name: Regenerate link_stages.g.dart
+        working-directory: packages/reef_router
+        run: dart tool/generate_link_stages.dart
+      - run: git diff --exit-code packages/reef_router/lib/src/link_stages.g.dart

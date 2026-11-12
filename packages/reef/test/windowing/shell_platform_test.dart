@@ -49,7 +49,7 @@ void main() {
         final id = (await c.openShell(buffer: buffer)).getOrNull()!;
         final doc = c.doc.value;
         final tab = doc.tabs[doc.shells[id]!.tabIds.single]!;
-        expect(doc.windows[tab.activeWindowId]!.history.current, buffer);
+        expect(doc.windows[tab.activeWindowId]!.history.current.buffer, buffer);
         expect(tab.root, WindowLeaf(tab.activeWindowId!));
       },
     );
@@ -311,7 +311,7 @@ void main() {
       c.closeShell(second);
       final doc = c.doc.value;
       final tab = doc.tabs[doc.shells[first]!.activeTabId]!;
-      expect(doc.windows[tab.activeWindowId]!.history.current, buffer);
+      expect(doc.windows[tab.activeWindowId]!.history.current.buffer, buffer);
     });
   });
 

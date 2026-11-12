@@ -14,7 +14,7 @@ const _f3 = WindowId.manual('f3');
 const _f4 = WindowId.manual('f4');
 
 WindowState _shows(String buffer) =>
-    WindowState(history: BufferHistory(current: BufferId.manual(buffer)));
+    WindowState(history: BufferHistory(current: HistoryEntry(BufferId.manual(buffer))));
 
 /// Tab 1 is `a` | `c`, tab 2 is `b`. Floating: `f1` over the shell (hinted
 /// to the bottom right), `f2` and `f4` over tab 1, `f3` over window `a`.

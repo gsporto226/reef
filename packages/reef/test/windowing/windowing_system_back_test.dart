@@ -14,7 +14,8 @@ final doc = WindowingDoc(
   shells: {s1: ShellState(tabIds: [t1], activeTabId: t1)},
   tabs: {t1: TabState(root: WindowLeaf(w1), activeWindowId: w1)},
   windows: {
-    w1: WindowState(history: BufferHistory(back: [b0], current: b1)),
+    w1: WindowState(history: BufferHistory(
+        back: [HistoryEntry(b0)], current: HistoryEntry(b1))),
   },
   focusedShellId: s1,
 );
@@ -54,11 +55,11 @@ void main() {
     final c = await pump(tester);
 
     await tester.binding.handlePopRoute();
-    expect(c.doc.value.windows[w1]!.history.current, b0);
+    expect(c.doc.value.windows[w1]!.history.current.buffer, b0);
     expect(platformCalls, isNot(contains('SystemNavigator.pop')));
 
     await tester.binding.handlePopRoute();
-    expect(c.doc.value.windows[w1]!.history.current, b0);
+    expect(c.doc.value.windows[w1]!.history.current.buffer, b0);
     expect(platformCalls, contains('SystemNavigator.pop'));
   });
 

@@ -3,6 +3,7 @@ import 'package:reef/features/page/_implementations/reef_window.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/reef.dart' show WindowingScope;
 import 'package:reef_example/_kit/kit.dart';
+import 'package:reef_example/links.dart';
 import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_model.dart'
     show TaskError;
 import 'package:reef_example/features/task_editor/_presentation/list/task_list_provider.dart';
@@ -52,7 +53,7 @@ class _TaskListLayout extends StatelessWidget {
                 // The app's open policy decides where the editor lands.
                 onTap: () => WindowingScope.of(context)
                     .controller
-                    .openBuffer(BufferId.manual('task-edit:$task')),
+                    .openBuffer(taskEditBuffer(task)),
               ),
             ),
           ),

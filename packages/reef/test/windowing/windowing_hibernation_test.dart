@@ -47,7 +47,7 @@ void main() {
     expect(second.doc.value, first.doc.value);
     expect(second.doc.value.floating[d]!.scope, WindowScope(c));
     expect(second.doc.value.windows[a]!.history.forward, [
-      const BufferId.manual('a2'),
+      HistoryEntry(const BufferId.manual('a2')),
     ]);
   });
 
@@ -213,6 +213,37 @@ void main() {
     }
   });
 
+  test('history entries keep their arguments and id across a save', () {
+    final first = controller();
+    final tab = first.newTab(buffer: const BufferId.manual('a'));
+    final a = first.doc.value.tabs[tab]!.activeWindowId!;
+    first.pushBuffer(a, const BufferId.manual('a'), arguments: {'q': 'x'});
+    final saved = first.doc.value.windows[a]!.history;
+    final restored = controller().doc.value.windows[a]!.history;
+    expect(restored.current.arguments, {'q': 'x'});
+    expect(restored.current.id, saved.current.id);
+    expect(restored.back.single.id, saved.back.single.id);
+  });
+
+  test('a record with bare buffer ids loads with empty arguments', () {
+    final first = controller();
+    final tab = first.newTab(buffer: const BufferId.manual('b'));
+    final a = first.doc.value.tabs[tab]!.activeWindowId!;
+    first.pushBuffer(a, const BufferId.manual('c'));
+    final record = store.load(_key)!;
+    final old = jsonDecode(jsonEncode(record)) as Map<String, dynamic>;
+    old['doc']['windows'][a.id] = {
+      'back': ['b'],
+      'current': 'c',
+      'forward': <String>[],
+    };
+    store.save(_key, old);
+    final history = controller().doc.value.windows[a]!.history;
+    expect(history.current.buffer, const BufferId.manual('c'));
+    expect(history.current.arguments, isEmpty);
+    expect(history.back.single.buffer, const BufferId.manual('b'));
+  });
+
   test('floating scopes in a cycle are invalid', () {
     final shell = ShellId.manual('s');
     final tab = TabId.manual('t');
@@ -226,7 +257,7 @@ void main() {
       windows: {
         for (final w in [w1, w2])
           w: WindowState(
-            history: BufferHistory(current: const BufferId.manual('b')),
+            history: BufferHistory(current: HistoryEntry(const BufferId.manual('b'))),
           ),
       },
       focusedShellId: shell,

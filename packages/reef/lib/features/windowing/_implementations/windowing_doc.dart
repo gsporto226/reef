@@ -33,7 +33,9 @@ class WindowingDoc {
       },
       windows: {
         if (buffer != null)
-          window: WindowState(history: BufferHistory(current: buffer)),
+          window: WindowState(
+            history: BufferHistory(current: HistoryEntry(buffer)),
+          ),
       },
       focusedShellId: shell,
     );
@@ -100,9 +102,11 @@ class WindowingDoc {
       'windows': {
         for (final MapEntry(:key, :value) in windows.entries)
           key.id: {
-            'back': [for (final b in value.history.back) b.id],
-            'current': value.history.current.id,
-            'forward': [for (final b in value.history.forward) b.id],
+            'back': [for (final e in value.history.back) _entryToJson(e)],
+            'current': _entryToJson(value.history.current),
+            'forward': [
+              for (final e in value.history.forward) _entryToJson(e),
+            ],
           },
       },
       'floating': {
@@ -128,8 +132,8 @@ class WindowingDoc {
     if (record == null || record['version'] != recordVersion) return null;
     try {
       final json = record['doc'] as Map<String, dynamic>;
-      List<BufferId> buffers(Object? l) => [
-        for (final b in l! as List) BufferId.manual(b as String),
+      List<HistoryEntry> entries(Object? l) => [
+        for (final e in l! as List) _entryFromJson(e as Object),
       ];
       final doc = WindowingDoc(
         focusedShellId: ShellId.manual(json['focusedShell'] as String),
@@ -159,9 +163,9 @@ class WindowingDoc {
               in (json['windows'] as Map<String, dynamic>).entries)
             WindowId.manual(key): WindowState(
               history: BufferHistory(
-                back: buffers(value['back']),
-                current: BufferId.manual(value['current'] as String),
-                forward: buffers(value['forward']),
+                back: entries(value['back']),
+                current: _entryFromJson(value['current'] as Object),
+                forward: entries(value['forward']),
               ),
             ),
         },
@@ -244,6 +248,28 @@ bool _validNode(WindowNode node) => switch (node) {
         ratios.every((r) => r > 0) &&
         (ratios.fold(0.0, (a, b) => a + b) - 1).abs() < 1e-6 &&
         children.every(_validNode),
+};
+
+Object _entryToJson(HistoryEntry e) => {
+  'buffer': e.buffer.id,
+  if (e.arguments.isNotEmpty) 'arguments': e.arguments,
+  'id': e.id.id,
+};
+
+/// Reads an entry. A bare buffer id string, from records saved before
+/// entries carried arguments, loads with empty arguments and a fresh id.
+HistoryEntry _entryFromJson(Object json) => switch (json) {
+  final String buffer => HistoryEntry(BufferId.manual(buffer)),
+  {'buffer': final String buffer, 'id': final String id} => HistoryEntry(
+    BufferId.manual(buffer),
+    arguments: {
+      for (final MapEntry(:key, :value)
+          in ((json['arguments'] as Map?) ?? const {}).entries)
+        key as String: value as String,
+    },
+    id: HistoryEntryId.manual(id),
+  ),
+  _ => throw const FormatException('history entry'),
 };
 
 Object _nodeToJson(WindowNode node) => switch (node) {
@@ -390,19 +416,50 @@ class WindowState {
   int get hashCode => history.hashCode;
 }
 
-/// A window's back and forward stacks around the buffer it shows.
+/// One slot of a window history: a buffer, the query [arguments] it was
+/// opened with (page state, not identity), and a stable [id] (ADR 0004 D1).
+@immutable
+class HistoryEntry {
+  /// [id] defaults to a fresh one.
+  HistoryEntry(
+    this.buffer, {
+    Map<String, String> arguments = const {},
+    HistoryEntryId? id,
+  })  : arguments = Map.unmodifiable(arguments),
+        id = id ?? HistoryEntryId.generate();
+
+  final BufferId buffer;
+  final Map<String, String> arguments;
+  final HistoryEntryId id;
+
+  /// Leaves [id] out: the same buffer with the same arguments is the same
+  /// page, so re-showing it is no change.
+  @override
+  bool operator ==(Object other) =>
+      other is HistoryEntry &&
+      other.buffer == buffer &&
+      mapEquals(other.arguments, arguments);
+
+  @override
+  int get hashCode => Object.hash(
+    buffer,
+    Object.hashAllUnordered(arguments.entries.map((e) => (e.key, e.value))),
+  );
+}
+
+/// A window's back and forward stacks around the entry it shows.
 @immutable
 class BufferHistory {
   BufferHistory({
     required this.current,
-    List<BufferId> back = const [],
-    List<BufferId> forward = const [],
+    List<HistoryEntry> back = const [],
+    List<HistoryEntry> forward = const [],
   })  : back = List.unmodifiable(back),
         forward = List.unmodifiable(forward);
 
-  final List<BufferId> back;
-  final BufferId current;
-  final List<BufferId> forward;
+  final List<HistoryEntry> back;
+  final HistoryEntry current;
+  final List<HistoryEntry> forward;
 
   @override
   bool operator ==(Object other) =>
@@ -496,7 +553,7 @@ extension WindowingDocQueries on WindowingDoc {
   /// The windows whose history currently shows [buffer], in [windows] order.
   Iterable<WindowId> windowsShowing(BufferId buffer) => [
     for (final MapEntry(:key, :value) in windows.entries)
-      if (value.history.current == buffer) key,
+      if (value.history.current.buffer == buffer) key,
   ];
 
   /// The tab whose tree holds [window]; null for a floating or unknown one.

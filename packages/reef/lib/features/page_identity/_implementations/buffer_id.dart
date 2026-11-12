@@ -13,7 +13,7 @@ extension type BufferId._(String value) {
   /// reattachment, deterministic scenarios.
   const BufferId.manual(String manual) : value = manual;
 
-  /// The `kind:token` id a [LinkTable] maps to and from a path.
+  /// The `kind:token` id a link tree maps to and from a path.
   const BufferId.of(String kind, String token) : value = '$kind:$token';
 
   /// Generates a fresh buffer id (uuid v7).

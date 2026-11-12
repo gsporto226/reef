@@ -5,8 +5,8 @@ import 'package:reef/reef.dart';
 import 'package:reef_example/main.dart';
 import 'package:reef_example/main_windowing.dart' show startingLayout;
 
-const _list = BufferId.manual('task-list:all');
-const _edit = BufferId.manual('task-edit:Buy milk');
+const _list = BufferId.manual('/:');
+const _edit = BufferId.of('/tasks/*/edit', 'Buy milk');
 
 /// One shell with two tabs, the task list and the editor (active), drawn by
 /// the example's shell chrome over [platform].
@@ -36,7 +36,7 @@ Future<WindowingController> _pump(
 Iterable<BufferId> _buffers(WindowingDoc doc, ShellId shell) => [
       for (final tab in doc.shells[shell]!.tabIds)
         for (final window in doc.tabs[tab]!.root!.windowIds)
-          doc.windows[window]!.history.current,
+          doc.windows[window]!.history.current.buffer,
     ];
 
 void main() {

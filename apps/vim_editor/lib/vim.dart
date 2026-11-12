@@ -72,7 +72,7 @@ class Vim extends ChangeNotifier {
     for (final s in doc.windows.values) {
       final h = s.history;
       for (final b in [...h.back, h.current, ...h.forward]) {
-        if (!listed.contains(b)) listed.add(b);
+        if (!listed.contains(b.buffer)) listed.add(b.buffer);
       }
     }
   }
@@ -95,7 +95,7 @@ class Vim extends ChangeNotifier {
   ShellState get _shell => doc.shells[doc.focusedShellId]!;
   TabId get activeTab => _shell.activeTabId;
   WindowId? get activeWindow => doc.tabs[activeTab]!.activeWindowId;
-  BufferId? bufferOf(WindowId w) => doc.windows[w]?.history.current;
+  BufferId? bufferOf(WindowId w) => doc.windows[w]?.history.current.buffer;
   TextViewModel vmOf(BufferId b) => container.read(textViewModelProvider(b));
 
   /// [w]'s cursor, clamped to its buffer's current text.

@@ -11,7 +11,7 @@ const _b = WindowId.manual('b');
 const _c = WindowId.manual('c');
 
 WindowState _shows(String buffer) =>
-    WindowState(history: BufferHistory(current: BufferId.manual(buffer)));
+    WindowState(history: BufferHistory(current: HistoryEntry(BufferId.manual(buffer))));
 
 /// One shell, one tab: `a` left (25%), `b` over `c` right (75%, halves).
 WindowingDoc _mixed() => WindowingDoc(
@@ -306,7 +306,9 @@ void main() {
   });
 
   group('open policy ownership', () {
-    List<WindowingCommand> delegated(WindowingDoc _, BufferId _) => const [];
+    List<WindowingCommand> delegated(WindowingDoc _, BufferId _,
+            {Map<String, String> arguments = const {}}) =>
+        const [];
 
     Widget root(WindowingController c, WindowingDelegate delegate) =>
         Directionality(
@@ -363,9 +365,11 @@ void main() {
   });
 
   group('link policy ownership', () {
-    List<WindowingCommand>? delegated(WindowingDoc _, BufferId _, Map<String, String> _) =>
+    List<WindowingCommand>? delegated(WindowingDoc _, BufferId _, Map<String, String> _,
+            {LinkVerb verb = LinkVerb.go}) =>
         null;
-    List<WindowingCommand>? own(WindowingDoc _, BufferId _, Map<String, String> _) =>
+    List<WindowingCommand>? own(WindowingDoc _, BufferId _, Map<String, String> _,
+            {LinkVerb verb = LinkVerb.go}) =>
         const [];
 
     Widget root(WindowingController c, WindowingDelegate delegate) =>

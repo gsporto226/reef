@@ -2,3 +2,5 @@
 library;
 
 export 'package:reef_router/src/windowing_link_sync.dart';
+export 'package:reef_router/src/links.dart';
+export 'package:reef_router/src/link_navigator.dart';

@@ -22,7 +22,7 @@ const l3 = WindowLeaf(w3);
 const l4 = WindowLeaf(w4);
 
 WindowState showing(BufferId buffer) =>
-    WindowState(history: BufferHistory(current: buffer));
+    WindowState(history: BufferHistory(current: HistoryEntry(buffer)));
 
 /// A doc whose shells are given as `{shell: (tabs, active)}`; tabs listed in
 /// [windows] hold that one window, the others are empty.
@@ -102,7 +102,10 @@ WindowingDoc floating(
     );
 
 final history = WindowState(
-    history: BufferHistory(back: [b2], current: b1, forward: [b2]));
+    history: BufferHistory(
+        back: [HistoryEntry(b2)],
+        current: HistoryEntry(b1),
+        forward: [HistoryEntry(b2)]));
 
 void main() {
   test('a fresh doc is one focused shell with one empty tab', () {
@@ -125,7 +128,7 @@ void main() {
     expect(() => a.shells[s1]!.tabIds.add(t2), throwsUnsupportedError);
     expect(() => a.tabs.clear(), throwsUnsupportedError);
     expect(() => a.windows.clear(), throwsUnsupportedError);
-    expect(() => (showing(b1).history.back as List).add(b1),
+    expect(() => (showing(b1).history.back as List).add(HistoryEntry(b1)),
         throwsUnsupportedError);
     expect(showing(b1), showing(b1));
     expect(showing(b1).hashCode, showing(b1).hashCode);
@@ -163,37 +166,37 @@ void main() {
     (
       name: 'appends an empty tab and activates it',
       start: doc({s1: ([t1], t1)}),
-      commands: [const NewTab(shellId: s1, tabId: t2)],
+      commands: [NewTab(shellId: s1, tabId: t2)],
       expected: doc({s1: ([t1, t2], t2)}),
     ),
     (
       name: 'with a buffer, creates the first window with a window history',
       start: doc({s1: ([t1], t1)}),
-      commands: [const NewTab(shellId: s1, tabId: t2, buffer: (w1, b1))],
+      commands: [NewTab(shellId: s1, tabId: t2, buffer: (w1, b1))],
       expected: doc({s1: ([t1, t2], t2)}, windows: {t2: w1}),
     ),
     (
       name: 'opening in an unfocused shell focuses it',
       start: doc({s1: ([t1], t1), s2: ([t2], t2)}),
-      commands: [const NewTab(shellId: s2, tabId: t3)],
+      commands: [NewTab(shellId: s2, tabId: t3)],
       expected: doc({s1: ([t1], t1), s2: ([t2, t3], t3)}, focused: s2),
     ),
     (
       name: 'unknown shell is unchanged',
       start: doc({s1: ([t1], t1)}),
-      commands: [const NewTab(shellId: s2, tabId: t2)],
+      commands: [NewTab(shellId: s2, tabId: t2)],
       expected: null,
     ),
     (
       name: 'existing tab id is unchanged',
       start: doc({s1: ([t1], t1)}),
-      commands: [const NewTab(shellId: s1, tabId: t1)],
+      commands: [NewTab(shellId: s1, tabId: t1)],
       expected: null,
     ),
     (
       name: 'existing window id is unchanged',
       start: doc({s1: ([t1], t1)}, windows: {t1: w1}),
-      commands: [const NewTab(shellId: s1, tabId: t2, buffer: (w1, b1))],
+      commands: [NewTab(shellId: s1, tabId: t2, buffer: (w1, b1))],
       expected: null,
     ),
   ]);
@@ -262,30 +265,32 @@ void main() {
     (
       name: 'shows the same buffer, copies the history and takes focus',
       start: tree(l1, w1, windows: {w1: history}),
-      commands: [const SplitWindow(w1, newWindowId: w2, axis: Axis.horizontal)],
+      commands: [SplitWindow(w1, newWindowId: w2, axis: Axis.horizontal)],
       expected: tree(h([l1, l2]), w2, windows: {w1: history, w2: history}),
     ),
     (
       name: 'with a buffer, the new window pushes it onto the copied history',
       start: tree(l1, w1, windows: {w1: history}),
       commands: [
-        const SplitWindow(w1, newWindowId: w2, axis: Axis.vertical, buffer: b2)
+        SplitWindow(w1, newWindowId: w2, axis: Axis.vertical, buffer: b2)
       ],
       expected: tree(v([l1, l2]), w2, windows: {
         w1: history,
-        w2: WindowState(history: BufferHistory(back: [b2, b1], current: b2)),
+        w2: WindowState(history: BufferHistory(
+            back: [HistoryEntry(b2), HistoryEntry(b1)],
+            current: HistoryEntry(b2))),
       }),
     ),
     (
       name: 'splitting a nested window nests a branch in its place',
       start: tree(h([l1, l2], [0.25, 0.75]), w1),
-      commands: [const SplitWindow(w2, newWindowId: w3, axis: Axis.vertical)],
+      commands: [SplitWindow(w2, newWindowId: w3, axis: Axis.vertical)],
       expected: tree(h([l1, v([l2, l3])], [0.25, 0.75]), w3),
     ),
     (
       name: 'splitting a window in an inactive tab activates the tab',
       start: doc({s1: ([t1, t2], t2)}, windows: {t1: w1}),
-      commands: [const SplitWindow(w1, newWindowId: w2, axis: Axis.horizontal)],
+      commands: [SplitWindow(w1, newWindowId: w2, axis: Axis.horizontal)],
       expected: WindowingDoc(
         shells: {s1: ShellState(tabIds: [t1, t2], activeTabId: t1)},
         tabs: {
@@ -299,13 +304,13 @@ void main() {
     (
       name: 'unknown window is unchanged',
       start: tree(l1, w1),
-      commands: [const SplitWindow(w3, newWindowId: w2, axis: Axis.horizontal)],
+      commands: [SplitWindow(w3, newWindowId: w2, axis: Axis.horizontal)],
       expected: null,
     ),
     (
       name: 'existing new window id is unchanged',
       start: tree(h([l1, l2]), w1),
-      commands: [const SplitWindow(w1, newWindowId: w2, axis: Axis.horizontal)],
+      commands: [SplitWindow(w1, newWindowId: w2, axis: Axis.horizontal)],
       expected: null,
     ),
   ]);
@@ -408,25 +413,28 @@ void main() {
           [List<BufferId> forward = const []]) =>
       WindowState(
           history:
-              BufferHistory(back: back, current: current, forward: forward));
+              BufferHistory(
+                  back: back.map(HistoryEntry.new).toList(),
+                  current: HistoryEntry(current),
+                  forward: forward.map(HistoryEntry.new).toList()));
 
   runTable('AttachBuffer', [
     (
       name: 'points a window at a buffer with a fresh history',
       start: tree(l1, w1, windows: {w1: history}),
-      commands: [const AttachBuffer(w1, b3)],
+      commands: [AttachBuffer(w1, b3)],
       expected: tree(l1, w1, windows: {w1: showing(b3)}),
     ),
     (
       name: 'two windows can show the same buffer',
       start: tree(h([l1, l2]), w1, windows: {w2: showing(b2)}),
-      commands: [const AttachBuffer(w2, b1)],
+      commands: [AttachBuffer(w2, b1)],
       expected: tree(h([l1, l2]), w1),
     ),
     (
       name: 'unknown window is unchanged',
       start: tree(l1, w1),
-      commands: [const AttachBuffer(w2, b2)],
+      commands: [AttachBuffer(w2, b2)],
       expected: null,
     ),
   ]);
@@ -435,13 +443,13 @@ void main() {
     (
       name: 'moves current to back, clears forward, sets the new current',
       start: tree(l1, w1, windows: {w1: hist([b3], b1, [b2])}),
-      commands: [const PushBuffer(w1, b2)],
+      commands: [PushBuffer(w1, b2)],
       expected: tree(l1, w1, windows: {w1: hist([b3, b1], b2)}),
     ),
     (
       name: 'unknown window is unchanged',
       start: tree(l1, w1),
-      commands: [const PushBuffer(w2, b2)],
+      commands: [PushBuffer(w2, b2)],
       expected: null,
     ),
   ]);
@@ -498,19 +506,19 @@ void main() {
     (
       name: 'swaps current and leaves both stacks untouched',
       start: tree(l1, w1, windows: {w1: hist([b2], b1, [b3])}),
-      commands: [const ReplaceBuffer(w1, b3)],
+      commands: [ReplaceBuffer(w1, b3)],
       expected: tree(l1, w1, windows: {w1: hist([b2], b3, [b3])}),
     ),
     (
       name: 'the same buffer is unchanged',
       start: tree(l1, w1),
-      commands: [const ReplaceBuffer(w1, b1)],
+      commands: [ReplaceBuffer(w1, b1)],
       expected: null,
     ),
     (
       name: 'unknown window is unchanged',
       start: tree(l1, w1),
-      commands: [const ReplaceBuffer(w2, b2)],
+      commands: [ReplaceBuffer(w2, b2)],
       expected: null,
     ),
   ]);
@@ -971,8 +979,8 @@ void main() {
     (
       name: 'window history works on a floating window',
       start: floating(tree(null, null), {w1: (const ShellScope(s1), 0)}),
-      commands: [const PushBuffer(w1, b2), const PopBuffer(w1),
-        const NavigateForward(w1), const ReplaceBuffer(w1, b3)],
+      commands: [PushBuffer(w1, b2), const PopBuffer(w1),
+        const NavigateForward(w1), ReplaceBuffer(w1, b3)],
       expected: floating(tree(null, null), {w1: (const ShellScope(s1), 0)},
           windows: {w1: hist([b1], b3)}),
     ),
@@ -983,8 +991,8 @@ void main() {
       name: 'applies a batch in order',
       start: doc({s1: ([t1], t1)}),
       commands: [
-        const NewTab(shellId: s1, tabId: t2),
-        const NewTab(shellId: s1, tabId: t3),
+        NewTab(shellId: s1, tabId: t2),
+        NewTab(shellId: s1, tabId: t3),
         const ActivateTab(t1),
       ],
       expected: doc({s1: ([t1, t2, t3], t1)}),
@@ -992,7 +1000,7 @@ void main() {
     (
       name: 'a batch that ends where it started is unchanged',
       start: doc({s1: ([t1], t1)}),
-      commands: [const NewTab(shellId: s1, tabId: t2), const CloseTab(t2)],
+      commands: [NewTab(shellId: s1, tabId: t2), const CloseTab(t2)],
       expected: null,
     ),
   ]);
@@ -1003,7 +1011,7 @@ void main() {
       var published = 0;
       controller.doc.addListener(() => published++);
 
-      controller.dispatchAll(const [
+      controller.dispatchAll([
         NewTab(shellId: s1, tabId: t2),
         NewTab(shellId: s1, tabId: t3),
       ]);
@@ -1048,7 +1056,7 @@ void main() {
       controller.closeWindow(w);
       expect(controller.doc.value, tree(l1, w1));
       final other = controller.splitWindow(w1, axis: Axis.vertical, buffer: b2);
-      expect(controller.doc.value.windows[other]!.history.current, b2);
+      expect(controller.doc.value.windows[other]!.history.current.buffer, b2);
     });
 
     test('navigate window history', () {

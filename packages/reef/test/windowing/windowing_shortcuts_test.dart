@@ -84,7 +84,7 @@ void main() {
     c.newTab(buffer: _a);
     c.pushBuffer(active(), _b);
     await pump(tester);
-    BufferId current() => c.doc.value.windows[active()]!.history.current;
+    BufferId current() => c.doc.value.windows[active()]!.history.current.buffer;
 
     await alt(tester, LogicalKeyboardKey.arrowLeft);
     expect(current(), _a);
