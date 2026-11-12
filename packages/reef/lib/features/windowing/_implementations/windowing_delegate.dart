@@ -49,14 +49,16 @@ typedef FloatingBuilder = Widget Function(
   Widget window,
 );
 
-/// How a window animates to a new page: [builder] wraps the incoming and
-/// outgoing pages of an [AnimatedSwitcher] running for [duration].
+/// How a page of a route type animates, as a Flutter `PageRoute` does
+/// (ADR 0007): [builder] wraps the page with its primary animation (forward
+/// on push, go and replace, reverse on back) and its secondary animation
+/// (the page covering it), each running for [duration].
 @immutable
 final class PageTransition {
   const PageTransition({required this.duration, required this.builder});
 
   final Duration duration;
-  final AnimatedSwitcherTransitionBuilder builder;
+  final RouteTransitionsBuilder builder;
 }
 
 /// The transition into the page showing [buffer], picked by the app per

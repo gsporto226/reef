@@ -28,12 +28,9 @@ void main() {
         child: WindowingRoot(
           controller: controller,
           delegate: WindowingDelegate(
-            // Task pages fade in; every other route type switches at once.
+            // Task pages and project p1 animate; the rest switch at once.
             pageTransition: (buffer) => switch (tree.routeOfBuffer(buffer)) {
-              TaskRoute() => const PageTransition(
-                duration: Duration(milliseconds: 100),
-                builder: _fade,
-              ),
+              TaskRoute() || ProjectRoute(id: 'p1') => _transition,
               _ => null,
             },
           ),
@@ -45,24 +42,57 @@ void main() {
     return LinkNavigator(tree, controller);
   }
 
-  testWidgets('the route type picks the transition that runs', (
+  _Probe probe(WidgetTester tester, String text) => tester.widget<_Probe>(
+    find.ancestor(of: find.text(text), matching: find.byType(_Probe)),
+  );
+
+  testWidgets('push plays the incoming page forward over the covered one', (
     tester,
   ) async {
     final nav = await pump(tester);
     nav.push(task);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 50));
-    final fade = tester.widget<FadeTransition>(
-      find.ancestor(
-        of: find.text('TaskRoute'),
-        matching: find.byType(FadeTransition),
-      ),
+    expect(probe(tester, 'TaskRoute').animation.value, closeTo(0.5, 0.01));
+    expect(probe(tester, 'ProjectRoute').animation.value, 1);
+    expect(
+      probe(tester, 'ProjectRoute').secondary.value,
+      closeTo(0.5, 0.01),
     );
-    expect(fade.opacity.value, closeTo(0.5, 0.01));
 
     await tester.pumpAndSettle();
     expect(find.text('ProjectRoute'), findsNothing);
     expect(find.text('TaskRoute'), findsOneWidget);
+  });
+
+  testWidgets('back plays the leaving page in reverse', (tester) async {
+    final nav = await pump(tester);
+    nav.push(task);
+    await tester.pumpAndSettle();
+    nav.back();
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 25));
+    expect(probe(tester, 'TaskRoute').animation.value, closeTo(0.75, 0.01));
+    expect(
+      probe(tester, 'ProjectRoute').secondary.value,
+      closeTo(0.75, 0.01),
+    );
+
+    await tester.pumpAndSettle();
+    expect(find.text('TaskRoute'), findsNothing);
+    expect(probe(tester, 'ProjectRoute').secondary.value, 0);
+  });
+
+  testWidgets('replace plays only the incoming page', (tester) async {
+    final nav = await pump(tester);
+    nav.replace(task);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    expect(probe(tester, 'TaskRoute').animation.value, closeTo(0.5, 0.01));
+    expect(probe(tester, 'ProjectRoute').secondary.value, 0);
+
+    await tester.pumpAndSettle();
+    expect(find.text('ProjectRoute'), findsNothing);
   });
 
   testWidgets('going back to a page still animating out reuses it', (
@@ -74,7 +104,9 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
     nav.back();
     await tester.pump();
+    await tester.pump(const Duration(milliseconds: 25));
     expect(tester.takeException(), isNull);
+    expect(probe(tester, 'TaskRoute').animation.value, closeTo(0.25, 0.01));
     nav.forward();
     await tester.pump();
     nav.back();
@@ -92,9 +124,33 @@ void main() {
     nav.push(const ProjectRoute('p2'));
     await tester.pump();
     expect(find.text('ProjectRoute'), findsOneWidget);
-    expect(find.byType(FadeTransition), findsNothing);
+    expect(find.byType(_Probe), findsNothing);
+    nav.back();
+    await tester.pump();
+    expect(find.text('ProjectRoute'), findsOneWidget);
+    expect(probe(tester, 'ProjectRoute').secondary.value, 0);
   });
 }
 
-Widget _fade(Widget child, Animation<double> animation) =>
-    FadeTransition(opacity: animation, child: child);
+class _Probe extends StatelessWidget {
+  const _Probe(this.animation, this.secondary, this.child);
+
+  final Animation<double> animation;
+  final Animation<double> secondary;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => child;
+}
+
+const _transition = PageTransition(
+  duration: Duration(milliseconds: 100),
+  builder: _probe,
+);
+
+Widget _probe(
+  BuildContext context,
+  Animation<double> animation,
+  Animation<double> secondary,
+  Widget child,
+) => _Probe(animation, secondary, child);

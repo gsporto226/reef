@@ -275,14 +275,15 @@ class WindowHost extends StatelessWidget {
   Widget build(BuildContext context) {
     final scope = WindowingScope.of(context);
     final delegate = WindowingDelegateScope.of(context);
-    return _Select<(BufferId?, bool)>(
+    return _Select<(BufferId?, int, bool)>(
       id: windowId.value,
       selector: (doc) => (
         doc.windows[windowId]?.history.current.buffer,
+        doc.windows[windowId]?.history.back.length ?? 0,
         doc.tabs.values.any((t) => t.activeWindowId == windowId),
       ),
       builder: (context, selected) {
-        final (buffer, active) = selected;
+        final (buffer, depth, active) = selected;
         if (buffer == null) return const SizedBox.shrink();
         final window = Listener(
           behavior: HitTestBehavior.translucent,
@@ -295,11 +296,13 @@ class WindowHost extends StatelessWidget {
               context,
               windowId,
               active,
-              _transitioned(
-                delegate.pageTransition(buffer),
+              _PageStack(
+                pageKey: _PageKey(windowId, buffer),
+                depth: depth,
+                transition: delegate.pageTransition(buffer),
                 // Global so a layout change around the window reparents its
                 // page instead of remounting it.
-                KeyedSubtree(
+                page: KeyedSubtree(
                   key: _PageKey(windowId, buffer),
                   child: Builder(
                     builder: (context) =>
@@ -320,29 +323,147 @@ class WindowHost extends StatelessWidget {
   }
 }
 
-/// Runs [transition] into [page]; with none, the page swaps at once. Each
-/// transition is keyed by its page's key, so a page coming back while still
-/// animating out drops its outgoing copy and its global key reparents.
-Widget _transitioned(PageTransition? transition, Widget page) =>
-    AnimatedSwitcher(
-      duration: transition?.duration ?? Duration.zero,
-      transitionBuilder: (child, animation) => KeyedSubtree(
-        key: ValueKey(child.key),
-        child: (transition?.builder ?? _noTransition)(child, animation),
-      ),
-      layoutBuilder: (current, previous) {
-        // The newest copy of each page; none of the current one.
-        final seen = {current?.key};
-        final kept = [
-          for (final w in previous.reversed)
-            if (seen.add(w.key)) w,
-        ].reversed;
-        return Stack(fit: StackFit.expand, children: [...kept, ?current]);
-      },
-      child: page,
-    );
+/// The pages of one window, bottom to top, animated like Flutter's
+/// `PageRoute`s (ADR 0007). [depth] is the window's back-stack length: a
+/// shorter one is a back, a longer one a push or go, the same a replace.
+/// Each page appears once, under its global [pageKey], so a page coming back
+/// while still animating out reuses its entry.
+class _PageStack extends StatefulWidget {
+  const _PageStack({
+    required this.pageKey,
+    required this.depth,
+    required this.transition,
+    required this.page,
+  });
 
-Widget _noTransition(Widget child, Animation<double> _) => child;
+  final Key pageKey;
+  final int depth;
+  final PageTransition? transition;
+  final Widget page;
+
+  @override
+  State<_PageStack> createState() => _PageStackState();
+}
+
+class _PageEntry {
+  _PageEntry(this.key, this.transition, this.page, this.controller);
+
+  final Key key;
+  final PageTransition? transition;
+  Widget page;
+  final AnimationController controller;
+  final secondary = ProxyAnimation(kAlwaysDismissedAnimation);
+}
+
+class _PageStackState extends State<_PageStack> with TickerProviderStateMixin {
+  final _entries = <_PageEntry>[];
+
+  _PageEntry get _current =>
+      _entries.firstWhere((e) => e.key == widget.pageKey);
+
+  @override
+  void initState() {
+    super.initState();
+    _entries.add(_entry(1));
+  }
+
+  _PageEntry _entry([double value = 0]) {
+    final transition = widget.transition;
+    final controller = AnimationController(
+      vsync: this,
+      duration: transition?.duration ?? Duration.zero,
+      value: value,
+    );
+    final entry = _PageEntry(widget.pageKey, transition, widget.page, controller);
+    controller.addStatusListener((status) {
+      if (!mounted) return;
+      if (status.isCompleted && entry.key == widget.pageKey) {
+        setState(() => _drop((e) => e != entry));
+      } else if (status.isDismissed && entry.key != widget.pageKey) {
+        setState(() => _drop((e) => e == entry));
+      }
+    });
+    return entry;
+  }
+
+  void _drop(bool Function(_PageEntry) test) {
+    for (final e in _entries.where(test).toList()) {
+      _entries.remove(e);
+      e.controller.dispose();
+    }
+  }
+
+  @override
+  void didUpdateWidget(_PageStack old) {
+    super.didUpdateWidget(old);
+    if (widget.pageKey == old.pageKey) {
+      _current.page = widget.page;
+      return;
+    }
+    final leaving = _entries.firstWhere((e) => e.key == old.pageKey);
+    final back = widget.depth < old.depth;
+    final existing = _entries.where((e) => e.key == widget.pageKey);
+    if (back) {
+      // The leaving page reverses over the returning one.
+      final returning = existing.isNotEmpty
+          ? existing.first
+          : _entry(1);
+      returning.page = widget.page;
+      _entries
+        ..remove(returning)
+        ..insert(_entries.indexOf(leaving), returning);
+      if (leaving.transition == null) {
+        _drop((e) => e == leaving);
+      } else {
+        returning.secondary.parent = leaving.controller;
+        leaving.controller.reverse();
+      }
+      return;
+    }
+    // Push, go or replace: the incoming page plays forward on top.
+    final incoming = existing.isNotEmpty ? existing.first : _entry();
+    incoming.page = widget.page;
+    _entries
+      ..remove(incoming)
+      ..add(incoming);
+    leaving.secondary.parent = widget.depth > old.depth
+        ? incoming.controller
+        : kAlwaysDismissedAnimation;
+    if (incoming.transition == null) {
+      incoming.controller.value = 1;
+      _drop((e) => e != incoming);
+    } else {
+      incoming.controller.forward();
+    }
+  }
+
+  @override
+  void dispose() {
+    for (final e in _entries) {
+      e.controller.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      for (final e in _entries)
+        e.transition == null
+            ? e.page
+            : KeyedSubtree(
+                key: ValueKey(e.key),
+                child: e.transition!.builder(
+                  context,
+                  e.controller,
+                  e.secondary,
+                  e.page,
+                ),
+              ),
+    ],
+  );
+}
 
 /// The floating windows of [scope], bottom to top by z-index, each a
 /// [WindowHost] wrapped by the delegate's [WindowingDelegate.floating].
