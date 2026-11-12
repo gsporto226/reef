@@ -55,8 +55,7 @@ information API and no third-party router, and windowing builds the pages.
   route holds its parent value, so the child URL carries the parent's query,
   and decoding the URL gives back the same route. A child that redeclares an
   inherited key fails at startup; it reads the value from its parent. This
-  follows TanStack Router. Spike:
-  `packages/reef_router/spike/d14_inherited_query.dart`.
+  follows TanStack Router.
 - **Every query has a required fallback (D15).** For a nullable value, write
   `.query<V?>(…, fallback: null)`. A value that must be present belongs in
   the path. A fallback value is left out of the URL.
