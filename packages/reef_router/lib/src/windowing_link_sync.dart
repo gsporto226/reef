@@ -80,9 +80,7 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     _before = _controller.doc.value;
     _controller.doc.addListener(_report);
     _provider.addListener(_open);
-    _open().whenComplete(() {
-      if (mounted) _report();
-    });
+    _open();
   }
 
   @override
@@ -103,11 +101,18 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     );
   }
 
+  /// Echoes are muted until the move or openLink completes, however late;
+  /// then one report puts the URL on the final entry, which a guard
+  /// redirect may have changed.
   Future<void> _open() {
-    // Echoes are muted until openLink completes, however late that is.
+    void done() {
+      _incoming--;
+      if (mounted) _report();
+    }
+
     _incoming++;
     if (widget.entryState && _travel(_provider.value.state)) {
-      _incoming--;
+      done();
       return Future.value();
     }
     final (:buffer, :arguments) = widget.tree.resolve(_provider.value.uri);
@@ -117,7 +122,7 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
           arguments: arguments,
           verb: widget.tree.isFresh(buffer) ? LinkVerb.push : LinkVerb.go,
         )
-        .whenComplete(() => _incoming--);
+        .whenComplete(done);
   }
 
   /// Moves the window owning entry [id] to it and focuses that window;

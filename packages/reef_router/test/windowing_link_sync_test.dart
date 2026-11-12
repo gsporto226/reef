@@ -367,6 +367,23 @@ void main() {
         expect(provider.reports, hasLength(reports));
       });
 
+      testWidgets('a guard redirecting mid-move leaves the URL on the final '
+          'entry', (tester) async {
+        await mount(tester, doc(), route: '/tasks', entryState: true);
+        controller.dispatch(PushBuffer(left, edit42));
+        final first = controller.doc.value.windows[left]!.history.back.single;
+        controller.interceptor = (_, c) => c is PopBuffer
+            ? CommandDecision.replace(CommandSequence(
+                [c, ReplaceBuffer(c.windowId, edit43)]))
+            : const CommandDecision.approve();
+
+        provider.browse('/tasks', state: first.id.id);
+        expect(focusedPath(), '/tasks/43/edit');
+        expect(provider.value.uri.toString(), '/tasks/43/edit');
+        expect(provider.value.state, idOf(left));
+        expect(provider.reports.last, ('/tasks/43/edit', replace));
+      });
+
       testWidgets('a vanished entry opens the URL as a link', (tester) async {
         await mount(tester, doc(), route: '/tasks', entryState: true);
         provider.browse('/tasks/43/edit', state: 'gone');
