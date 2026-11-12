@@ -1,6 +1,5 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_router/reef_router.dart';
 
@@ -15,13 +14,6 @@ class FakeSession implements Session {
   FakeSession({this.signedIn = false});
   @override
   bool signedIn;
-}
-
-class Reason implements ILocalizable {
-  const Reason(this.text);
-  final String text;
-  @override
-  String localize() => text;
 }
 
 const login = FilesRoute(['login']);
@@ -88,11 +80,11 @@ void main() {
             ])
             .guard(
               (ProjectRoute _, AppRoute _, Object? _) =>
-                  const GuardDecision.block(Reason('archived')),
+                  const GuardDecision.redirect(login),
             ),
       );
       final decision = tree.bind(null).check(task);
-      expect((decision as GuardBlock).reason.localize(), 'archived');
+      expect(decision, const GuardDecision.redirect(login));
       expect(ownRan, isFalse);
     });
 
@@ -188,12 +180,7 @@ void main() {
                 : const GuardDecision.redirect(login),
           ),
       files: FilesRoute.link
-          .children([FileEditRoute.link])
-          .guard(
-            (FilesRoute r, AppRoute _, Object? _) => r.path.first == 'secret'
-                ? const GuardDecision.block(Reason('no'))
-                : const GuardDecision.allow(),
-          ),
+          .children([FileEditRoute.link]),
     );
     final home = tree.linkOf(const FilesRoute(['home']));
     const w = WindowId.manual('w');
@@ -229,14 +216,6 @@ void main() {
       push(task);
       expect(history().current, entryOf(login));
       expect(history().back, [entryOf(const FilesRoute(['home']))]);
-    });
-
-    test('a block vetoes with the guard\'s reason', () {
-      final vetoes = <CommandVeto>[];
-      controller.vetoes.addListener(() => vetoes.add(controller.vetoes.value!));
-      push(const FilesRoute(['secret']));
-      expect(history().current, entryOf(const FilesRoute(['home'])));
-      expect(vetoes.single.reason.localize(), 'no');
     });
 
     test('back onto an entry that now redirects replaces it', () {

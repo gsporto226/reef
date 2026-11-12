@@ -1,5 +1,4 @@
 import 'package:flutter/foundation.dart';
-import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef/reef.dart';
 
 part 'link_stages.g.dart';
@@ -205,14 +204,12 @@ final class _Fresh<R, Q> extends LinkNodeOf<R, Q> {
   List<TreeGuard<Object?>> get _guards => _node._guards;
 }
 
-/// What a guard decides about opening a route.
+/// What a guard decides about opening a route: allow or redirect, never
+/// block (ADR 0006).
 sealed class GuardDecision {
   const GuardDecision();
 
   const factory GuardDecision.allow() = GuardAllow;
-
-  /// Vetoes the command, publishing [reason] through windowing's vetoes.
-  const factory GuardDecision.block(ILocalizable reason) = GuardBlock;
 
   /// Opens [route] in place of the guarded one; its own guards run too.
   const factory GuardDecision.redirect(Object route) = GuardRedirect;
@@ -220,11 +217,6 @@ sealed class GuardDecision {
 
 final class GuardAllow extends GuardDecision {
   const GuardAllow();
-}
-
-final class GuardBlock extends GuardDecision {
-  const GuardBlock(this.reason);
-  final ILocalizable reason;
 }
 
 final class GuardRedirect extends GuardDecision {
@@ -666,7 +658,7 @@ final class BoundLinkTree<R> {
   final LinkTree<R> tree;
   final Object? environment;
 
-  /// Allow, block, or a redirect to the final allowed target. Throws
+  /// Allow, or a redirect to the final allowed target. Throws
   /// past [LinkTree.redirectLimit] redirects.
   GuardDecision check(R route) {
     var target = route;
@@ -675,8 +667,6 @@ final class BoundLinkTree<R> {
       switch (decision) {
         case GuardAllow():
           return hops == 0 ? decision : GuardDecision.redirect(target as Object);
-        case GuardBlock():
-          return decision;
         case GuardRedirect(:final route):
           if (route is! R) {
             throw StateError('$name redirected to $route, not a $R');
@@ -695,7 +685,7 @@ final class BoundLinkTree<R> {
   /// Re-checks the current entry of every window when [refresh] fires and
   /// whenever [controller]'s doc changes, which covers undo and redo (they
   /// skip the interceptor), and once now, which covers restore (D8). A
-  /// redirect replaces the entry; a block leaves it, as nothing navigated.
+  /// redirect replaces the entry.
   /// Returns the call that stops watching.
   void Function() watch(WindowingController controller, {Listenable? refresh}) {
     void recheck() {
@@ -750,8 +740,6 @@ final class BoundLinkTree<R> {
     switch (check(tree.routeOfBuffer(shown.buffer, shown.arguments))) {
       case GuardAllow():
         return const CommandDecision.approve();
-      case GuardBlock(:final reason):
-        return CommandDecision.veto(reason);
       case GuardRedirect(:final route):
         final (:buffer, :arguments) = tree.linkOf(route as R);
         return CommandDecision.replace(switch (command) {
