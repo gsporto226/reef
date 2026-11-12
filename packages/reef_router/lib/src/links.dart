@@ -597,8 +597,10 @@ final class LinkTree<R> {
 
   /// Whether [buffer] is a fresh link's: never already open.
   bool isFresh(BufferId buffer) =>
-      (buffer.token?.contains('~') ?? false) &&
-      _links.any((l) => l._kind == buffer.kind);
+      (buffer.token?.contains('~') ?? false) && _mounts(buffer);
+
+  /// Whether a link mounts [buffer]'s kind.
+  bool _mounts(BufferId buffer) => _links.any((l) => l._kind == buffer.kind);
 
   /// The buffer and arguments [uri] stands for.
   ResolvedLink resolve(Uri uri) => linkOf(routeOf(uri));
@@ -636,7 +638,7 @@ final class LinkTree<R> {
   Uri? uriOfBuffer(
     BufferId buffer, [
     Map<String, String> arguments = const {},
-  ]) => _links.any((l) => l._kind == buffer.kind)
+  ]) => _mounts(buffer)
       ? uriOf(routeOfBuffer(buffer, arguments))
       : null;
 
@@ -658,28 +660,40 @@ final class BoundLinkTree<R> {
   final LinkTree<R> tree;
   final Object? environment;
 
-  /// Allow, or a redirect to the final allowed target. Throws
+  /// Allow, or a redirect to the final allowed target. A chain ending
+  /// back at [route], or a redirect to the route itself, allows it. Throws
   /// past [LinkTree.redirectLimit] redirects.
   GuardDecision check(R route) {
     var target = route;
     for (var hops = 0; ; hops++) {
       final (decision, name) = tree._decide(target, environment);
-      switch (decision) {
-        case GuardAllow():
-          return hops == 0 ? decision : GuardDecision.redirect(target as Object);
-        case GuardRedirect(:final route):
-          if (route is! R) {
-            throw StateError('$name redirected to $route, not a $R');
-          }
-          if (hops == tree.redirectLimit) {
-            throw StateError(
-              'Redirect loop: past ${tree.redirectLimit} redirects, '
-              '$name sent $target to $route',
-            );
-          }
-          target = route as R;
+      if (decision case GuardRedirect(route: final next) when next != target) {
+        if (next is! R) {
+          throw StateError('$name redirected to $next, not a $R');
+        }
+        if (hops == tree.redirectLimit) {
+          throw StateError(
+            'Redirect loop: past ${tree.redirectLimit} redirects, '
+            '$name sent $target to $next',
+          );
+        }
+        target = next as R;
+        continue;
       }
+      return target == route
+          ? const GuardDecision.allow()
+          : GuardDecision.redirect(target as Object);
     }
+  }
+
+  /// Where [entry] must show instead, or null when its route is allowed or
+  /// no link mounts its buffer.
+  ResolvedLink? _redirect(HistoryEntry entry) {
+    if (!tree._mounts(entry.buffer)) return null;
+    return switch (check(tree.routeOfBuffer(entry.buffer, entry.arguments))) {
+      GuardRedirect(:final route) => tree.linkOf(route as R),
+      GuardAllow() => null,
+    };
   }
 
   /// Re-checks the current entry of every window when [refresh] fires and
@@ -689,19 +703,13 @@ final class BoundLinkTree<R> {
   /// Returns the call that stops watching.
   void Function() watch(WindowingController controller, {Listenable? refresh}) {
     void recheck() {
-      final commands = <WindowingCommand>[];
-      for (final MapEntry(key: id, value: window)
-          in controller.doc.value.windows.entries) {
-        final HistoryEntry(:buffer, :arguments) = window.history.current;
-        if (tree.uriOfBuffer(buffer) == null) continue;
-        if (check(tree.routeOfBuffer(buffer, arguments))
-            case GuardRedirect(:final route)) {
-          final target = tree.linkOf(route as R);
-          commands.add(
-            ReplaceBuffer(id, target.buffer, arguments: target.arguments),
-          );
-        }
-      }
+      final commands = [
+        for (final MapEntry(key: id, value: window)
+            in controller.doc.value.windows.entries)
+          if (_redirect(window.history.current)
+              case (:final buffer, :final arguments))
+            ReplaceBuffer(id, buffer, arguments: arguments),
+      ];
       if (commands.isNotEmpty) controller.dispatchAll(commands);
     }
 
@@ -719,70 +727,67 @@ final class BoundLinkTree<R> {
   /// replaces the guarded entry (D7).
   CommandDecision interceptor(WindowingDoc doc, WindowingCommand command) {
     HistoryEntry? last(List<HistoryEntry>? entries) => entries?.lastOrNull;
-    final shown = switch (command) {
-      NewTab(buffer: (_, final b)?, :final arguments) ||
-      SplitWindow(buffer: final b?, :final arguments) ||
-      AttachBuffer(buffer: final b, :final arguments) ||
-      PushBuffer(buffer: final b, :final arguments) ||
-      ReplaceBuffer(buffer: final b, :final arguments) => HistoryEntry(
-        b,
-        arguments: arguments,
-      ),
-      PopBuffer(:final windowId) => last(doc.windows[windowId]?.history.back),
-      NavigateForward(:final windowId) => last(
-        doc.windows[windowId]?.history.forward,
-      ),
-      _ => null,
-    };
-    if (shown == null || tree.uriOfBuffer(shown.buffer) == null) {
-      return const CommandDecision.approve();
+    HistoryEntry entry(BufferId b, Map<String, String> a) =>
+        HistoryEntry(b, arguments: a);
+    WindowingCommand Function(ResolvedLink) thenReplace(WindowId w) =>
+        (l) => CommandSequence([
+          command,
+          ReplaceBuffer(w, l.buffer, arguments: l.arguments),
+        ]);
+    // What the command shows, and the same command aimed elsewhere.
+    final (HistoryEntry?, WindowingCommand Function(ResolvedLink))? aimed =
+        switch (command) {
+          NewTab(buffer: (final w, final b)?) && final c => (
+            entry(b, c.arguments),
+            (l) => NewTab(
+              shellId: c.shellId,
+              tabId: c.tabId,
+              buffer: (w, l.buffer),
+              arguments: l.arguments,
+              entryId: c.entryId,
+            ),
+          ),
+          SplitWindow(buffer: final b?) && final c => (
+            entry(b, c.arguments),
+            (l) => SplitWindow(
+              c.windowId,
+              newWindowId: c.newWindowId,
+              axis: c.axis,
+              buffer: l.buffer,
+              arguments: l.arguments,
+              entryId: c.entryId,
+            ),
+          ),
+          AttachBuffer c => (
+            entry(c.buffer, c.arguments),
+            (l) => AttachBuffer(c.windowId, l.buffer,
+                arguments: l.arguments, entryId: c.entryId),
+          ),
+          PushBuffer c => (
+            entry(c.buffer, c.arguments),
+            (l) => PushBuffer(c.windowId, l.buffer,
+                arguments: l.arguments, entryId: c.entryId),
+          ),
+          ReplaceBuffer c => (
+            entry(c.buffer, c.arguments),
+            (l) => ReplaceBuffer(c.windowId, l.buffer,
+                arguments: l.arguments, entryId: c.entryId),
+          ),
+          PopBuffer(:final windowId) => (
+            last(doc.windows[windowId]?.history.back),
+            thenReplace(windowId),
+          ),
+          NavigateForward(:final windowId) => (
+            last(doc.windows[windowId]?.history.forward),
+            thenReplace(windowId),
+          ),
+          _ => null,
+        };
+    if (aimed case (final shown?, final aim)) {
+      if (_redirect(shown) case final link?) {
+        return CommandDecision.replace(aim(link));
+      }
     }
-    switch (check(tree.routeOfBuffer(shown.buffer, shown.arguments))) {
-      case GuardAllow():
-        return const CommandDecision.approve();
-      case GuardRedirect(:final route):
-        final (:buffer, :arguments) = tree.linkOf(route as R);
-        return CommandDecision.replace(switch (command) {
-          NewTab c => NewTab(
-            shellId: c.shellId,
-            tabId: c.tabId,
-            buffer: (c.buffer!.$1, buffer),
-            arguments: arguments,
-            entryId: c.entryId,
-          ),
-          SplitWindow c => SplitWindow(
-            c.windowId,
-            newWindowId: c.newWindowId,
-            axis: c.axis,
-            buffer: buffer,
-            arguments: arguments,
-            entryId: c.entryId,
-          ),
-          AttachBuffer c => AttachBuffer(
-            c.windowId,
-            buffer,
-            arguments: arguments,
-            entryId: c.entryId,
-          ),
-          PushBuffer c => PushBuffer(
-            c.windowId,
-            buffer,
-            arguments: arguments,
-            entryId: c.entryId,
-          ),
-          ReplaceBuffer c => ReplaceBuffer(
-            c.windowId,
-            buffer,
-            arguments: arguments,
-            entryId: c.entryId,
-          ),
-          PopBuffer(:final windowId) ||
-          NavigateForward(:final windowId) => CommandSequence([
-            command,
-            ReplaceBuffer(windowId, buffer, arguments: arguments),
-          ]),
-          _ => throw StateError('Unreachable: $command'),
-        });
-    }
+    return const CommandDecision.approve();
   }
 }

@@ -140,6 +140,34 @@ void main() {
             allOf(contains('Bouncer'), contains('3')))),
       );
     });
+
+    test('a chain back to the destination allows it, not a loop', () {
+      var first = true;
+      final tree = treeWith(
+        guards: [
+          TreeGuard.of((AppRoute r, AppRoute _, Object? _) {
+            if (r == task && first) {
+              first = false;
+              return const GuardDecision.redirect(login);
+            }
+            return r == login
+                ? const GuardDecision.redirect(task)
+                : const GuardDecision.allow();
+          }),
+        ],
+      );
+      expect(tree.bind(null).check(task), const GuardDecision.allow());
+    });
+
+    test('a redirect to the route itself allows it', () {
+      final tree = treeWith(
+        guards: [
+          TreeGuard.of((AppRoute r, AppRoute _, Object? _) =>
+              GuardDecision.redirect(r)),
+        ],
+      );
+      expect(tree.bind(null).check(task), const GuardDecision.allow());
+    });
   });
 
   group('bind', () {
