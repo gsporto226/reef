@@ -41,6 +41,14 @@ void main() {
     ); // reef's first-window batch for an empty tab
   });
 
+  test('/compose is a fresh link: each open is a new draft', () {
+    final a = links.resolve(Uri.parse('/compose')).buffer;
+    final b = links.resolve(Uri.parse('/compose')).buffer;
+    expect(a, isNot(b));
+    expect(routeOf(a), isA<ComposeRoute>());
+    expect(links.uriOfBuffer(a), Uri.parse('/compose'));
+  });
+
   Future<MailAppState> boot(WidgetTester tester, double width) async {
     tester.view
       ..physicalSize = Size(width, 900)

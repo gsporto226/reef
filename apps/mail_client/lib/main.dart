@@ -156,6 +156,14 @@ final class SearchRoute {
       Link<SearchRoute>('search').field((r) => r.query).build(SearchRoute.new);
 }
 
+/// A new draft: `/compose`. Fresh, so each open is its own draft (D3).
+final class ComposeRoute {
+  const ComposeRoute();
+
+  static final link =
+      Link<ComposeRoute>('compose').build(ComposeRoute.new).fresh();
+}
+
 /// Any other path.
 final class MailNotFoundRoute {
   const MailNotFoundRoute(this.path);
@@ -166,12 +174,13 @@ final class MailNotFoundRoute {
       .build(MailNotFoundRoute.new);
 }
 
-/// Every mail link. Drafts and the empty detail are buffers no link reaches.
+/// Every mail link. The empty detail is a buffer no link reaches.
 final links = LinkTree<Object>([
   FoldersRoute.link,
   FolderRoute.link,
   ThreadRoute.link,
   SearchRoute.link,
+  ComposeRoute.link,
   MailNotFoundRoute.link,
 ]);
 
@@ -374,7 +383,7 @@ class MailAppState extends State<MailApp> with WidgetsBindingObserver {
 
   /// A fresh draft each time.
   void compose() =>
-      controller.openBuffer(BufferId.of('compose', BufferId.generate().id));
+      controller.openBuffer(links.linkOf(const ComposeRoute()).buffer);
 
   void openThread(String id) => controller.openBuffer(thread(id));
 
@@ -389,7 +398,7 @@ class MailAppState extends State<MailApp> with WidgetsBindingObserver {
     }
     switch (screenTypeOf(context)) {
       case ScreenType.desktop:
-        if (_shows(detail)?.id.startsWith('compose:') ?? false) {
+        if (_shows(detail) case final d? when routeOf(d) is ComposeRoute) {
           controller.popBuffer(detail!);
         }
       case ScreenType.tablet when hasDetail:
@@ -688,7 +697,7 @@ class MailPage extends StatelessWidget {
       FolderRoute(:final id) => _ThreadList(folderId: id),
       SearchRoute(:final query) => _ThreadList(query: query),
       ThreadRoute(:final id) => _ThreadPane(id),
-      _ when buffer.kind == 'compose' => const _ComposePane(),
+      ComposeRoute() => const _ComposePane(),
       _ when buffer == noThread =>
         const Paper(color: T.surfaceReading, child: SizedBox.expand()),
       _ => Center(child: Text('Unknown buffer ${buffer.id}')),

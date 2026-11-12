@@ -153,6 +153,11 @@ sealed class LinkNodeOf<R, Q> {
   LinkOf<R, Q> get _link;
   List<LinkNodeOf<Object?, Object?>> get _children;
   List<TreeGuard<Object?>> get _guards => const [];
+  bool? get _fresh => null;
+
+  /// This node's own freshness, over the tree's (ADR 0004 D3): a fresh
+  /// link opens a new buffer each time, as a browser tab does.
+  LinkNodeOf<R, Q> fresh([bool fresh = true]) => _Fresh(this, fresh);
 
   /// This node with [guard] run for its route and every route below it,
   /// after the guards already on it (ADR 0004 D9-D11). [name] is for
@@ -177,6 +182,27 @@ final class _Guarded<R, Q> extends LinkNodeOf<R, Q> {
 
   @override
   List<LinkNodeOf<Object?, Object?>> get _children => _node._children;
+
+  @override
+  bool? get _fresh => _node._fresh;
+}
+
+final class _Fresh<R, Q> extends LinkNodeOf<R, Q> {
+  const _Fresh(this._node, this._fresh);
+
+  final LinkNodeOf<R, Q> _node;
+
+  @override
+  final bool _fresh;
+
+  @override
+  LinkOf<R, Q> get _link => _node._link;
+
+  @override
+  List<LinkNodeOf<Object?, Object?>> get _children => _node._children;
+
+  @override
+  List<TreeGuard<Object?>> get _guards => _node._guards;
 }
 
 /// What a guard decides about opening a route.
@@ -315,12 +341,14 @@ final class _Mount {
     this.link,
     this.parts,
     this.create,
-    this.guards, [
+    this.guards,
+    this.fresh, [
     this.parent,
     this.up,
   ]);
 
   final List<TreeGuard<Object?>> guards;
+  final bool? fresh;
   final _Mount? parent;
 
   /// The parent route of a route of this mount; null at the root.
@@ -405,10 +433,12 @@ final class _Mount {
 /// link may be mounted is checked by its type; the rest at startup.
 final class LinkTree<R> {
   /// [guards] run for every route, before the nodes' guards; a redirect
-  /// chain longer than [redirectLimit] is a loop.
+  /// chain longer than [redirectLimit] is a loop. [fresh] is the default
+  /// freshness of its links (D3).
   LinkTree(
     List<LinkNode<R, Never>> roots, {
     this._guards = const [],
+    this.fresh = false,
     this.redirectLimit = 5,
   }) {
     final mounted = <LinkOf<Object?, Object?>>{};
@@ -440,6 +470,7 @@ final class LinkTree<R> {
           [for (final q in inherited) _through(q, p.read), ...own],
           (v) => link._create([parent.create(v.sublist(0, n)), ...v.skip(n)]),
           node._guards,
+          node._fresh,
           parent,
           p.read,
         );
@@ -449,6 +480,7 @@ final class LinkTree<R> {
           [...inherited, ...own],
           link._create,
           node._guards,
+          node._fresh,
           parent,
           switch (parent) {
             // A parent with no values has one route.
@@ -478,6 +510,7 @@ final class LinkTree<R> {
   final List<_Mount> _links = [];
   final List<TreeGuard<R>> _guards;
   final int redirectLimit;
+  final bool fresh;
 
   /// This tree with its guards given [environment]. Fails when a guard
   /// needs another environment type, or a destination type narrower than
@@ -554,16 +587,26 @@ final class LinkTree<R> {
   R? parentOf(R route) => _linkOf(route).up?.call(route) as R?;
 
   /// [route]'s buffer and the query arguments for its history entry.
-  ResolvedLink linkOf(R route) {
+  /// [fresh] overrides the link's freshness; a fresh buffer's token ends
+  /// in a new `~<uuid>`, which no URL carries (D3).
+  ResolvedLink linkOf(R route, {bool? fresh}) {
     final link = _linkOf(route);
+    final token = link._values(route).map(_escape).join('/');
     return (
       buffer: BufferId.of(
         link._kind,
-        link._values(route).map(_escape).join('/'),
+        (fresh ?? link.fresh ?? this.fresh)
+            ? '$token~${BufferId.generate().id}'
+            : token,
       ),
       arguments: link._arguments(route),
     );
   }
+
+  /// Whether [buffer] is a fresh link's: never already open.
+  bool isFresh(BufferId buffer) =>
+      (buffer.token?.contains('~') ?? false) &&
+      _links.any((l) => l._kind == buffer.kind);
 
   /// The buffer and arguments [uri] stands for.
   ResolvedLink resolve(Uri uri) => linkOf(routeOf(uri));
@@ -572,7 +615,7 @@ final class LinkTree<R> {
   /// gives the not-found route.
   R routeOfBuffer(BufferId buffer, [Map<String, String> arguments = const {}]) {
     final kind = buffer.kind ?? buffer.id;
-    final token = buffer.token ?? '';
+    final token = (buffer.token ?? '').split('~').first;
     final values = [
       if (token.isNotEmpty) ...token.split('/').map(Uri.decodeComponent),
     ];
@@ -612,7 +655,7 @@ final class LinkTree<R> {
 
   /// Escapes only what would make the token ambiguous.
   static String _escape(String value) =>
-      value.replaceAll('%', '%25').replaceAll('/', '%2F');
+      value.replaceAll('%', '%25').replaceAll('/', '%2F').replaceAll('~', '%7E');
 }
 
 /// A [LinkTree] whose guards are bound to an environment: checks routes,

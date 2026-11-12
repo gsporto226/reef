@@ -17,22 +17,28 @@ class LinkNavigator<R> {
     return scope.navigator;
   }
 
-  Future<void> _open(R route, LinkVerb verb, {bool newShell = false}) {
-    final (:buffer, :arguments) = tree.linkOf(route);
+  Future<void> _open(R route, LinkVerb verb,
+      {bool newShell = false, bool? fresh}) {
+    final (:buffer, :arguments) = tree.linkOf(route, fresh: fresh);
+    // A fresh buffer is never open: go pushes into the focused window (D3).
+    if (verb == LinkVerb.go && tree.isFresh(buffer)) verb = LinkVerb.push;
     return controller.openLink(buffer,
         arguments: arguments, newShell: newShell, verb: verb);
   }
 
   /// Opens [route] as the link policy decides (ADR 0004 D22); with
-  /// [newShell], in a new shell where supported.
-  Future<void> go(R route, {bool newShell = false}) =>
-      _open(route, LinkVerb.go, newShell: newShell);
+  /// [newShell], in a new shell where supported. [fresh] overrides the
+  /// link's freshness here and in the other verbs.
+  Future<void> go(R route, {bool newShell = false, bool? fresh}) =>
+      _open(route, LinkVerb.go, newShell: newShell, fresh: fresh);
 
   /// Pushes [route] onto the focused window; go without one.
-  void push(R route) => _open(route, LinkVerb.push);
+  void push(R route, {bool? fresh}) =>
+      _open(route, LinkVerb.push, fresh: fresh);
 
   /// Replaces the focused window's entry with [route]; go without one.
-  void replace(R route) => _open(route, LinkVerb.replace);
+  void replace(R route, {bool? fresh}) =>
+      _open(route, LinkVerb.replace, fresh: fresh);
 
   /// Pushes the parent of the focused window's route. Returns false at a
   /// root route or without a focused window.

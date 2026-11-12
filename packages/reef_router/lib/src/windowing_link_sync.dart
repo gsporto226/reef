@@ -112,7 +112,11 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     }
     final (:buffer, :arguments) = widget.tree.resolve(_provider.value.uri);
     return _controller
-        .openLink(buffer, arguments: arguments)
+        .openLink(
+          buffer,
+          arguments: arguments,
+          verb: widget.tree.isFresh(buffer) ? LinkVerb.push : LinkVerb.go,
+        )
         .whenComplete(() => _incoming--);
   }
 
