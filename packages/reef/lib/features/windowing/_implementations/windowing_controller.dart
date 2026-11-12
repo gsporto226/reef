@@ -462,6 +462,17 @@ class ReplaceBuffer extends _HistoryCommand {
       back: history.back, current: _entry, forward: history.forward);
 }
 
+/// [commands] applied in order as one command, for an interceptor that
+/// replaces one command with several (a guard redirecting a back).
+class CommandSequence extends WindowingCommand {
+  const CommandSequence(this.commands);
+
+  final List<WindowingCommand> commands;
+
+  @override
+  WindowingDoc apply(WindowingDoc doc) => doc.applyAll(commands);
+}
+
 /// Activates tree window [windowId] in its tab, then that tab and its shell.
 /// A floating window is raised in its scope instead, and focus follows its
 /// scope chain to the owning tab or shell.

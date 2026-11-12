@@ -1,3 +1,4 @@
+import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef/reef.dart';
 
 part 'link_stages.g.dart';
@@ -150,6 +151,106 @@ sealed class LinkNodeOf<R, Q> {
 
   LinkOf<R, Q> get _link;
   List<LinkNodeOf<Object?, Object?>> get _children;
+  List<TreeGuard<Object?>> get _guards => const [];
+
+  /// This node with [guard] run for its route and every route below it,
+  /// after the guards already on it (ADR 0004 D9-D11). [name] is for
+  /// errors; it defaults to the guard's types.
+  LinkNodeOf<R, Q> guard<D, E>(
+    GuardDecision Function(R route, D destination, E environment) guard, {
+    String? name,
+  }) => _Guarded(this, TreeGuard.of<R, D, E>(guard, name: name));
+}
+
+final class _Guarded<R, Q> extends LinkNodeOf<R, Q> {
+  _Guarded(this._node, TreeGuard<Object?> guard)
+    : _guards = [..._node._guards, guard];
+
+  final LinkNodeOf<R, Q> _node;
+
+  @override
+  final List<TreeGuard<Object?>> _guards;
+
+  @override
+  LinkOf<R, Q> get _link => _node._link;
+
+  @override
+  List<LinkNodeOf<Object?, Object?>> get _children => _node._children;
+}
+
+/// What a guard decides about opening a route.
+sealed class GuardDecision {
+  const GuardDecision();
+
+  const factory GuardDecision.allow() = GuardAllow;
+
+  /// Vetoes the command, publishing [reason] through windowing's vetoes.
+  const factory GuardDecision.block(ILocalizable reason) = GuardBlock;
+
+  /// Opens [route] in place of the guarded one; its own guards run too.
+  const factory GuardDecision.redirect(Object route) = GuardRedirect;
+}
+
+final class GuardAllow extends GuardDecision {
+  const GuardAllow();
+}
+
+final class GuardBlock extends GuardDecision {
+  const GuardBlock(this.reason);
+  final ILocalizable reason;
+}
+
+final class GuardRedirect extends GuardDecision {
+  const GuardRedirect(this.route);
+  final Object route;
+
+  @override
+  bool operator ==(Object other) =>
+      other is GuardRedirect && other.route == route;
+
+  @override
+  int get hashCode => route.hashCode;
+}
+
+/// A guard as a class: it reads the route [R] at its node, the
+/// [D]estination being opened and the app's [E]nvironment interface.
+/// Pass an instance to `.guard`; a guard for a base route fits any node.
+abstract base class LinkGuard<R, D, E> {
+  const LinkGuard();
+
+  GuardDecision call(R route, D destination, E environment);
+}
+
+/// A guard with its types kept for the bind check (D10).
+final class TreeGuard<R> {
+  TreeGuard._(
+    this.name,
+    this._run,
+    this._takesEnvironment,
+    this._takesDestinations,
+    this._environment,
+    this._destination,
+  );
+
+  /// [guard] for a tree's `guards:`, run before every node's guards.
+  static TreeGuard<R> of<R, D, E>(
+    GuardDecision Function(R route, D destination, E environment) guard, {
+    String? name,
+  }) => TreeGuard._(
+    name ?? 'guard<$R, $D, $E>',
+    (r, d, e) => guard(r as R, d as D, e as E),
+    (e) => e is E,
+    (routes) => routes is List<D>,
+    E,
+    D,
+  );
+
+  final String name;
+  final GuardDecision Function(Object? route, Object? dest, Object? env) _run;
+  final bool Function(Object? environment) _takesEnvironment;
+  final bool Function(List<Object?> routes) _takesDestinations;
+  final Type _environment;
+  final Type _destination;
 }
 
 final class _Branch<R, Q> extends LinkNodeOf<R, Q> {
@@ -209,7 +310,17 @@ final class ValuelessLink<R> extends LinkOf<R, Never Function(Never)> {
 
 /// A link at its place in the tree: its parents' parts, then its own.
 final class _Mount {
-  _Mount(this.link, this.parts, this.create, [this.up]);
+  _Mount(
+    this.link,
+    this.parts,
+    this.create,
+    this.guards, [
+    this.parent,
+    this.up,
+  ]);
+
+  final List<TreeGuard<Object?>> guards;
+  final _Mount? parent;
 
   /// The parent route of a route of this mount; null at the root.
   final Object? Function(Object? route)? up;
@@ -292,7 +403,13 @@ final class _Mount {
 /// Children extend their parent's path and query (D12, D13, D14). Where a
 /// link may be mounted is checked by its type; the rest at startup.
 final class LinkTree<R> {
-  LinkTree(List<LinkNode<R, Never>> roots) {
+  /// [guards] run for every route, before the nodes' guards; a redirect
+  /// chain longer than [redirectLimit] is a loop.
+  LinkTree(
+    List<LinkNode<R, Never>> roots, {
+    this._guards = const [],
+    this.redirectLimit = 5,
+  }) {
     final mounted = <LinkOf<Object?, Object?>>{};
     void mount(LinkNodeOf<Object?, Object?> node, _Mount? parent) {
       final link = node._link;
@@ -321,6 +438,8 @@ final class LinkTree<R> {
           link,
           [for (final q in inherited) _through(q, p.read), ...own],
           (v) => link._create([parent.create(v.sublist(0, n)), ...v.skip(n)]),
+          node._guards,
+          parent,
           p.read,
         );
       } else {
@@ -328,6 +447,8 @@ final class LinkTree<R> {
           link,
           [...inherited, ...own],
           link._create,
+          node._guards,
+          parent,
           switch (parent) {
             // A parent with no values has one route.
             final p? => (_) => p.create(const []),
@@ -354,6 +475,51 @@ final class LinkTree<R> {
   }
 
   final List<_Mount> _links = [];
+  final List<TreeGuard<R>> _guards;
+  final int redirectLimit;
+
+  /// This tree with its guards given [environment]. Fails when a guard
+  /// needs another environment type, or a destination type narrower than
+  /// [R] (D10).
+  BoundLinkTree<R> bind(Object? environment) {
+    for (final g in [..._guards, for (final l in _links) ...l.guards]) {
+      if (!g._takesDestinations(<R>[])) {
+        throw StateError(
+          '${g.name} takes a ${g._destination} destination; '
+          'the tree opens any $R',
+        );
+      }
+      if (!g._takesEnvironment(environment)) {
+        throw StateError(
+          '${g.name} needs a ${g._environment} environment; '
+          'got ${environment.runtimeType}',
+        );
+      }
+    }
+    return BoundLinkTree._(this, environment);
+  }
+
+  /// The first non-allow decision for opening [route], and its guard's
+  /// name: tree-wide guards, then each ancestor's from the root with its
+  /// own value, then the route's own (spec story 50).
+  (GuardDecision, String) _decide(R route, Object? environment) {
+    final levels = <(_Mount, Object?)>[];
+    Object? value = route;
+    for (_Mount? m = _linkOf(route); m != null; m = m.parent) {
+      levels.add((m, value));
+      if (m.parent != null) value = m.up!(value);
+    }
+    final chain = [
+      for (final g in _guards) (g, route as Object?),
+      for (final (m, v) in levels.reversed)
+        for (final g in m.guards) (g, v),
+    ];
+    for (final (g, v) in chain) {
+      final decision = g._run(v, route, environment);
+      if (decision is! GuardAllow) return (decision, g.name);
+    }
+    return (const GuardDecision.allow(), '');
+  }
 
   static int _compare((int, int, int) a, (int, int, int) b) => a.$1 != b.$1
       ? a.$1 - b.$1
@@ -446,4 +612,113 @@ final class LinkTree<R> {
   /// Escapes only what would make the token ambiguous.
   static String _escape(String value) =>
       value.replaceAll('%', '%25').replaceAll('/', '%2F');
+}
+
+/// A [LinkTree] whose guards are bound to an environment: checks routes,
+/// and enforces the guards through windowing's [interceptor] (D9).
+final class BoundLinkTree<R> {
+  BoundLinkTree._(this.tree, this.environment);
+
+  final LinkTree<R> tree;
+  final Object? environment;
+
+  /// Allow, block, or a redirect to the final allowed target. Throws
+  /// past [LinkTree.redirectLimit] redirects.
+  GuardDecision check(R route) {
+    var target = route;
+    for (var hops = 0; ; hops++) {
+      final (decision, name) = tree._decide(target, environment);
+      switch (decision) {
+        case GuardAllow():
+          return hops == 0 ? decision : GuardDecision.redirect(target as Object);
+        case GuardBlock():
+          return decision;
+        case GuardRedirect(:final route):
+          if (route is! R) {
+            throw StateError('$name redirected to $route, not a $R');
+          }
+          if (hops == tree.redirectLimit) {
+            throw StateError(
+              'Redirect loop: past ${tree.redirectLimit} redirects, '
+              '$name sent $target to $route',
+            );
+          }
+          target = route as R;
+      }
+    }
+  }
+
+  /// Checks every command that shows a link buffer, back and forward
+  /// included. A redirect aims the same command at the target, so it
+  /// replaces the guarded entry (D7).
+  CommandDecision interceptor(WindowingDoc doc, WindowingCommand command) {
+    HistoryEntry? last(List<HistoryEntry>? entries) => entries?.lastOrNull;
+    final shown = switch (command) {
+      NewTab(buffer: (_, final b)?, :final arguments) ||
+      SplitWindow(buffer: final b?, :final arguments) ||
+      AttachBuffer(buffer: final b, :final arguments) ||
+      PushBuffer(buffer: final b, :final arguments) ||
+      ReplaceBuffer(buffer: final b, :final arguments) => HistoryEntry(
+        b,
+        arguments: arguments,
+      ),
+      PopBuffer(:final windowId) => last(doc.windows[windowId]?.history.back),
+      NavigateForward(:final windowId) => last(
+        doc.windows[windowId]?.history.forward,
+      ),
+      _ => null,
+    };
+    if (shown == null || tree.uriOfBuffer(shown.buffer) == null) {
+      return const CommandDecision.approve();
+    }
+    switch (check(tree.routeOfBuffer(shown.buffer, shown.arguments))) {
+      case GuardAllow():
+        return const CommandDecision.approve();
+      case GuardBlock(:final reason):
+        return CommandDecision.veto(reason);
+      case GuardRedirect(:final route):
+        final (:buffer, :arguments) = tree.linkOf(route as R);
+        return CommandDecision.replace(switch (command) {
+          NewTab c => NewTab(
+            shellId: c.shellId,
+            tabId: c.tabId,
+            buffer: (c.buffer!.$1, buffer),
+            arguments: arguments,
+            entryId: c.entryId,
+          ),
+          SplitWindow c => SplitWindow(
+            c.windowId,
+            newWindowId: c.newWindowId,
+            axis: c.axis,
+            buffer: buffer,
+            arguments: arguments,
+            entryId: c.entryId,
+          ),
+          AttachBuffer c => AttachBuffer(
+            c.windowId,
+            buffer,
+            arguments: arguments,
+            entryId: c.entryId,
+          ),
+          PushBuffer c => PushBuffer(
+            c.windowId,
+            buffer,
+            arguments: arguments,
+            entryId: c.entryId,
+          ),
+          ReplaceBuffer c => ReplaceBuffer(
+            c.windowId,
+            buffer,
+            arguments: arguments,
+            entryId: c.entryId,
+          ),
+          PopBuffer(:final windowId) ||
+          NavigateForward(:final windowId) => CommandSequence([
+            command,
+            ReplaceBuffer(windowId, buffer, arguments: arguments),
+          ]),
+          _ => throw StateError('Unreachable: $command'),
+        });
+    }
+  }
 }
