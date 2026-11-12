@@ -77,4 +77,22 @@ void main() {
     );
     expect(at('/elsewhere'), const NotFoundRoute(['elsewhere']));
   });
+
+  test("a child inherits its nearest ancestor's freshness (ADR 0007)", () {
+    final t = LinkTree<AppRoute>([
+      NotFoundRoute.link,
+      ProjectRoute.link
+          .children([TaskRoute.link, ProjectMissingRoute.link.fresh(false)])
+          .fresh(),
+      FilesRoute.link.children([FileEditRoute.link]).fresh(false),
+    ], fresh: true);
+    bool fresh(AppRoute r, {bool? call}) =>
+        t.isFresh(t.linkOf(r, fresh: call).buffer);
+    const p = ProjectRoute('p1');
+    expect(fresh(const TaskRoute(p, 't')), isTrue);
+    expect(fresh(const ProjectMissingRoute(p, ['x'])), isFalse);
+    expect(fresh(const FileEditRoute(FilesRoute(['a']))), isFalse);
+    expect(fresh(const FileEditRoute(FilesRoute(['a'])), call: true), isTrue);
+    expect(fresh(const NotFoundRoute(['x'])), isTrue);
+  });
 }

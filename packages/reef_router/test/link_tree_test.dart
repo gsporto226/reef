@@ -82,6 +82,25 @@ final class NotFoundRoute extends AppRoute {
   int get hashCode => path.join('/').hashCode;
 }
 
+final class XRoute extends AppRoute {
+  const XRoute(this.id);
+  final String id;
+  static final link = Link<XRoute>('x').field((r) => r.id).build(XRoute.new);
+}
+
+final class YRoute extends AppRoute {
+  const YRoute(this.id);
+  final String id;
+  static final link =
+      Link<YRoute>('').field((r) => r.id).literal('y').build(YRoute.new);
+}
+
+final class ZRoute extends AppRoute {
+  const ZRoute(this.id);
+  final String id;
+  static final link = Link<ZRoute>('z').field((r) => r.id).build(ZRoute.new);
+}
+
 final tree = LinkTree<AppRoute>([
   NotFoundRoute.link,
   ItemRoute.link,
@@ -255,5 +274,19 @@ void main() {
       Link<List<String>>('').rest((r) => r).build((r) => r),
     ]);
     expect(small.routeOf(small.uriOf(values)), values);
+  });
+
+  test('two links that match one URL at one rank fail at startup', () {
+    expect(
+      () => LinkTree<AppRoute>([NotFoundRoute.link, XRoute.link, YRoute.link]),
+      throwsA(isStateError.having((e) => e.message, 'message',
+          allOf(contains('/x/*'), contains('/*/y')))),
+    );
+    // Same rank, but no URL matches both.
+    LinkTree<AppRoute>([NotFoundRoute.link, XRoute.link, ZRoute.link]);
+  });
+
+  test('the tree lists its templates in matching order', () {
+    expect(tree.templates, ['/items/new/view', '/items/*/view', '/', '/**']);
   });
 }

@@ -135,4 +135,19 @@ void main() {
     ));
     expect(current(), entryOf(task));
   });
+
+  testWidgets("the mixin up pushes the route's parent", (tester) async {
+    late bool atTask, atProject;
+    await tester.pumpWidget(LinkScope<AppRoute>(
+      navigator: nav,
+      child: Builder(builder: (context) {
+        atTask = task.up(context);
+        atProject = project.up(context);
+        return const SizedBox();
+      }),
+    ));
+    expect(atTask, isTrue);
+    expect(atProject, isFalse);
+    expect(current(), entryOf(project));
+  });
 }

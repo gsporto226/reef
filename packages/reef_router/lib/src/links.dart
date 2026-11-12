@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:reef/reef.dart';
 
@@ -371,6 +373,32 @@ final class _Mount {
     _path.length,
   );
 
+  /// Whether a URL could match both this and [other] (same rank, so the
+  /// same path length): literals must agree where both have one, read
+  /// from the front up to a rest and from the back after it. Values and
+  /// query parts count as matching anything.
+  // ponytail: ignores what a value parses; add a probe if that matters.
+  bool _overlaps(_Mount other) {
+    final a = _path.toList(), b = other._path.toList();
+    bool agree(_Part x, _Part y) =>
+        x is! _Literal || y is! _Literal || x.text == y.text;
+    final restA = a.indexWhere((p) => p is _Rest);
+    final restB = b.indexWhere((p) => p is _Rest);
+    final front = [restA, restB, a.length].where((i) => i >= 0).reduce(min);
+    for (var i = 0; i < front; i++) {
+      if (!agree(a[i], b[i])) return false;
+    }
+    if (restA < 0 && restB < 0) return true;
+    final back = [
+      if (restA >= 0) a.length - restA - 1,
+      if (restB >= 0) b.length - restB - 1,
+    ].reduce(min);
+    for (var i = 1; i <= back; i++) {
+      if (!agree(a[a.length - i], b[b.length - i])) return false;
+    }
+    return true;
+  }
+
   Object? _match(List<String> segments, Map<String, String> query) {
     final values = <Object?>[];
     var i = 0;
@@ -462,7 +490,7 @@ final class LinkTree<R> {
           [for (final q in inherited) _through(q, p.read), ...own],
           (v) => link._create([parent.create(v.sublist(0, n)), ...v.skip(n)]),
           node._guards,
-          node._fresh,
+          node._fresh ?? parent.fresh, // ADR 0007
           parent,
           p.read,
         );
@@ -472,7 +500,7 @@ final class LinkTree<R> {
           [...inherited, ...own],
           link._create,
           node._guards,
-          node._fresh,
+          node._fresh ?? parent?.fresh, // ADR 0007
           parent,
           switch (parent) {
             // A parent with no values has one route.
@@ -494,12 +522,26 @@ final class LinkTree<R> {
       mount(root, null);
     }
     _links.sort((a, b) => _compare(b._rank, a._rank));
+    for (final (i, a) in _links.indexed) {
+      for (final b in _links.skip(i + 1)) {
+        if (_compare(a._rank, b._rank) == 0 && a._overlaps(b)) {
+          throw StateError(
+            'The links ${a._kind} and ${b._kind} can match the same URL '
+            'at the same rank',
+          );
+        }
+      }
+    }
     if (!_links.any((l) => l._isCatchAll)) {
       throw StateError('A link tree needs a root catch-all link (/**)');
     }
   }
 
   final List<_Mount> _links = [];
+
+  /// The mounted templates in matching order, values as `*` and a rest as
+  /// `**` (spec story 27).
+  List<String> get templates => [for (final l in _links) l._kind];
   final List<TreeGuard<R>> _guards;
   final int redirectLimit;
   final bool fresh;

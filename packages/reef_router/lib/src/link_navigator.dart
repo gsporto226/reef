@@ -124,6 +124,15 @@ mixin LinkVerbs<R> {
   void replace(BuildContext context, {bool? fresh}) =>
       LinkNavigator.of<R>(context).replace(_self, fresh: fresh);
 
+  /// Pushes this route's parent; false at a root route.
+  bool up(BuildContext context) {
+    final nav = LinkNavigator.of<R>(context);
+    final parent = nav.tree.parentOf(_self);
+    if (parent == null) return false;
+    nav.push(parent);
+    return true;
+  }
+
   void openInNewTab(BuildContext context, {bool? fresh}) =>
       LinkNavigator.of<R>(context).openInNewTab(_self, fresh: fresh);
 
