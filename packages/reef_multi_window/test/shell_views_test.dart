@@ -59,7 +59,7 @@ Future<_App> _pump(
 }) async {
   final platform = RealShellPlatform(title: 'Reef', size: size);
   final controller = WindowingController(
-    initial: _doc(),
+    initial: () => _doc(),
     platform: platform,
     interceptor: interceptor,
   );

@@ -60,7 +60,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(800, 600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     undo = UndoController();
-    c = WindowingController(initial: _doc(), undo: undo);
+    c = WindowingController(initial: () => _doc(), undo: undo);
     addTearDown(c.dispose);
     await tester.pumpWidget(
       Directionality(
@@ -177,7 +177,7 @@ void main() {
   ) async {
     await tester.binding.setSurfaceSize(const Size(800, 600));
     addTearDown(() => tester.binding.setSurfaceSize(null));
-    final c = WindowingController(initial: _doc());
+    final c = WindowingController(initial: () => _doc());
     addTearDown(c.dispose);
     await tester.pumpWidget(
       Directionality(

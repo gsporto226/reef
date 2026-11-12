@@ -13,6 +13,9 @@ extension type BufferId._(String value) {
   /// reattachment, deterministic scenarios.
   const BufferId.manual(String manual) : value = manual;
 
+  /// The `kind:token` id a [LinkTable] maps to and from a path.
+  const BufferId.of(String kind, String token) : value = '$kind:$token';
+
   /// Generates a fresh buffer id (uuid v7).
   static BufferId generate() => BufferId._(const Uuid().v7());
 
@@ -21,4 +24,16 @@ extension type BufferId._(String value) {
 
   /// The raw id string.
   String get id => value;
+
+  /// The part before the first `:`; null for an id that isn't `kind:token`.
+  String? get kind => switch (value.indexOf(':')) {
+    -1 => null,
+    final i => value.substring(0, i),
+  };
+
+  /// The part after the first `:`; null for an id that isn't `kind:token`.
+  String? get token => switch (value.indexOf(':')) {
+    -1 => null,
+    final i => value.substring(i + 1),
+  };
 }

@@ -67,7 +67,7 @@ void runTable(String name, List<Row> rows) {
     for (final row in rows) {
       test(row.name, () {
         expectInvariants(row.start);
-        final controller = WindowingController(initial: row.start);
+        final controller = WindowingController(initial: () => row.start);
         controller.dispatchAll(row.commands);
         final result = controller.doc.value;
         if (row.expected case final expected?) {

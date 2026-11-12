@@ -64,7 +64,7 @@ void main() {
     c.dispatch(NewTab(shellId: shell(), tabId: closing));
     seen.clear();
     final replacing = WindowingController(
-      initial: c.doc.value,
+      initial: () => c.doc.value,
       interceptor: (doc, command) {
         seen.add(command);
         return command is NewTab

@@ -33,9 +33,9 @@ void main() {
 
   Future<WindowingController> pump(WidgetTester tester) async {
     final c = WindowingController(
-      initial: doc,
+      initial: () => doc,
       focusPolicy:
-          const WindowingFocusPolicy(emptyBack: EmptyBackAction.unhandled),
+          const WindowingFocusPolicy(emptyBack: emptyBackUnhandled),
     );
     addTearDown(c.dispose);
     await tester.pumpWidget(Directionality(

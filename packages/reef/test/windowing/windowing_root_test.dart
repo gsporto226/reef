@@ -81,7 +81,7 @@ Future<WindowingController> _pump(
   _Page.builds.clear();
   await tester.binding.setSurfaceSize(const Size(800, 600));
   addTearDown(() => tester.binding.setSurfaceSize(null));
-  final controller = WindowingController(initial: doc);
+  final controller = WindowingController(initial: () => doc);
   addTearDown(controller.dispose);
   await tester.pumpWidget(_root(controller, child: child));
   return controller;
@@ -280,7 +280,7 @@ void main() {
     testWidgets("a delegate without one keeps the controller's", (
       tester,
     ) async {
-      final c = WindowingController(initial: _mixed(), interceptor: own);
+      final c = WindowingController(initial: () => _mixed(), interceptor: own);
       addTearDown(c.dispose);
       await tester.pumpWidget(root(c, const WindowingDelegate()));
       expect(c.interceptor, own);
@@ -288,7 +288,7 @@ void main() {
 
     testWidgets("the delegate's is installed on mount and on change, and "
         'the previous one comes back on unmount', (tester) async {
-      final c = WindowingController(initial: _mixed(), interceptor: own);
+      final c = WindowingController(initial: () => _mixed(), interceptor: own);
       addTearDown(c.dispose);
       await tester.pumpWidget(
         root(c, WindowingDelegate(interceptor: delegated)),
@@ -320,7 +320,7 @@ void main() {
 
     testWidgets("the delegate's is installed on mount and on change, and "
         'the previous one comes back on unmount', (tester) async {
-      final c = WindowingController(initial: _mixed(), openPolicy: pushOpenPolicy);
+      final c = WindowingController(initial: () => _mixed(), openPolicy: pushOpenPolicy);
       addTearDown(c.dispose);
       await tester.pumpWidget(root(c, WindowingDelegate(openPolicy: delegated)));
       expect(c.openPolicy, delegated);
@@ -349,7 +349,7 @@ void main() {
 
     testWidgets("the delegate's is installed on mount and on change, and "
         'the previous one comes back on unmount', (tester) async {
-      final c = WindowingController(initial: _mixed(), focusPolicy: own);
+      final c = WindowingController(initial: () => _mixed(), focusPolicy: own);
       addTearDown(c.dispose);
       await tester.pumpWidget(root(c, const WindowingDelegate(focusPolicy: delegated)));
       expect(c.focusPolicy, delegated);
@@ -380,7 +380,7 @@ void main() {
 
     testWidgets("the delegate's is installed on mount and on change, and "
         'the previous one comes back on unmount', (tester) async {
-      final c = WindowingController(initial: _mixed(), linkPolicy: own);
+      final c = WindowingController(initial: () => _mixed(), linkPolicy: own);
       addTearDown(c.dispose);
       await tester.pumpWidget(root(c, WindowingDelegate(linkPolicy: delegated)));
       expect(c.linkPolicy, delegated);

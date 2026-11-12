@@ -45,7 +45,7 @@ void main() {
   WindowingController controller(WindowingDoc initial,
       [WindowingOpenPolicy? policy]) {
     final c = WindowingController(
-      initial: initial,
+      initial: () => initial,
       undo: undo,
       interceptor: (_, command) {
         seen.add(command);

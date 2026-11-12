@@ -40,7 +40,7 @@ void main() {
       {BufferId? buffer}) async {
     final undo = UndoController();
     final controller = WindowingController(
-        initial: buffer == null ? null : playground.startingLayout(buffer),
+        initial: () => buffer == null ? null : playground.startingLayout(buffer),
         undo: undo);
     await tester.binding.setSurfaceSize(const Size(1200, 800));
     await show(tester, controller, undo);

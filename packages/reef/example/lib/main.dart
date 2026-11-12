@@ -161,7 +161,7 @@ class _ExampleShellsState extends State<_ExampleShells> {
   final _platform = RealShellPlatform(title: 'Reef example');
   late final _container = ProviderScope.containerOf(context, listen: false);
   late final _controller = WindowingController(
-    initial: startingLayout(const BufferId.manual('task-list:all')),
+    initial: () => startingLayout(const BufferId.manual('task-list:all')),
     undo: _container.read(undoControllerProvider),
     platform: _platform,
     store: _container.read(hibernationStoreProvider),

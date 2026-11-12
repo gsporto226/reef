@@ -40,7 +40,7 @@ Future<WindowingController> _pump(
   Widget? child,
 }) async {
   tester.view.physicalSize = Size(width, 600) * tester.view.devicePixelRatio;
-  final controller = WindowingController(initial: _doc());
+  final controller = WindowingController(initial: () => _doc());
   addTearDown(controller.dispose);
   await tester.pumpWidget(
     Directionality(

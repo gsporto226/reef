@@ -46,7 +46,7 @@ void main() {
   WindowingController controller(
       [WindowingFocusPolicy policy = const WindowingFocusPolicy()]) {
     final c = WindowingController(
-      initial: doc,
+      initial: () => doc,
       undo: undo,
       focusPolicy: policy,
       interceptor: (_, command) {
@@ -181,14 +181,14 @@ void main() {
 
     test('on an empty back stack can close the window', () {
       final c = controller(
-          const WindowingFocusPolicy(emptyBack: EmptyBackAction.closeWindow));
+          const WindowingFocusPolicy(emptyBack: emptyBackCloseWindow));
       expect(c.back(), isTrue);
       expect(d(c).windows.containsKey(w2), isFalse);
     });
 
     test('closing on back runs the close policy in the same batch', () {
       final c = controller(const WindowingFocusPolicy(
-          emptyBack: EmptyBackAction.closeWindow, closeEmptyTab: true))
+          emptyBack: emptyBackCloseWindow, closeEmptyTab: true))
         ..activateTab(t2);
       expect(c.back(), isTrue);
       expect(d(c).shells[s1]!.tabIds, [t1]);
@@ -196,14 +196,14 @@ void main() {
 
     test('on an empty back stack can report unhandled', () {
       final c = controller(
-          const WindowingFocusPolicy(emptyBack: EmptyBackAction.unhandled));
+          const WindowingFocusPolicy(emptyBack: emptyBackUnhandled));
       expect(c.back(), isFalse);
       expect(d(c), doc);
     });
 
     test('in an empty tab follows the empty back stack setting', () {
       final c = controller(
-          const WindowingFocusPolicy(emptyBack: EmptyBackAction.unhandled))
+          const WindowingFocusPolicy(emptyBack: emptyBackUnhandled))
         ..activateTab(t2)
         ..closeWindow(w4);
       expect(c.back(), isFalse);

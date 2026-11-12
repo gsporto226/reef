@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/painting.dart' show Axis, Rect;
+import 'package:flutter/painting.dart' show Axis, AxisDirection, Rect;
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 
@@ -18,14 +18,23 @@ class WindowingDoc {
         windows = Map.unmodifiable(windows),
         floating = Map.unmodifiable(floating);
 
-  /// A fresh doc: one focused shell holding one empty tab.
-  factory WindowingDoc.initial() {
+  /// A fresh doc: one focused shell holding one tab, empty or with one
+  /// active window showing [buffer].
+  factory WindowingDoc.initial({BufferId? buffer}) {
     final shell = ShellId.generate();
     final tab = TabId.generate();
+    final window = WindowId.generate();
     return WindowingDoc(
       shells: {shell: ShellState(tabIds: [tab], activeTabId: tab)},
-      tabs: {tab: const TabState()},
-      windows: const {},
+      tabs: {
+        tab: buffer == null
+            ? const TabState()
+            : TabState(root: WindowLeaf(window), activeWindowId: window),
+      },
+      windows: {
+        if (buffer != null)
+          window: WindowState(history: BufferHistory(current: buffer)),
+      },
       focusedShellId: shell,
     );
   }
@@ -474,4 +483,73 @@ class FloatingState {
 
   @override
   int get hashCode => Object.hash(scope, zIndex, geometry);
+}
+
+/// Read-side queries over a [WindowingDoc].
+extension WindowingDocQueries on WindowingDoc {
+  /// The focused shell's active tab.
+  TabState get activeTab => tabs[shells[focusedShellId]!.activeTabId]!;
+
+  /// The focused shell's active tab's active window.
+  WindowId? get activeWindowId => activeTab.activeWindowId;
+
+  /// The windows whose history currently shows [buffer], in [windows] order.
+  Iterable<WindowId> windowsShowing(BufferId buffer) => [
+    for (final MapEntry(:key, :value) in windows.entries)
+      if (value.history.current == buffer) key,
+  ];
+
+  /// The tab whose tree holds [window]; null for a floating or unknown one.
+  TabId? tabOf(WindowId window) => [
+    for (final MapEntry(:key, :value) in tabs.entries)
+      if (value.root?.windowIds.contains(window) ?? false) key,
+  ].firstOrNull;
+
+  /// The tree window that shares [window]'s edge on side [direction], laid
+  /// out by the tree's ratios; null at the tab's edge or for a floating
+  /// window.
+  WindowId? neighbour(WindowId window, AxisDirection direction) {
+    final root = tabOf(window)?.let((t) => tabs[t]!.root);
+    if (root == null) return null;
+    final rects = <WindowId, Rect>{};
+    void layout(WindowNode node, Rect r) {
+      switch (node) {
+        case WindowLeaf(:final id):
+          rects[id] = r;
+        case WindowBranch(:final axis, :final children, :final ratios):
+          var start = 0.0;
+          for (final (i, child) in children.indexed) {
+            final end = start + ratios[i];
+            layout(
+                child,
+                axis == Axis.horizontal
+                    ? Rect.fromLTRB(r.left + r.width * start, r.top,
+                        r.left + r.width * end, r.bottom)
+                    : Rect.fromLTRB(r.left, r.top + r.height * start,
+                        r.right, r.top + r.height * end));
+            start = end;
+          }
+      }
+    }
+
+    layout(root, const Rect.fromLTWH(0, 0, 1, 1));
+    final a = rects[window]!;
+    const e = 1e-9;
+    bool overlapsV(Rect b) => b.top < a.bottom - e && b.bottom > a.top + e;
+    bool overlapsH(Rect b) => b.left < a.right - e && b.right > a.left + e;
+    return rects.entries
+        .where((x) => switch (direction) {
+              AxisDirection.left =>
+                (x.value.right - a.left).abs() < e && overlapsV(x.value),
+              AxisDirection.right =>
+                (x.value.left - a.right).abs() < e && overlapsV(x.value),
+              AxisDirection.up =>
+                (x.value.bottom - a.top).abs() < e && overlapsH(x.value),
+              AxisDirection.down =>
+                (x.value.top - a.bottom).abs() < e && overlapsH(x.value),
+            })
+        .firstOrNull
+        ?.key;
+  }
+
 }

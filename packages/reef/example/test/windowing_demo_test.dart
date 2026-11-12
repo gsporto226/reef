@@ -29,7 +29,7 @@ void main() {
   Future<void> pump(WidgetTester tester, {bool canPopOut = true}) async {
     undo = UndoController();
     c = WindowingController(
-      initial: playground.startingLayout(const BufferId.manual('b')),
+      initial: () => playground.startingLayout(const BufferId.manual('b')),
       undo: undo,
       platform: FakeShellPlatform(isSupported: canPopOut),
     );
