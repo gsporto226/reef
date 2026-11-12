@@ -295,14 +295,17 @@ class WindowHost extends StatelessWidget {
               context,
               windowId,
               active,
-              // Global so a layout change around the window reparents its
-              // page instead of remounting it.
-              KeyedSubtree(
-                key: _PageKey(windowId, buffer),
-                child: Builder(
-                  builder: (context) =>
-                      scope.bufferBuilder(context, buffer) ??
-                      delegate.hibernatingBuilder(context, windowId, buffer),
+              _transitioned(
+                delegate.pageTransition(buffer),
+                // Global so a layout change around the window reparents its
+                // page instead of remounting it.
+                KeyedSubtree(
+                  key: _PageKey(windowId, buffer),
+                  child: Builder(
+                    builder: (context) =>
+                        scope.bufferBuilder(context, buffer) ??
+                        delegate.hibernatingBuilder(context, windowId, buffer),
+                  ),
                 ),
               ),
             ),
@@ -316,6 +319,22 @@ class WindowHost extends StatelessWidget {
     );
   }
 }
+
+/// Runs [transition] into [page]; with none, the page swaps at once.
+// ponytail: going back to a page still animating out puts its global key in
+// the tree twice; key the outgoing pages apart if that bites.
+Widget _transitioned(PageTransition? transition, Widget page) =>
+    AnimatedSwitcher(
+      duration: transition?.duration ?? Duration.zero,
+      transitionBuilder: transition?.builder ?? _noTransition,
+      layoutBuilder: (current, previous) => Stack(
+        fit: StackFit.expand,
+        children: [...previous, ?current],
+      ),
+      child: page,
+    );
+
+Widget _noTransition(Widget child, Animation<double> _) => child;
 
 /// The floating windows of [scope], bottom to top by z-index, each a
 /// [WindowHost] wrapped by the delegate's [WindowingDelegate.floating].

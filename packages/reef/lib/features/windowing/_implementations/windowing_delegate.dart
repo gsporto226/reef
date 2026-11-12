@@ -49,6 +49,21 @@ typedef FloatingBuilder = Widget Function(
   Widget window,
 );
 
+/// How a window animates to a new page: [builder] wraps the incoming and
+/// outgoing pages of an [AnimatedSwitcher] running for [duration].
+@immutable
+final class PageTransition {
+  const PageTransition({required this.duration, required this.builder});
+
+  final Duration duration;
+  final AnimatedSwitcherTransitionBuilder builder;
+}
+
+/// The transition into the page showing [buffer], picked by the app per
+/// route type (e.g. a switch over `tree.routeOfBuffer(buffer)`); null swaps
+/// the page at once.
+typedef PageTransitionPicker = PageTransition? Function(BufferId buffer);
+
 /// How a tab's windows show: the window tree as nested flexes ([flexTree]),
 /// the active window alone ([focusedOnly]), or a [custom] builder given the
 /// tab id.
@@ -114,7 +129,11 @@ class WindowingDelegate {
     this.focusPolicy,
     this.linkPolicy,
     this.projectionPolicy = defaultWindowingProjection,
+    this.pageTransition = _noTransition,
   });
+
+  /// Picks the transition into a window's new page. Default: none.
+  final PageTransitionPicker pageTransition;
 
   /// Default: a border on the focused window only.
   final WindowChromeBuilder windowChrome;
@@ -179,6 +198,7 @@ class WindowingDelegate {
     WindowingFocusPolicy? focusPolicy,
     WindowingLinkPolicy? linkPolicy,
     WindowingProjectionPolicy? projectionPolicy,
+    PageTransitionPicker? pageTransition,
   }) => WindowingDelegate(
     windowChrome: windowChrome ?? this.windowChrome,
     emptyBuilder: emptyBuilder ?? this.emptyBuilder,
@@ -193,7 +213,10 @@ class WindowingDelegate {
     focusPolicy: focusPolicy ?? this.focusPolicy,
     linkPolicy: linkPolicy ?? this.linkPolicy,
     projectionPolicy: projectionPolicy ?? this.projectionPolicy,
+    pageTransition: pageTransition ?? this.pageTransition,
   );
+
+  static PageTransition? _noTransition(BufferId _) => null;
 
   static Widget _floatingFrame(
     BuildContext _,
