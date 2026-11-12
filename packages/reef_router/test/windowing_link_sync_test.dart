@@ -39,8 +39,8 @@ class FakeRouteInformationProvider extends RouteInformationProvider
   RouteInformation get value => _value;
 
   /// A route notification: browser back, forward or a typed URL.
-  void browse(String uri) {
-    _value = RouteInformation(uri: Uri.parse(uri));
+  void browse(String uri, {Object? state}) {
+    _value = RouteInformation(uri: Uri.parse(uri), state: state);
     notifyListeners();
   }
 
@@ -157,6 +157,7 @@ void main() {
       WindowingDoc initial, {
       String route = '/',
       bool slow = false,
+      bool entryState = false,
     }) async {
       controller = slow
           ? SlowController(initial: () => initial)
@@ -169,6 +170,7 @@ void main() {
           child: WindowingLinkSync(
             tree: links,
             routeInformationProvider: provider,
+            entryState: entryState,
             child: const SizedBox(),
           ),
         ),
@@ -329,6 +331,59 @@ void main() {
       controller.dispatch(PushBuffer(left, edit42));
       provider.browse('/tasks/43/edit');
       expect(provider.reports, isEmpty);
+    });
+    group('entry state (D2)', () {
+      String idOf(WindowId w) =>
+          controller.doc.value.windows[w]!.history.current.id.id;
+
+      testWidgets('reports carry the current entry id', (tester) async {
+        await mount(tester, doc(), route: '/tasks', entryState: true);
+        controller.dispatch(PushBuffer(left, edit42));
+        expect(provider.value.state, idOf(left));
+      });
+
+      testWidgets('back and forward move the owning window to the entry and '
+          'focus it', (tester) async {
+        await mount(tester, doc(second: true), route: '/tasks',
+            entryState: true);
+        controller.dispatch(PushBuffer(left, edit42));
+        final first = controller.doc.value.windows[left]!.history.back.single;
+        controller.dispatch(PushBuffer(left, edit43));
+        final second = idOf(left);
+        controller.dispatch(const ActivateShell(s2));
+        final reports = provider.reports.length;
+
+        provider.browse('/tasks', state: first.id.id);
+        expect(controller.doc.value.focusedShellId, s1);
+        expect(focusedPath(), '/tasks');
+        expect(controller.doc.value.windows[left]!.history.forward,
+            hasLength(2));
+        expect(controller.doc.value.windows[other]!.history.current.buffer,
+            edit43, reason: 'no window opened the URL as a link');
+
+        provider.browse('/tasks/43/edit', state: second);
+        expect(idOf(left), second);
+        expect(controller.doc.value.windows[left]!.history.back, hasLength(2));
+        expect(provider.reports, hasLength(reports));
+      });
+
+      testWidgets('a vanished entry opens the URL as a link', (tester) async {
+        await mount(tester, doc(), route: '/tasks', entryState: true);
+        provider.browse('/tasks/43/edit', state: 'gone');
+        expect(focusedPath(), '/tasks/43/edit');
+      });
+
+      testWidgets('without entry state the id is ignored and no state is '
+          'reported', (tester) async {
+        await mount(tester, doc(), route: '/tasks');
+        controller.dispatch(PushBuffer(left, edit42));
+        final id = controller.doc.value.windows[left]!.history.back.single.id;
+        expect(provider.value.state, isNull);
+        controller.dispatch(PushBuffer(left, edit43));
+        provider.browse('/tasks', state: id.id);
+        expect(controller.doc.value.windows[left]!.history.forward, isEmpty,
+            reason: 'opened as a link, history not moved back');
+      });
     });
   });
 }

@@ -35,8 +35,15 @@ class WindowingLinkSync extends StatefulWidget {
     super.key,
     required this.tree,
     this.routeInformationProvider,
+    this.entryState = kIsWeb,
     required this.child,
   });
+
+  /// Whether the route information state carries the current history entry's
+  /// id, so a route notification naming a live entry moves the owning
+  /// window's history to it instead of opening the URL (ADR 0004 D2).
+  /// Default: on web only; other platforms use the URL only.
+  final bool entryState;
 
   /// Maps URLs to buffers and back.
   final LinkTree<Object?> tree;
@@ -99,10 +106,37 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
   Future<void> _open() {
     // Echoes are muted until openLink completes, however late that is.
     _incoming++;
+    if (widget.entryState && _travel(_provider.value.state)) {
+      _incoming--;
+      return Future.value();
+    }
     final (:buffer, :arguments) = widget.tree.resolve(_provider.value.uri);
     return _controller
         .openLink(buffer, arguments: arguments)
         .whenComplete(() => _incoming--);
+  }
+
+  /// Moves the window owning entry [id] to it and focuses that window;
+  /// false when no window holds it.
+  bool _travel(Object? id) {
+    if (id is! String) return false;
+    for (final MapEntry(key: window, value: state)
+        in _controller.doc.value.windows.entries) {
+      final h = state.history;
+      final back = h.back.indexWhere((e) => e.id.id == id);
+      final forward = h.forward.indexWhere((e) => e.id.id == id);
+      if (back < 0 && forward < 0 && h.current.id.id != id) continue;
+      _controller.dispatchAll([
+        ActivateWindow(window),
+        if (back >= 0)
+          for (var i = back; i < h.back.length; i++) PopBuffer(window),
+        if (forward >= 0)
+          for (var i = forward; i < h.forward.length; i++)
+            NavigateForward(window),
+      ]);
+      return true;
+    }
+    return false;
   }
 
   void _report() {
@@ -113,9 +147,13 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     if (window == null) return;
     final entry = window.history.current;
     final path = widget.tree.uriOfBuffer(entry.buffer, entry.arguments);
-    if (path == null || path == _provider.value.uri) return;
+    final state = widget.entryState ? entry.id.id : null;
+    if (path == null ||
+        (path == _provider.value.uri && state == _provider.value.state)) {
+      return;
+    }
     _provider.routerReportsNewRouteInformation(
-      RouteInformation(uri: path),
+      RouteInformation(uri: path, state: state),
       type: reportType(before, after),
     );
   }
