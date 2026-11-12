@@ -3,7 +3,7 @@ import 'package:reef/reef.dart';
 import 'package:reef_router/reef_router.dart';
 
 /// Routes compare by their URL, which is what nesting must preserve.
-abstract base class AppRoute {
+abstract base class AppRoute with LinkVerbs<AppRoute> {
   const AppRoute();
 
   @override

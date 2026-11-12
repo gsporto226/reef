@@ -863,18 +863,35 @@ List<WindowingCommand> _firstWindow(
   ];
 }
 
+/// How [WindowingController.openLink] follows a link (ADR 0004 D22,
+/// ADR 0005).
+enum LinkVerb {
+  /// As the link and open policies decide.
+  go,
+
+  /// Pushes onto the focused window.
+  push,
+
+  /// Replaces the focused window's current entry.
+  replace,
+}
+
 /// Compiles a resolved link to [buffer], carrying [arguments], against
 /// [doc] into the commands [WindowingController.openLink] dispatches as one
-/// batch; null opens [buffer] through [WindowingController.openPolicy].
+/// batch; null leaves it to [verb]: go opens [buffer] through
+/// [WindowingController.openPolicy], push and replace push onto or replace
+/// the focused window.
 typedef WindowingLinkPolicy = List<WindowingCommand>? Function(
-    WindowingDoc doc, BufferId buffer, Map<String, String> arguments);
+    WindowingDoc doc, BufferId buffer, Map<String, String> arguments,
+    {LinkVerb verb});
 
 /// Focuses a window showing [buffer] with [arguments], in any shell, the
 /// focused shell's first. When [buffer] shows only with other arguments,
-/// opens another window beside the active one (ADR 0005); else null, so the
-/// open policy decides.
+/// go opens another window beside the active one (ADR 0005); else null, so
+/// [verb] decides.
 List<WindowingCommand>? defaultLinkPolicy(
-    WindowingDoc doc, BufferId buffer, Map<String, String> arguments) {
+    WindowingDoc doc, BufferId buffer, Map<String, String> arguments,
+    {LinkVerb verb = LinkVerb.go}) {
   final any = doc.windowsShowing(buffer);
   if (any.isEmpty) return null;
   final shown = any
@@ -882,7 +899,10 @@ List<WindowingCommand>? defaultLinkPolicy(
           mapEquals(doc.windows[w]!.history.current.arguments, arguments))
       .toList();
   if (shown.isEmpty) {
-    return splitBesideOpenPolicy(doc, buffer, arguments: arguments);
+    return switch (verb) {
+      LinkVerb.go => splitBesideOpenPolicy(doc, buffer, arguments: arguments),
+      LinkVerb.push || LinkVerb.replace => null,
+    };
   }
   final here = shown.where((w) =>
       ActivateWindow(w).apply(doc).focusedShellId == doc.focusedShellId);
@@ -1051,11 +1071,13 @@ class WindowingController {
 
   /// Opens [buffer], a resolved link, with [arguments]. With [newShell]
   /// and pop-out support it opens in a new shell; otherwise, or when that
-  /// shell fails to open, [linkPolicy] decides.
+  /// shell fails to open, [linkPolicy] decides, then [verb]. Push and
+  /// replace with no focused window fall back to go.
   Future<void> openLink(
     BufferId buffer, {
     Map<String, String> arguments = const {},
     bool newShell = false,
+    LinkVerb verb = LinkVerb.go,
   }) async {
     if (newShell &&
         capabilities.canPopOut &&
@@ -1063,8 +1085,16 @@ class WindowingController {
       return;
     }
     final doc = _doc.value;
-    dispatchAll(linkPolicy(doc, buffer, arguments) ??
-        openPolicy(doc, buffer, arguments: arguments));
+    final window = doc.activeTab.activeWindowId;
+    if (window == null) verb = LinkVerb.go;
+    dispatchAll(linkPolicy(doc, buffer, arguments, verb: verb) ??
+        switch (verb) {
+          LinkVerb.go => openPolicy(doc, buffer, arguments: arguments),
+          LinkVerb.push => [PushBuffer(window!, buffer, arguments: arguments)],
+          LinkVerb.replace => [
+              ReplaceBuffer(window!, buffer, arguments: arguments),
+            ],
+        });
   }
 
   /// Decides what close, split and [back] do to focus.

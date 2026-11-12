@@ -98,7 +98,7 @@ void main() {
     test('the link policy gets the buffer and the arguments', () async {
       final c = controller(twoShells());
       (BufferId, Map<String, String>)? seen;
-      c.linkPolicy = (doc, buffer, arguments) {
+      c.linkPolicy = (doc, buffer, arguments, {verb = LinkVerb.go}) {
         seen = (buffer, arguments);
         return [ActivateShell(s2)];
       };
@@ -112,7 +112,7 @@ void main() {
         'them', () async {
       final c = controller(twoShells())
         ..openPolicy = pushOpenPolicy
-        ..linkPolicy = (_, _, _) => null;
+        ..linkPolicy = (_, _, _, {verb = LinkVerb.go}) => null;
       await c.openLink(edit43, arguments: {'mode': 'a'});
       await c.openLink(edit43, arguments: {'mode': 'b'});
       HistoryEntry current() => c.doc.value.windows[w1]!.history.current;
@@ -136,6 +136,52 @@ void main() {
       await c.openLink(edit42, arguments: {'mode': 'full'});
       expect(active(c.doc.value), opened, reason: 'exact match focuses');
       expect(c.doc.value.windows, hasLength(4));
+    });
+
+    group('verb, with the buffer shown under other arguments (ADR 0005)', () {
+      Future<WindowingDoc> open(LinkVerb verb) async {
+        final c = controller(twoShells());
+        await c.openLink(edit42, arguments: {'mode': 'full'}, verb: verb);
+        return c.doc.value;
+      }
+
+      test('push pushes in the focused window', () async {
+        final d = await open(LinkVerb.push);
+        expect(d.windows, hasLength(3));
+        expect(d.windows[w1]!.history.current,
+            HistoryEntry(edit42, arguments: {'mode': 'full'}));
+        expect(d.windows[w1]!.history.back, [HistoryEntry(list)]);
+      });
+
+      test('replace replaces the focused entry', () async {
+        final d = await open(LinkVerb.replace);
+        expect(d.windows, hasLength(3));
+        expect(d.windows[w1]!.history.current,
+            HistoryEntry(edit42, arguments: {'mode': 'full'}));
+        expect(d.windows[w1]!.history.back, isEmpty);
+      });
+
+      test('an exact match still focuses its window', () async {
+        final c = controller(twoShells());
+        await c.openLink(edit42, verb: LinkVerb.push);
+        expect(active(c.doc.value), w2);
+        expect(c.doc.value.windows[w1]!.history.back, isEmpty);
+      });
+
+      test('replace of a buffer not shown replaces, not the open policy',
+          () async {
+        final c = controller(twoShells())..openPolicy = newTabOpenPolicy;
+        await c.openLink(edit43, verb: LinkVerb.replace);
+        expect(c.doc.value.windows[w1]!.history.current, HistoryEntry(edit43));
+        expect(c.doc.value.windows, hasLength(3));
+      });
+
+      test('push with no focused window falls back to go', () async {
+        final c = controller(null);
+        await c.openLink(edit42, verb: LinkVerb.push);
+        expect(c.doc.value.windows.values.single.history.current.buffer,
+            edit42);
+      });
     });
 
     test('on a fresh doc it builds shell, tab and window', () async {

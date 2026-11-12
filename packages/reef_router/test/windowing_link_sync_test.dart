@@ -99,9 +99,15 @@ class SlowController extends WindowingController {
     BufferId buffer, {
     Map<String, String> arguments = const {},
     bool newShell = false,
+    LinkVerb verb = LinkVerb.go,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 10));
-    return super.openLink(buffer, arguments: arguments, newShell: newShell);
+    return super.openLink(
+      buffer,
+      arguments: arguments,
+      newShell: newShell,
+      verb: verb,
+    );
   }
 }
 

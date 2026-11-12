@@ -365,9 +365,11 @@ void main() {
   });
 
   group('link policy ownership', () {
-    List<WindowingCommand>? delegated(WindowingDoc _, BufferId _, Map<String, String> _) =>
+    List<WindowingCommand>? delegated(WindowingDoc _, BufferId _, Map<String, String> _,
+            {LinkVerb verb = LinkVerb.go}) =>
         null;
-    List<WindowingCommand>? own(WindowingDoc _, BufferId _, Map<String, String> _) =>
+    List<WindowingCommand>? own(WindowingDoc _, BufferId _, Map<String, String> _,
+            {LinkVerb verb = LinkVerb.go}) =>
         const [];
 
     Widget root(WindowingController c, WindowingDelegate delegate) =>

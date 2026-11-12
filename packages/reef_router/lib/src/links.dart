@@ -185,7 +185,10 @@ final class TypedLink<R> extends LinkNode<R> {
 
 /// A link at its place in the tree: its parents' parts, then its own.
 final class _Mount {
-  _Mount(this.link, this.parts, this.create);
+  _Mount(this.link, this.parts, this.create, [this.up]);
+
+  /// The parent route of a route of this mount; null at the root.
+  final Object? Function(Object? route)? up;
 
   final TypedLink<Object?> link;
   final List<_Part> parts;
@@ -294,14 +297,19 @@ final class LinkTree<R> {
         at = _Mount(link, [
           for (final q in inherited) _through(q, p.read),
           ...own,
-        ], (v) => link._create([parent.create(v.sublist(0, n)), ...v.skip(n)]));
+        ], (v) => link._create([parent.create(v.sublist(0, n)), ...v.skip(n)]),
+            p.read);
       } else {
         if (parent != null && parent._valueCount > 0) {
           throw StateError(
             'The link to $name needs .parent: its parent has values',
           );
         }
-        at = _Mount(link, [...inherited, ...own], link._create);
+        at = _Mount(link, [...inherited, ...own], link._create, switch (parent) {
+          // A parent with no values has one route.
+          final p? => (_) => p.create(const []),
+          null => null,
+        });
       }
       if (at.parts.whereType<_Rest>().length > 1) {
         throw StateError('The link to $name has two rest parts');
@@ -349,6 +357,10 @@ final class LinkTree<R> {
     final link = _linkOf(route);
     return _uri(link._values(route, literals: true), link._arguments(route));
   }
+
+  /// The route [route] is mounted under, holding the parent's query; null
+  /// for a root link (spec stories 25, 32).
+  R? parentOf(R route) => _linkOf(route).up?.call(route) as R?;
 
   /// [route]'s buffer and the query arguments for its history entry.
   ResolvedLink linkOf(R route) {
