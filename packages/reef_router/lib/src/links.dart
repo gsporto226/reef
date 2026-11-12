@@ -82,6 +82,29 @@ final class _Query extends _Part {
   final Object? Function(String? text) parse;
 }
 
+/// The parent value; the tree replaces it with the parent's parts.
+final class _Parent extends _Part {
+  const _Parent(this.read, this.fits);
+  final Object? Function(Object? route) read;
+  final bool Function(TypedLink<Object?> parent) fits;
+}
+
+/// [part] reading its value from the parent value [get] gives.
+_Part _through(_Part part, Object? Function(Object? route) get) =>
+    switch (part) {
+      _Literal() || _Parent() => part,
+      _Segment(:final format, :final parse) => _Segment(
+        (r) => format(get(r)),
+        parse,
+      ),
+      _Rest(:final read) => _Rest((r) => read(get(r))),
+      _Query(:final name, :final format, :final parse) => _Query(
+        name,
+        (r) => format(get(r)),
+        parse,
+      ),
+    };
+
 List<_Part> _literals(String path) => [
   for (final s in path.split('/'))
     if (s.isNotEmpty) _Literal(s),
@@ -107,13 +130,34 @@ _Query _query<R, V>(
 
 _Rest _rest<R>(List<String> Function(R route) get) => _Rest((r) => get(r as R));
 
+_Parent _parent<R, P>(P Function(R route) get) =>
+    _Parent((r) => get(r as R), (l) => l is TypedLink<P>);
+
 /// A buffer and the arguments of its history entry.
 typedef ResolvedLink = ({BufferId buffer, Map<String, String> arguments});
 
+/// A link and the links mounted under it (ADR 0004 D12, D13, D14).
+sealed class LinkNode<R> {
+  const LinkNode();
+
+  TypedLink<R> get _link;
+  List<LinkNode<Object?>> get _children;
+}
+
+final class _Branch<R> extends LinkNode<R> {
+  const _Branch(this._link, this._children);
+
+  @override
+  final TypedLink<R> _link;
+
+  @override
+  final List<LinkNode<Object?>> _children;
+}
+
 /// A built link: the URL of route type [R], both ways (ADR 0004).
-final class TypedLink<R> {
+final class TypedLink<R> extends LinkNode<R> {
   TypedLink._(this._parts, this._create) {
-    final path = _parts.where((p) => p is! _Query).toList();
+    final path = _parts.where((p) => p is! _Query && p is! _Parent).toList();
     if (path.indexWhere((p) => p is _Rest) case final i
         when i >= 0 && i != path.length - 1) {
       throw ArgumentError('A rest part must end the path of $R');
@@ -123,9 +167,33 @@ final class TypedLink<R> {
   final List<_Part> _parts;
   final R Function(List<Object?> values) _create;
 
+  @override
+  TypedLink<R> get _link => this;
+
+  @override
+  List<LinkNode<Object?>> get _children => const [];
+
+  Type get _route => R;
+
   bool _owns(Object? route) => route is R;
 
-  Iterable<_Part> get _path => _parts.where((p) => p is! _Query);
+  /// This link with [children] mounted under it; each extends its path
+  /// and query.
+  LinkNode<R> children(List<LinkNode<Object?>> children) =>
+      _Branch(this, children);
+}
+
+/// A link at its place in the tree: its parents' parts, then its own.
+final class _Mount {
+  _Mount(this.link, this.parts, this.create);
+
+  final TypedLink<Object?> link;
+  final List<_Part> parts;
+  final Object? Function(List<Object?> values) create;
+
+  int get _valueCount => parts.where((p) => p is! _Literal).length;
+
+  Iterable<_Part> get _path => parts.where((p) => p is! _Query);
 
   /// The buffer kind: the template, `*` per value and `**` for a rest.
   String get _kind =>
@@ -144,11 +212,11 @@ final class TypedLink<R> {
     _path.length,
   );
 
-  R? _match(List<String> segments, Map<String, String> query) {
+  Object? _match(List<String> segments, Map<String, String> query) {
     final values = <Object?>[];
     var i = 0;
     try {
-      for (final part in _parts) {
+      for (final part in parts) {
         switch (part) {
           case _Literal(:final text):
             if (i >= segments.length || segments[i++] != text) return null;
@@ -156,16 +224,22 @@ final class TypedLink<R> {
             if (i >= segments.length) return null;
             values.add(parse(segments[i++]));
           case _Rest():
-            values.add(segments.sublist(i));
-            i = segments.length;
+            // The parts after a rest match from the end (D13).
+            final path = _path.toList();
+            final end = segments.length - path.length + path.indexOf(part) + 1;
+            if (end < i) return null;
+            values.add(segments.sublist(i, end));
+            i = end;
           case _Query(:final name, :final parse):
             values.add(parse(query[name]));
+          case _Parent():
+            throw StateError('A mount has no parent part');
         }
       }
     } on Object {
       return null; // A malformed value matches nothing.
     }
-    return i == segments.length ? _create(values) : null;
+    return i == segments.length ? create(values) : null;
   }
 
   /// [route]'s path values in order, a rest's spread; with [literals],
@@ -176,27 +250,78 @@ final class TypedLink<R> {
         _Literal(:final text) => [if (literals) text],
         _Segment(:final format) => [format(route)],
         _Rest(:final read) => read(route),
-        _Query() => const <String>[],
+        _Query() || _Parent() => const <String>[],
       },
   ];
 
   Map<String, String> _arguments(Object? route) => {
-    for (final part in _parts.whereType<_Query>())
+    for (final part in parts.whereType<_Query>())
       part.name: ?part.format(route),
   };
 }
 
 /// Every link of an app, matched by specificity (ADR 0004 D4, D6). It
 /// needs a root catch-all (`Link('').rest(...)`), the not-found route.
+/// Children extend their parent's path and query (D12, D13, D14).
 final class LinkTree<R> {
-  LinkTree(List<TypedLink<R>> links)
-    : _links = [...links]..sort((a, b) => _compare(b._rank, a._rank)) {
+  LinkTree(List<LinkNode<R>> roots) {
+    final mounted = <TypedLink<Object?>>{};
+    void mount(LinkNode<Object?> node, _Mount? parent) {
+      final link = node._link;
+      final name = link._route;
+      if (!mounted.add(link)) {
+        throw StateError('The link to $name is mounted twice; use two types');
+      }
+      if (link is! TypedLink<R>) {
+        throw StateError('The link to $name does not build a $R');
+      }
+      final own = link._parts.where((p) => p is! _Parent).toList();
+      final inherited = parent?.parts ?? const <_Part>[];
+      for (final q in own.whereType<_Query>()) {
+        if (inherited.any((p) => p is _Query && p.name == q.name)) {
+          throw StateError(
+            'The link to $name redeclares the query "${q.name}"; '
+            'read it from the parent',
+          );
+        }
+      }
+      final _Mount at;
+      if (link._parts.whereType<_Parent>().firstOrNull case final p?) {
+        if (parent == null || !p.fits(parent.link)) {
+          throw StateError('The link to $name needs a parent of its type');
+        }
+        final n = parent._valueCount;
+        at = _Mount(link, [
+          for (final q in inherited) _through(q, p.read),
+          ...own,
+        ], (v) => link._create([parent.create(v.sublist(0, n)), ...v.skip(n)]));
+      } else {
+        if (parent != null && parent._valueCount > 0) {
+          throw StateError(
+            'The link to $name needs .parent: its parent has values',
+          );
+        }
+        at = _Mount(link, [...inherited, ...own], link._create);
+      }
+      if (at.parts.whereType<_Rest>().length > 1) {
+        throw StateError('The link to $name has two rest parts');
+      }
+      _links.add(at);
+      for (final child in node._children) {
+        mount(child, at);
+      }
+    }
+
+    for (final root in roots) {
+      mount(root, null);
+    }
+    _links.sort((a, b) => _compare(b._rank, a._rank));
     if (!_links.any((l) => l._isCatchAll)) {
       throw StateError('A link tree needs a root catch-all link (/**)');
     }
   }
 
-  final List<TypedLink<R>> _links;
+  final List<_Mount> _links = [];
 
   static int _compare((int, int, int) a, (int, int, int) b) => a.$1 != b.$1
       ? a.$1 - b.$1
@@ -209,14 +334,14 @@ final class LinkTree<R> {
     final segments = [...uri.pathSegments.where((s) => s.isNotEmpty)];
     for (final link in _links) {
       if (link._match(segments, uri.queryParameters) case final route?) {
-        return route;
+        return route as R;
       }
     }
     throw StateError('No link matches $uri');
   }
 
-  TypedLink<R> _linkOf(R route) => _links.firstWhere(
-    (l) => l._owns(route),
+  _Mount _linkOf(R route) => _links.firstWhere(
+    (l) => l.link._owns(route),
     orElse: () => throw ArgumentError('No link for $route'),
   );
 
@@ -250,10 +375,16 @@ final class LinkTree<R> {
     ];
     var next = 0;
     final segments = <String>[];
-    for (final s in kind.split('/').where((s) => s.isNotEmpty)) {
+    final parts = kind.split('/').where((s) => s.isNotEmpty).toList();
+    for (final (i, s) in parts.indexed) {
       if (s == '**') {
-        segments.addAll(values.skip(next));
-        next = values.length;
+        // Values after a rest are read from the end (D13).
+        final after = parts.skip(i + 1).where((s) => s == '*').length;
+        final end = values.length - after;
+        if (end > next) {
+          segments.addAll(values.sublist(next, end));
+          next = end;
+        }
       } else if (s == '*') {
         if (next < values.length) segments.add(values[next++]);
       } else {

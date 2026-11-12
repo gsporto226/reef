@@ -7,6 +7,11 @@ final class Link<R> {
   /// Starts at [path], literal segments split by `/`.
   Link(String path) : _parts = _literals(path);
 
+  /// Mounts under a parent link to [P], read by [get]; the
+  /// parent value is the first constructor parameter.
+  Link1<R, P> parent<P>(P Function(R route) get) =>
+      Link1._([..._parts, _parent(get)]);
+
   const Link._(this._parts);
 
   final List<_Part> _parts;

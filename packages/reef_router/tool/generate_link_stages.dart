@@ -27,6 +27,11 @@ String generate() {
       out
         ..writeln('  /// Starts at [path], literal segments split by `/`.')
         ..writeln('  Link(String path) : _parts = _literals(path);')
+        ..writeln()
+        ..writeln('  /// Mounts under a parent link to [P], read by [get]; the')
+        ..writeln('  /// parent value is the first constructor parameter.')
+        ..writeln('  Link1<R, P> parent<P>(P Function(R route) get) =>')
+        ..writeln('      Link1._([..._parts, _parent(get)]);')
         ..writeln();
     }
     out.writeln('  const ${_ctor(n)}(this._parts);');
