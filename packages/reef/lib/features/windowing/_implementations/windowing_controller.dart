@@ -30,12 +30,16 @@ extension WindowingDocApply on WindowingDoc {
 /// Appends a tab to [shellId], activates it and focuses the shell. With a
 /// [buffer], the tab's first window ([WindowId]) shows that buffer.
 class NewTab extends WindowingCommand {
-  const NewTab({
+  NewTab({
     required this.shellId,
     required this.tabId,
     this.buffer,
     this.arguments = const {},
-  });
+    HistoryEntryId? entryId,
+  }) : entryId = entryId ?? HistoryEntryId.generate();
+
+  /// The id of the entry [buffer] opens with; made here so [apply] is pure.
+  final HistoryEntryId entryId;
 
   final ShellId shellId;
   final TabId tabId;
@@ -64,7 +68,8 @@ class NewTab extends WindowingCommand {
         if (buffer case (final w, final b))
           w: WindowState(
               history: BufferHistory(
-                  current: HistoryEntry(b, arguments: arguments))),
+                  current: HistoryEntry(b,
+                      arguments: arguments, id: entryId))),
       },
       focusedShellId: shellId,
     );
@@ -122,13 +127,18 @@ class CloseTab extends WindowingCommand {
 /// window copies the window history, with [buffer] pushed on top when given,
 /// and takes focus.
 class SplitWindow extends WindowingCommand {
-  const SplitWindow(
+  SplitWindow(
     this.windowId, {
     required this.newWindowId,
     required this.axis,
     this.buffer,
     this.arguments = const {},
-  });
+    HistoryEntryId? entryId,
+  }) : entryId = entryId ?? HistoryEntryId.generate();
+
+  /// The id of the entry [buffer] is pushed with; made here so [apply] is
+  /// pure.
+  final HistoryEntryId entryId;
 
   final WindowId windowId;
   final WindowId newWindowId;
@@ -145,7 +155,7 @@ class SplitWindow extends WindowingCommand {
       null => history,
       final b => BufferHistory(
           back: [...history.back, history.current],
-          current: HistoryEntry(b, arguments: arguments)),
+          current: HistoryEntry(b, arguments: arguments, id: entryId)),
     };
     // ponytail: always nests a new branch; flatten into a same-axis parent
     // if deep trees from repeated splits become a problem.
@@ -366,12 +376,18 @@ sealed class _HistoryCommand extends WindowingCommand {
 
 /// Points [windowId] at [buffer] with a fresh window history.
 class AttachBuffer extends _HistoryCommand {
-  const AttachBuffer(super.windowId, this.buffer, {this.arguments = const {}});
+  AttachBuffer(super.windowId, this.buffer,
+      {this.arguments = const {}, HistoryEntryId? entryId})
+      : entryId = entryId ?? HistoryEntryId.generate();
+
+  /// The new entry's id; made here so [apply] is pure.
+  final HistoryEntryId entryId;
 
   final BufferId buffer;
   final Map<String, String> arguments;
 
-  HistoryEntry get _entry => HistoryEntry(buffer, arguments: arguments);
+  HistoryEntry get _entry =>
+      HistoryEntry(buffer, arguments: arguments, id: entryId);
 
   @override
   BufferHistory edit(BufferHistory history) => BufferHistory(current: _entry);
@@ -379,12 +395,18 @@ class AttachBuffer extends _HistoryCommand {
 
 /// Moves the current buffer onto back, clears forward and shows [buffer].
 class PushBuffer extends _HistoryCommand {
-  const PushBuffer(super.windowId, this.buffer, {this.arguments = const {}});
+  PushBuffer(super.windowId, this.buffer,
+      {this.arguments = const {}, HistoryEntryId? entryId})
+      : entryId = entryId ?? HistoryEntryId.generate();
+
+  /// The new entry's id; made here so [apply] is pure.
+  final HistoryEntryId entryId;
 
   final BufferId buffer;
   final Map<String, String> arguments;
 
-  HistoryEntry get _entry => HistoryEntry(buffer, arguments: arguments);
+  HistoryEntry get _entry =>
+      HistoryEntry(buffer, arguments: arguments, id: entryId);
 
   @override
   BufferHistory edit(BufferHistory history) => BufferHistory(
@@ -422,12 +444,18 @@ class NavigateForward extends _HistoryCommand {
 
 /// Shows [buffer] in place of the current one; both stacks stay untouched.
 class ReplaceBuffer extends _HistoryCommand {
-  const ReplaceBuffer(super.windowId, this.buffer, {this.arguments = const {}});
+  ReplaceBuffer(super.windowId, this.buffer,
+      {this.arguments = const {}, HistoryEntryId? entryId})
+      : entryId = entryId ?? HistoryEntryId.generate();
+
+  /// The new entry's id; made here so [apply] is pure.
+  final HistoryEntryId entryId;
 
   final BufferId buffer;
   final Map<String, String> arguments;
 
-  HistoryEntry get _entry => HistoryEntry(buffer, arguments: arguments);
+  HistoryEntry get _entry =>
+      HistoryEntry(buffer, arguments: arguments, id: entryId);
 
   @override
   BufferHistory edit(BufferHistory history) => BufferHistory(
@@ -766,13 +794,15 @@ typedef WindowingOpenPolicy = List<WindowingCommand> Function(
     WindowingDoc doc, BufferId buffer,
     {Map<String, String> arguments});
 
-/// Focuses a window of the focused shell's active tab that shows [buffer];
+/// Focuses a window of the focused shell's active tab that shows [buffer]
+/// with [arguments];
 /// else [pushOpenPolicy].
 List<WindowingCommand> defaultOpenPolicy(WindowingDoc doc, BufferId buffer,
     {Map<String, String> arguments = const {}}) {
   final tab = doc.activeTab;
   for (final w in tab.root?.windowIds ?? const <WindowId>[]) {
-    if (doc.windows[w]!.history.current.buffer == buffer) {
+    if (doc.windows[w]!.history.current ==
+        HistoryEntry(buffer, arguments: arguments)) {
       return [ActivateWindow(w)];
     }
   }
@@ -839,12 +869,21 @@ List<WindowingCommand> _firstWindow(
 typedef WindowingLinkPolicy = List<WindowingCommand>? Function(
     WindowingDoc doc, BufferId buffer, Map<String, String> arguments);
 
-/// Focuses a window showing [buffer], in any shell, the focused shell's
-/// first; else null, so the open policy decides.
+/// Focuses a window showing [buffer] with [arguments], in any shell, the
+/// focused shell's first. When [buffer] shows only with other arguments,
+/// opens another window beside the active one (ADR 0005); else null, so the
+/// open policy decides.
 List<WindowingCommand>? defaultLinkPolicy(
     WindowingDoc doc, BufferId buffer, Map<String, String> arguments) {
-  final shown = doc.windowsShowing(buffer).toList();
-  if (shown.isEmpty) return null;
+  final any = doc.windowsShowing(buffer);
+  if (any.isEmpty) return null;
+  final shown = any
+      .where((w) =>
+          mapEquals(doc.windows[w]!.history.current.arguments, arguments))
+      .toList();
+  if (shown.isEmpty) {
+    return splitBesideOpenPolicy(doc, buffer, arguments: arguments);
+  }
   final here = shown.where((w) =>
       ActivateWindow(w).apply(doc).focusedShellId == doc.focusedShellId);
   return [ActivateWindow(here.firstOrNull ?? shown.first)];

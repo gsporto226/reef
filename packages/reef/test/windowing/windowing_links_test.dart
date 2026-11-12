@@ -124,12 +124,18 @@ void main() {
       expect(current().arguments, {'mode': 'b'});
     });
 
-    test('matching an open window compares the buffer, not its arguments',
+    test('a window matches only with the same buffer and arguments (ADR 0005)',
         () async {
       final c = controller(twoShells());
       await c.openLink(edit42, arguments: {'mode': 'full'});
-      expect(active(c.doc.value), w2);
-      expect(c.doc.value.windowsShowing(edit42), [w2, w3]);
+      final d = c.doc.value;
+      final opened = active(d);
+      expect(opened, isNot(anyOf(w1, w2, w3)), reason: 'another window');
+      expect(d.windows[opened]!.history.current.arguments, {'mode': 'full'});
+      expect(d.windows[w2]!.history.current.arguments, isEmpty);
+      await c.openLink(edit42, arguments: {'mode': 'full'});
+      expect(active(c.doc.value), opened, reason: 'exact match focuses');
+      expect(c.doc.value.windows, hasLength(4));
     });
 
     test('on a fresh doc it builds shell, tab and window', () async {
@@ -168,5 +174,13 @@ void main() {
       expect(c.doc.value.shells, hasLength(2));
       expect(active(c.doc.value), w2);
     });
+  });
+
+  test('the entry id rides on the command, so apply is pure (ADR 0005)', () {
+    final doc = twoShells();
+    final push = PushBuffer(w1, edit43);
+    final a = push.apply(doc).windows[w1]!.history.current.id;
+    expect(push.apply(doc).windows[w1]!.history.current.id, a);
+    expect(a, push.entryId);
   });
 }
