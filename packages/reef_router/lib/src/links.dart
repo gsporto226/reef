@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef/reef.dart';
 
@@ -646,6 +647,38 @@ final class BoundLinkTree<R> {
           target = route as R;
       }
     }
+  }
+
+  /// Re-checks the current entry of every window when [refresh] fires and
+  /// whenever [controller]'s doc changes, which covers undo and redo (they
+  /// skip the interceptor), and once now, which covers restore (D8). A
+  /// redirect replaces the entry; a block leaves it, as nothing navigated.
+  /// Returns the call that stops watching.
+  void Function() watch(WindowingController controller, {Listenable? refresh}) {
+    void recheck() {
+      final commands = <WindowingCommand>[];
+      for (final MapEntry(key: id, value: window)
+          in controller.doc.value.windows.entries) {
+        final HistoryEntry(:buffer, :arguments) = window.history.current;
+        if (tree.uriOfBuffer(buffer) == null) continue;
+        if (check(tree.routeOfBuffer(buffer, arguments))
+            case GuardRedirect(:final route)) {
+          final target = tree.linkOf(route as R);
+          commands.add(
+            ReplaceBuffer(id, target.buffer, arguments: target.arguments),
+          );
+        }
+      }
+      if (commands.isNotEmpty) controller.dispatchAll(commands);
+    }
+
+    controller.doc.addListener(recheck);
+    refresh?.addListener(recheck);
+    recheck();
+    return () {
+      controller.doc.removeListener(recheck);
+      refresh?.removeListener(recheck);
+    };
   }
 
   /// Checks every command that shows a link buffer, back and forward
