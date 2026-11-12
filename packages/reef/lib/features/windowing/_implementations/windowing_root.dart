@@ -320,17 +320,25 @@ class WindowHost extends StatelessWidget {
   }
 }
 
-/// Runs [transition] into [page]; with none, the page swaps at once.
-// ponytail: going back to a page still animating out puts its global key in
-// the tree twice; key the outgoing pages apart if that bites.
+/// Runs [transition] into [page]; with none, the page swaps at once. Each
+/// transition is keyed by its page's key, so a page coming back while still
+/// animating out drops its outgoing copy and its global key reparents.
 Widget _transitioned(PageTransition? transition, Widget page) =>
     AnimatedSwitcher(
       duration: transition?.duration ?? Duration.zero,
-      transitionBuilder: transition?.builder ?? _noTransition,
-      layoutBuilder: (current, previous) => Stack(
-        fit: StackFit.expand,
-        children: [...previous, ?current],
+      transitionBuilder: (child, animation) => KeyedSubtree(
+        key: ValueKey(child.key),
+        child: (transition?.builder ?? _noTransition)(child, animation),
       ),
+      layoutBuilder: (current, previous) {
+        // The newest copy of each page; none of the current one.
+        final seen = {current?.key};
+        final kept = [
+          for (final w in previous.reversed)
+            if (seen.add(w.key)) w,
+        ].reversed;
+        return Stack(fit: StackFit.expand, children: [...kept, ?current]);
+      },
       child: page,
     );
 

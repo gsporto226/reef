@@ -65,6 +65,26 @@ void main() {
     expect(find.text('TaskRoute'), findsOneWidget);
   });
 
+  testWidgets('going back to a page still animating out reuses it', (
+    tester,
+  ) async {
+    final nav = await pump(tester);
+    nav.push(task);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+    nav.back();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    nav.forward();
+    await tester.pump();
+    nav.back();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    await tester.pumpAndSettle();
+    expect(find.text('ProjectRoute'), findsOneWidget);
+    expect(find.text('TaskRoute'), findsNothing);
+  });
+
   testWidgets('a route type without a transition switches at once', (
     tester,
   ) async {
