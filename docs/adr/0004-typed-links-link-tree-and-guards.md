@@ -20,8 +20,8 @@ information API and no third-party router, and windowing builds the pages.
 - **Arguments live in history entries (D1).** Each back, current and forward
   slot is `(buffer, arguments, entry id)`. When old hibernation records are
   read, a bare buffer id string loads with empty arguments, so no migration
-  is needed. Matching an open window compares the buffer only, because
-  arguments are page state, not identity.
+  is needed. ~~Matching an open window compares the buffer only, because
+  arguments are page state, not identity.~~ Superseded by ADR 0005.
 - **Browser back and forward use a stable entry id (D2).** The route
   information state holds the history entry's id. On popstate, reef focuses
   the window that owns the entry and moves its history to that entry. If the
