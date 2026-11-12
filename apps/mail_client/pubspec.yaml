@@ -1,0 +1,37 @@
+name: mail_client
+description: Integration app — one windowing doc, two layouts, back and deep links (docs/integration-apps.md).
+version: 0.1.0
+publish_to: none
+resolution: workspace
+
+environment:
+  sdk: ">=3.13.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  reef: ^0.1.0
+
+dev_dependencies:
+  build: ^4.0.0
+  build_runner: ^2.16.0
+  build_test: ^3.5.20
+  dart_style: ^3.1.13
+  integration_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_test:
+    sdk: flutter
+
+flutter:
+  uses-material-design: true
+  fonts:
+    - family: Source Serif 4
+      fonts:
+        - asset: fonts/source-serif-4-600.ttf
+          weight: 600
+    - family: Source Sans 3
+      fonts:
+        - asset: fonts/source-sans-3-400.ttf
+        - asset: fonts/source-sans-3-600.ttf
+          weight: 600
