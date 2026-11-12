@@ -1,0 +1,20 @@
+targets:
+  $default:
+    sources:
+      - $package$
+      - lib/**
+      - design/tokens.json
+      - design/SPEC.snapshot.json
+    builders:
+      mail_client|design:
+        enabled: true
+
+builders:
+  design:
+    import: package:mail_client/design_builder.dart
+    builder_factories: [designBuilder]
+    build_extensions:
+      ^design/tokens.json: [lib/src/tokens.g.dart]
+      ^design/SPEC.snapshot.json: [lib/src/icons.g.dart]
+    auto_apply: none
+    build_to: source

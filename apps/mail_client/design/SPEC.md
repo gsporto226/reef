@@ -276,6 +276,15 @@ Prototype (prototype-analysis):
 7. Thread rows on Desktop / Inbox and Desktop / Inbox (sidebar collapsed) have no link (the reading pane already shows the thread; a link would be a self-loop).
 8. Keyboard: Escape uses the history `back` action, not a fixed destination. Enter-to-open on rows is not defined.
 
+Frontend (Flutter build, 2026-11-11):
+9. `Surface/Paper` uses the app's own seeded noise (64 px tile, density 0.15, the spec colours and opacities, multiply). FigCraft's generator is not public. At 4% × 3% the dots fall below one 8-bit step, so the layer is invisible in practice either way.
+10. `Elevation/Overlay` maps blur 24 to Flutter `blurRadius: 24`. FigCraft's blur-to-sigma conversion is not documented; check it against a screenshot.
+11. Fonts are the Latin subsets of Source Serif 4 (600) and Source Sans 3 (400, 600), bundled under `fonts/` (OFL).
+12. Tablet keeps `Sidebar State=Collapsed`: its expand hit area draws but does nothing, since no tablet screen shows Expanded.
+13. Back link and Send on tablet and mobile clear the reading pane (→ the Inbox screen, as Flows draws them). Escape and system back walk the window history instead (issue 8), so after two opened threads they step back one thread.
+14. Desktop Archive (issue 6) opens the Archive list and leaves the reading pane empty, on `surface/reading` + Paper.
+15. Search and Send work beyond the design. The search bar is a text field: each query is a `search:<query>` buffer pushed on the list window (replaced while typing, popped when cleared or on back), shown as a list titled "Search" with "N results for “query”". Send files the draft in a **Sent** folder (`Icon / send`, below Archive; in the mobile pill above Archive, which makes the pill 268 high). The design has neither the results list nor Sent; both reuse the Thread list and Folder row components. Sent mail lives for the session only. Send stays disabled while To is empty. The Reply bar stays static. Compose opens seeded with the design's reply draft.
+
 ## Changelog
 - 2026-11-11: full build. All `screen:*` (12), `component:*` (19), `token:*` (21) and `style:*` (2) keys.
 - 2026-11-11: open-issues fix sync. Changed: all `component:*` (19) and `screen:*` (12) keys. Added: `token:space/2`, `token:space/10`, `token:space/14`, `token:space/20`, `token:space/40`, `token:space/56`, `token:radius/lg`, and 13 `style:Serif/*` / `style:Sans/*` text styles.

@@ -28,8 +28,8 @@ void main() {
     return tester.state<MailAppState>(find.byType(MailApp)).controller;
   }
 
-  Future<void> tap(WidgetTester tester, String text) async {
-    await tester.tap(find.text(text));
+  Future<void> tap(WidgetTester tester, String label) async {
+    await tester.tap(find.bySemanticsLabel(label).last);
     await tester.pumpAndSettle();
   }
 
@@ -43,23 +43,23 @@ void main() {
   testWidgets('the entrypoint boots on the folder list beside the inbox', (
     tester,
   ) async {
-    size(tester, 1200);
+    size(tester, 1280);
     app.main();
     await tester.pumpAndSettle();
     expect(find.text('Archive'), findsOneWidget);
-    expect(find.text('Lunch on Friday?'), findsOneWidget);
+    expect(find.text('Lunch on Friday?'), findsNWidgets(2));
   });
 
   testWidgets('1. expanded to compact switches projection, not the doc', (
     tester,
   ) async {
-    size(tester, 1200);
+    size(tester, 1280);
     final c = await boot(tester, InMemoryHibernationStore());
     final doc = c.doc.value;
     expect(find.text('Archive'), findsOneWidget);
-    expect(find.text('Lunch on Friday?'), findsOneWidget);
+    expect(find.text('Lunch on Friday?'), findsNWidgets(2));
 
-    size(tester, 400);
+    size(tester, 412);
     await tester.pumpAndSettle();
 
     expect(c.doc.value, same(doc));
@@ -83,31 +83,37 @@ void main() {
         null,
       ),
     );
-    size(tester, 400);
+    size(tester, 412);
     final c = await boot(tester, InMemoryHibernationStore());
 
     await tap(tester, 'Lunch on Friday?');
-    expect(find.text('Noon works.'), findsOneWidget);
+    expect(find.text('Reply to Maya…'), findsOneWidget);
 
     await tester.binding.handlePopRoute();
     await tester.pumpAndSettle();
+    expect(find.text('Reply to Maya…'), findsNothing);
     expect(find.text('Lunch on Friday?'), findsOneWidget);
     expect(platform, isNot(contains('SystemNavigator.pop')));
 
-    // The inbox's history is empty: EmptyBackAction.unhandled.
+    // The detail's history is empty: EmptyBackAction.unhandled.
     await tester.binding.handlePopRoute();
     expect(platform, contains('SystemNavigator.pop'));
 
-    // The folder list is one tap away on compact.
-    await tester.tap(find.byTooltip('Folders'));
+    // Back with the nav open closes it instead.
+    await tester.tap(find.bySemanticsLabel('Folders'));
     await tester.pumpAndSettle();
     expect(find.text('Archive'), findsOneWidget);
+    platform.clear();
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('Archive'), findsNothing);
+    expect(platform, isNot(contains('SystemNavigator.pop')));
     expect(showing(c, folderList).history.back, isEmpty);
   });
 
   testWidgets('3. a notification on a fresh install builds shell, tab and a '
       'window showing the thread', (tester) async {
-    size(tester, 1200);
+    size(tester, 1280);
     final c = await boot(
       tester,
       InMemoryHibernationStore(),
@@ -118,22 +124,23 @@ void main() {
     expect(doc.shells, hasLength(1));
     expect(doc.tabs, hasLength(1));
     expect(doc.windows.values.single.history.current, thread('42'));
-    expect(find.text('Noon works.'), findsOneWidget);
+    expect(find.text('Reply to Maya…'), findsOneWidget);
   });
 
   testWidgets('4. a notification on a restored doc pushes or focuses per '
       'linkPolicy and keeps the layout', (tester) async {
-    size(tester, 1200);
+    size(tester, 1280);
     final store = InMemoryHibernationStore();
     var c = await boot(tester, store);
     await tap(tester, 'Archive');
 
     // Not shown anywhere: the open policy pushes it on the detail window.
     c = await boot(tester, store, launchLink: Uri.parse('/threads/42'));
-    expect(c.doc.value.windows, hasLength(2));
-    expect(showing(c, thread('42')).history.back, [folder('archive')]);
-    expect(find.text('Archive'), findsOneWidget);
-    expect(find.text('Noon works.'), findsOneWidget);
+    expect(c.doc.value.windows, hasLength(3));
+    expect(showing(c, thread('42')).history.back, [noThread]);
+    expect(showing(c, folder('archive')), isNotNull);
+    expect(find.text('Old receipts'), findsOneWidget);
+    expect(find.text('Reply to Maya…'), findsOneWidget);
 
     // Shown already: focused, nothing pushed.
     final list = c.doc.value.windows.entries

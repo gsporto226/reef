@@ -4,6 +4,27 @@ Friction found while building this app on reef's public API: weird usage,
 missing features, workarounds. Each entry says what the app had to do and
 what reef could offer instead.
 
+## Status
+
+All entries are logged as W6 findings in `docs/w6-findings.md` and handled
+on `feat/w6-fixes`:
+
+| § | Finding | Reef | This app |
+|---|---|---|---|
+| 1 | W6-1 | `WindowingDoc.initial(buffer:)`, `doc.applyAll` | `defaultLayout` folds commands |
+| 2 | W6-4 | `doc.activeTab`, `doc.activeWindowId` | uses them |
+| 3 | W6-5 | `doc.windowsShowing`, `doc.tabOf` | uses `activeTab` |
+| 4 | W6-6 | `initial` is a callback | no store peek |
+| 5 | W6-7 | wontfix | not hit |
+| 6 | W6-8 | `BufferId.of`, `kind`, `token` | uses them |
+| 7 | W6-9 | `TabbedProjection(showTabStrip:)` | keeps its one-line `projectionPolicy`: the default policy picks the projection |
+| 8 | W6-10 | `emptyBack` returns commands | `_navBack`; `didPopRoute` only adds the tablet overlay |
+| 9 | W6-11 | `WindowHost(activateOnPointer:)` | nav doesn't activate; a tap on the reading pane closes the overlay |
+| 10 | W6-12 | documented: a window fills its slot | fixed-size slot |
+| 11 | W6-13 | covered by §2, §3 | `mailWindows` stays, shorter |
+
+The entries below describe the friction as first found.
+
 ## 1. No way to build a starting layout without a controller
 
 To start on a layout other than `WindowingDoc.initial()`, an app builds a
@@ -44,6 +65,9 @@ runs when nothing was restored.
 
 ## 5. Wrapping the root's default shell means rebuilding it
 
+(No longer hit: the app now replaces `WindowingSystemBack` with its own
+`didPopRoute`, see §8, and lets the root draw the shell.)
+
 Without a `child`, `WindowingRoot` draws the focused shell. Adding
 `WindowingSystemBack` around it means passing a `child`, which drops that
 default. The app re-creates it with a `ValueListenableBuilder` over the doc
@@ -83,3 +107,34 @@ uses `unhandled` and gives the thread list a "Folders" button instead.
 
 Could offer: `EmptyBackAction.focusPrevious` (the window focused before),
 or `emptyBack` as a callback returning commands, like `focusAfterClose`.
+
+The design added a second case: on mobile, back with the nav open closes
+it, and on tablet it closes the inbox overlay. Neither is a window history,
+so the app drops `WindowingSystemBack` and observes `didPopRoute` itself,
+falling back to `controller.back()`.
+
+## 9. A pointer down on any window activates it
+
+`WindowHost` activates its window on every pointer down. A tap on the
+sidebar (the nav window) makes it the active window before the tap lands,
+so "which pane does the tablet show" can't read `activeWindowId`. The app
+tracks the last active window that isn't the nav itself, and ignores the
+list's activation while the overlay is open.
+
+Could offer: a per-window `activateOnPointer` flag, or a chrome hook that
+decides.
+
+## 10. `WindowHost` needs bounded constraints
+
+`WindowHost` lays its page out in a `Stack(fit: StackFit.expand)`, so a
+window placed with `Positioned(right: 0, bottom: 0)` (the mobile nav,
+hugging its content) throws on infinite constraints. The app gives the slot
+a fixed width and full height and aligns the page inside.
+
+Could offer: a loose fit, or document that a window always fills its slot.
+
+## 11. No public way to address a window by role
+
+A custom arrangement places windows by what they show. The app re-derives
+"nav, list, detail" from each window's current buffer on every build
+(`mailWindows`), which also needs §2's active-tab lookup.

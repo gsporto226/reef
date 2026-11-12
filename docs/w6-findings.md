@@ -34,7 +34,7 @@ Severity: `blocker` (acceptance flow can't pass), `major`, `minor`.
 | W6-6 | mail_client | gap | major | reef | app can't tell whether the doc was restored | peeks the store | fixed: `initial` is a callback, run only without a restore (spec §11) |
 | W6-7 | mail_client | ergonomics | minor | reef | wrapping the root's default shell rebuilds it | none needed now | wontfix: no longer hit |
 | W6-8 | mail_client | ergonomics | minor | reef | `BufferId` has no `kind` / `token` | splits the id in app | fixed: `BufferId.of`, `kind`, `token`; `LinkTable` uses them |
-| W6-9 | mail_client | gap | minor | reef | `TabbedProjection` can't hide the tab strip; × on the last tab | custom projection policy | fixed: `showTabStrip`; default strip drops × on a last tab |
+| W6-9 | mail_client | gap | minor | reef | `TabbedProjection` can't hide the tab strip; × on the last tab | custom projection policy | fixed: `showTabStrip`; default strip drops × on a last tab (mail keeps its own policy) |
 | W6-10 | mail_client | gap | major | reef | `emptyBack` can't focus another window | `unhandled` + a button | fixed: `emptyBack` is a commands callback (spec §8) |
 | W6-11 | mail_client | gap | minor | reef | any pointer down activates its window | tracks last non-nav window | fixed: `WindowHost(activateOnPointer:)` |
 | W6-12 | mail_client | spec | minor | reef | `WindowHost` needs bounded constraints | fixed-size slot | doc: a window fills its slot |
@@ -80,8 +80,8 @@ Severity: `blocker` (acceptance flow can't pass), `major`, `minor`.
 ### W6-4 to W6-13: mail client
 
 Repros and workarounds: `apps/mail_client/API_NOTES.md` §2 to §11 on
-`design/mail-client-spec`, in that order. The app still carries its
-workarounds; it moves to the new API when that branch rebases.
+`design/mail-client-spec`, in that order. The app uses the new API; its
+`API_NOTES.md` Status table says what each fix replaced.
 
 <!--
 ### W6-1: <summary>

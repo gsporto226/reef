@@ -54,10 +54,11 @@ Acceptance flows:
 
 Folders, a thread list, and threads. One doc, two layouts.
 
-In scope: folder list, thread list, thread view, compose draft; desktop
+In scope: folder list, thread list, thread view, compose draft sent to a
+local Sent folder; search as a buffer on the list window; desktop
 master-detail and compact stack; a simulated push notification.
 
-Out of scope: networking, accounts, attachments, rich text, search.
+Out of scope: networking, accounts, attachments, rich text.
 
 Acceptance flows:
 
