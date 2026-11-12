@@ -45,7 +45,7 @@ class PlaygroundApp extends ConsumerStatefulWidget {
 class _PlaygroundAppState extends ConsumerState<PlaygroundApp> {
   final _platform = RealShellPlatform(title: 'Reef windowing');
   late final _controller = WindowingController(
-    initial: startingLayout(const BufferId.manual('welcome')),
+    initial: () => startingLayout(const BufferId.manual('welcome')),
     undo: ref.read(undoControllerProvider),
     platform: _platform,
     store: widget.store,

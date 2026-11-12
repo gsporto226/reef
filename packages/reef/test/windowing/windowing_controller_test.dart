@@ -999,7 +999,7 @@ void main() {
 
   group('publishing', () {
     test('dispatchAll publishes once, and never for an unchanged doc', () {
-      final controller = WindowingController(initial: doc({s1: ([t1], t1)}));
+      final controller = WindowingController(initial: () => doc({s1: ([t1], t1)}));
       var published = 0;
       controller.doc.addListener(() => published++);
 
@@ -1020,7 +1020,7 @@ void main() {
 
   group('intent methods', () {
     test('generate ids and dispatch', () {
-      final controller = WindowingController(initial: doc({s1: ([t1], t1)}));
+      final controller = WindowingController(initial: () => doc({s1: ([t1], t1)}));
 
       final empty = controller.newTab();
       expect(controller.doc.value.shells[s1]!.tabIds, [t1, empty]);
@@ -1039,7 +1039,7 @@ void main() {
     });
 
     test('split, resize and close windows', () {
-      final controller = WindowingController(initial: tree(l1, w1));
+      final controller = WindowingController(initial: () => tree(l1, w1));
       final w = controller.splitWindow(w1, axis: Axis.horizontal);
       expect(controller.doc.value, tree(h([l1, WindowLeaf(w)]), w));
       controller.resizeWindow(w, [0.25, 0.75], levels: 0);
@@ -1052,7 +1052,7 @@ void main() {
     });
 
     test('navigate window history', () {
-      final controller = WindowingController(initial: tree(l1, w1));
+      final controller = WindowingController(initial: () => tree(l1, w1));
       controller.pushBuffer(w1, b2);
       controller.popBuffer(w1);
       controller.navigateForward(w1);
@@ -1064,7 +1064,7 @@ void main() {
 
     test('shells, moves and window focus', () {
       final controller = WindowingController(
-          initial: doc({s1: ([t1, t2], t1)}, windows: {t1: w1}));
+          initial: () => doc({s1: ([t1, t2], t1)}, windows: {t1: w1}));
       final docs = <WindowingDoc>[];
       controller.doc.addListener(() => docs.add(controller.doc.value));
 
@@ -1087,7 +1087,7 @@ void main() {
     });
 
     test('float, raise and dock windows', () {
-      final controller = WindowingController(initial: tree(h([l1, l2]), w1));
+      final controller = WindowingController(initial: () => tree(h([l1, l2]), w1));
       controller.floatWindow(w2, scope: const TabScope(t1));
       controller.floatWindow(w1, scope: const TabScope(t1));
       controller.raiseWindow(w2);
@@ -1105,7 +1105,7 @@ void main() {
 
     test('newTab opens in the given shell', () {
       final controller = WindowingController(
-          initial: doc({s1: ([t1], t1), s2: ([t2], t2)}));
+          initial: () => doc({s1: ([t1], t1), s2: ([t2], t2)}));
       final tab = controller.newTab(shellId: s2);
       expect(controller.doc.value.shells[s2]!.tabIds, [t2, tab]);
       expect(controller.doc.value.focusedShellId, s2);

@@ -144,8 +144,8 @@ void main() {
       bool slow = false,
     }) async {
       controller = slow
-          ? SlowController(initial: initial, links: links)
-          : WindowingController(initial: initial, links: links);
+          ? SlowController(initial: () => initial, links: links)
+          : WindowingController(initial: () => initial, links: links);
       provider = FakeRouteInformationProvider(route);
       await tester.pumpWidget(
         WindowingRoot(
@@ -239,7 +239,7 @@ void main() {
     });
 
     testWidgets('defaults to the platform provider', (tester) async {
-      controller = WindowingController(initial: doc(), links: links);
+      controller = WindowingController(initial: () => doc(), links: links);
       await tester.pumpWidget(
         WindowingRoot(
           controller: controller,

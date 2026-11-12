@@ -254,12 +254,18 @@ class TabCanvas extends StatelessWidget {
 /// Shows window [windowId]'s current buffer through the scope's buffer
 /// builder inside the delegate's [WindowingDelegate.windowChrome], with the
 /// window's [FloatingLayer] over it. A pointer down on it activates it (and
-/// raises it, when floating). A window is drawn in one place at a time: its
-/// page sits under a global key, so two hosts of one window would clash.
+/// raises it, when floating) unless [activateOnPointer] is false. A window
+/// always fills its slot, so its slot needs bounded constraints. A window is
+/// drawn in one place at a time: its page sits under a global key, so two
+/// hosts of one window would clash.
 class WindowHost extends StatelessWidget {
-  const WindowHost(this.windowId, {super.key});
+  const WindowHost(this.windowId, {super.key, this.activateOnPointer = true});
 
   final WindowId windowId;
+
+  /// Whether a pointer down activates the window; false for a window that
+  /// never takes focus, like a navigation sidebar.
+  final bool activateOnPointer;
 
   /// The window whose page encloses [context].
   static WindowId of(BuildContext context) =>
@@ -280,7 +286,9 @@ class WindowHost extends StatelessWidget {
         if (buffer == null) return const SizedBox.shrink();
         final window = Listener(
           behavior: HitTestBehavior.translucent,
-          onPointerDown: (_) => scope.controller.activateWindow(windowId),
+          onPointerDown: activateOnPointer
+              ? (_) => scope.controller.activateWindow(windowId)
+              : null,
           child: _WindowIdScope(
             windowId: windowId,
             child: delegate.windowChrome(

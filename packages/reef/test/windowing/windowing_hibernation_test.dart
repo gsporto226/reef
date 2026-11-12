@@ -15,7 +15,7 @@ void main() {
     WindowingDoc? initial,
     UndoController? undo,
   }) {
-    final c = WindowingController(store: store, initial: initial, undo: undo);
+    final c = WindowingController(store: store, initial: () => initial, undo: undo);
     addTearDown(c.dispose);
     return c;
   }

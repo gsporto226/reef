@@ -58,7 +58,7 @@ void main() {
     await tester.binding.setSurfaceSize(const Size(808, 608));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     undo = UndoController();
-    c = WindowingController(initial: _doc(), undo: undo);
+    c = WindowingController(initial: () => _doc(), undo: undo);
     addTearDown(c.dispose);
     await tester.pumpWidget(
       Directionality(

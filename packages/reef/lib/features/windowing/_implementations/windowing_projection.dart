@@ -77,9 +77,17 @@ class DesktopProjection extends StatelessWidget {
 /// Shell [shellId] with its tab bar over the tab's active window alone, the
 /// [WindowArrangement.focusedOnly]; floating windows still show.
 class TabbedProjection extends StatelessWidget {
-  const TabbedProjection(this.shellId, {super.key, this.tabBar});
+  const TabbedProjection(
+    this.shellId, {
+    super.key,
+    this.showTabStrip = true,
+    this.tabBar,
+  });
 
   final ShellId shellId;
+
+  /// Whether the tab bar shows.
+  final bool showTabStrip;
 
   /// Default: the delegate's [WindowingDelegate.tabStrip], drawn over a
   /// [TabStripSlot].
@@ -90,7 +98,9 @@ class TabbedProjection extends StatelessWidget {
     context,
     shellId,
     WindowArrangement.focusedOnly,
-    tabBar ?? WindowingDelegateScope.of(context).tabStrip,
+    showTabStrip
+        ? tabBar ?? WindowingDelegateScope.of(context).tabStrip
+        : null,
   );
 }
 

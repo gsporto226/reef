@@ -157,8 +157,9 @@ Semantics:
   reified type argument. The one downcast happens inside the controller.
   Snapshot types are named classes (`WindowingDoc`, `BufferSnapshot`);
   denotable type arguments are a stated requirement.
-- One entry per `dispatchAll` batch. Focus-only changes update state without
-  recording. Consecutive batches sharing a `coalesceKey` merge into one
+- One entry per `dispatchAll` batch. Changes to focus or window history
+  alone (navigation, §8) update state without recording; window history is
+  not an edit. Consecutive batches sharing a `coalesceKey` merge into one
   entry (resize drags).
 - Undo history resets when the shell set changes (§2 barriers). Layout
   undo never crosses a pop-out.
@@ -392,8 +393,11 @@ in the doc (§2 `BufferHistory`): `back`, `current`, `forward`.
 
 Platform back = window back. `controller.back()` pops the focused shell's
 active window and returns true. When that window history has nothing behind it, or no window
-is active, `focusPolicy.emptyBack` decides: `nothing` (handled, no change),
-`closeWindow` (closes the active window) or `unhandled` (returns false).
+is active, `focusPolicy.emptyBack(doc)` decides: it returns the commands to
+dispatch (handled), or null (returns false). Reef ships `emptyBackNothing`
+(the default), `emptyBackCloseWindow` and `emptyBackUnhandled`. Back that
+closes app-owned UI first (a drawer, an overlay) is the app's own
+`didPopRoute`, falling back to `controller.back()`.
 `WindowingSystemBack` is an opt-in widget that binds system back, such as
 Android's back gesture, to `controller.back()`. Back it leaves unhandled
 goes on to the platform, which can background the app. Browser back is a
@@ -528,7 +532,9 @@ assert on it.
   on every `extra` write.
 - At construction, the controller loads the record. A record with another
   version, a malformed record and a record whose doc breaks an invariant
-  are deleted and ignored, and the controller starts from `initial`.
+  are deleted and ignored. Without a restored doc the controller calls
+  `initial` (a callback, so it runs only then) and starts from its doc, or
+  from `WindowingDoc.initial()` when it is null or returns null.
   Buffer records are unaffected.
 - `controller.discardSavedLayout()` deletes the record. The next published
   doc is saved again.

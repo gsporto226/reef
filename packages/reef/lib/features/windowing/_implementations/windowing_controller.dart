@@ -20,6 +20,14 @@ sealed class WindowingCommand {
   WindowingDoc apply(WindowingDoc doc);
 }
 
+/// Folds commands over a doc without a controller.
+extension WindowingDocApply on WindowingDoc {
+  /// This doc with [commands] applied in order, through no interceptor or
+  /// focus policy: builds a starting layout without a controller.
+  WindowingDoc applyAll(Iterable<WindowingCommand> commands) =>
+      commands.fold(this, (doc, c) => c.apply(doc));
+}
+
 /// Appends a tab to [shellId], activates it and focuses the shell. With a
 /// [buffer], the tab's first window ([WindowId]) shows that buffer.
 class NewTab extends WindowingCommand {
@@ -121,7 +129,7 @@ class SplitWindow extends WindowingCommand {
 
   @override
   WindowingDoc apply(WindowingDoc doc) {
-    final tabId = _tabOf(doc, windowId);
+    final tabId = doc.tabOf(windowId);
     if (tabId == null || doc.windows.containsKey(newWindowId)) return doc;
     final history = doc.windows[windowId]!.history;
     final copy = switch (buffer) {
@@ -178,7 +186,7 @@ class CloseWindow extends WindowingCommand {
 /// [CloseWindow]. The window stays in `doc.windows`. Null when it is not a
 /// tree window.
 WindowingDoc? _detach(WindowingDoc doc, WindowId windowId) {
-  final tabId = _tabOf(doc, windowId);
+  final tabId = doc.tabOf(windowId);
   if (tabId == null) return null;
   final tab = doc.tabs[tabId]!;
   WindowId? neighbour;
@@ -230,7 +238,7 @@ WindowingDoc _focusScope(WindowingDoc doc, FloatScope scope) =>
       TabScope(:final id) => ActivateTab(id).apply(doc),
       WindowScope(:final id) => switch (doc.floating[id]) {
           final f? => _focusScope(doc, f.scope),
-          null => ActivateTab(_tabOf(doc, id)!).apply(doc),
+          null => ActivateTab(doc.tabOf(id)!).apply(doc),
         },
     };
 
@@ -283,7 +291,7 @@ class ResizeWindow extends WindowingCommand {
 
   @override
   WindowingDoc apply(WindowingDoc doc) {
-    final tabId = _tabOf(doc, windowId);
+    final tabId = doc.tabOf(windowId);
     if (tabId == null ||
         ratios.any((r) => r <= 0) ||
         (ratios.fold(0.0, (a, r) => a + r) - 1).abs() > 1e-9) {
@@ -419,7 +427,7 @@ class ActivateWindow extends WindowingCommand {
     if (doc.floating[windowId] case final state?) {
       return _focusScope(RaiseWindow(windowId).apply(doc), state.scope);
     }
-    final tabId = _tabOf(doc, windowId);
+    final tabId = doc.tabOf(windowId);
     if (tabId == null) return doc;
     final tab = doc.tabs[tabId]!;
     final next = tab.activeWindowId == windowId
@@ -552,7 +560,7 @@ class MoveWindow extends WindowingCommand {
   @override
   WindowingDoc apply(WindowingDoc doc) {
     final tab = doc.tabs[tabId];
-    if (tab == null || _tabOf(doc, windowId) == null) return doc;
+    if (tab == null || doc.tabOf(windowId) == null) return doc;
     final (ok, at) = _anchor(tab, windowId, target);
     if (!ok) return doc;
     return _place(_detach(doc, windowId)!, windowId, tabId, at, axis, side);
@@ -663,13 +671,6 @@ int _top(WindowingDoc doc, FloatScope scope, WindowId? except) =>
         .where((e) => e.value.scope == scope && e.key != except)
         .fold(-1, (top, e) => e.value.zIndex > top ? e.value.zIndex : top);
 
-TabId? _tabOf(WindowingDoc doc, WindowId window) {
-  for (final MapEntry(:key, :value) in doc.tabs.entries) {
-    if (value.root?.windowIds.contains(window) ?? false) return key;
-  }
-  return null;
-}
-
 WindowNode _replaceLeaf(WindowNode node, WindowId id, WindowNode with_) =>
     switch (node) {
       WindowLeaf(id: final leaf) => leaf == id ? with_ : node,
@@ -747,7 +748,7 @@ typedef WindowingOpenPolicy = List<WindowingCommand> Function(
 /// Focuses a window of the focused shell's active tab that shows [buffer];
 /// else [pushOpenPolicy].
 List<WindowingCommand> defaultOpenPolicy(WindowingDoc doc, BufferId buffer) {
-  final tab = _activeTab(doc);
+  final tab = doc.activeTab;
   for (final w in tab.root?.windowIds ?? const <WindowId>[]) {
     if (doc.windows[w]!.history.current == buffer) return [ActivateWindow(w)];
   }
@@ -757,7 +758,7 @@ List<WindowingCommand> defaultOpenPolicy(WindowingDoc doc, BufferId buffer) {
 /// Pushes [buffer] onto the active window; an empty tab gets its first
 /// window.
 List<WindowingCommand> pushOpenPolicy(WindowingDoc doc, BufferId buffer) =>
-    switch (_activeTab(doc).activeWindowId) {
+    switch (doc.activeTab.activeWindowId) {
       final w? => [PushBuffer(w, buffer)],
       null => _firstWindow(doc, buffer),
     };
@@ -766,7 +767,7 @@ List<WindowingCommand> pushOpenPolicy(WindowingDoc doc, BufferId buffer) =>
 /// its first window.
 List<WindowingCommand> splitBesideOpenPolicy(
         WindowingDoc doc, BufferId buffer) =>
-    switch (_activeTab(doc).activeWindowId) {
+    switch (doc.activeTab.activeWindowId) {
       final w? => [
           SplitWindow(w,
               newWindowId: WindowId.generate(),
@@ -783,9 +784,6 @@ List<WindowingCommand> newTabOpenPolicy(WindowingDoc doc, BufferId buffer) => [
           tabId: TabId.generate(),
           buffer: (WindowId.generate(), buffer)),
     ];
-
-TabState _activeTab(WindowingDoc doc) =>
-    doc.tabs[doc.shells[doc.focusedShellId]!.activeTabId]!;
 
 /// Gives the focused shell's empty active tab a first window showing
 /// [buffer], built in a scratch tab and moved in.
@@ -810,28 +808,28 @@ typedef WindowingLinkPolicy = List<WindowingCommand>? Function(
 /// first; else null, so the open policy decides.
 List<WindowingCommand>? defaultLinkPolicy(
     WindowingDoc doc, BufferId buffer, Map<String, String> arguments) {
-  final shown = [
-    for (final MapEntry(:key, :value) in doc.windows.entries)
-      if (value.history.current == buffer) key,
-  ];
+  final shown = doc.windowsShowing(buffer).toList();
   if (shown.isEmpty) return null;
   final here = shown.where((w) =>
       ActivateWindow(w).apply(doc).focusedShellId == doc.focusedShellId);
   return [ActivateWindow(here.firstOrNull ?? shown.first)];
 }
 
-/// What [WindowingController.back] does when the active window's history
-/// has nothing to go back to.
-enum EmptyBackAction {
-  /// Nothing; back reports handled.
-  nothing,
+/// Compiles back with nothing left in the active window's history into
+/// commands for [WindowingController.back]; null leaves back unhandled, so
+/// system back reaches the platform.
+typedef EmptyBackPolicy = List<WindowingCommand>? Function(WindowingDoc doc);
 
-  /// Closes the active window; back reports handled.
-  closeWindow,
+/// Does nothing; back reports handled.
+List<WindowingCommand>? emptyBackNothing(WindowingDoc doc) => const [];
 
-  /// Nothing; back reports unhandled, so system back reaches the platform.
-  unhandled,
-}
+/// Closes the active window; back reports handled.
+List<WindowingCommand>? emptyBackCloseWindow(WindowingDoc doc) => [
+      if (doc.activeWindowId case final w?) CloseWindow(w),
+    ];
+
+/// Does nothing; back reports unhandled.
+List<WindowingCommand>? emptyBackUnhandled(WindowingDoc doc) => null;
 
 /// What close, split and back do to focus (spec §6). Each effect is
 /// dispatched right after the command it reacts to was intercepted and
@@ -842,7 +840,7 @@ class WindowingFocusPolicy {
     this.splitTakesFocus = true,
     this.closeEmptyTab = false,
     this.focusAfterClose,
-    this.emptyBack = EmptyBackAction.nothing,
+    this.emptyBack = emptyBackNothing,
   });
 
   /// Whether the new window of a split takes focus; else the split window
@@ -857,7 +855,8 @@ class WindowingFocusPolicy {
   /// active window [closed] closes; null keeps the reducer's neighbour.
   final WindowId? Function(WindowingDoc doc, WindowId closed)? focusAfterClose;
 
-  final EmptyBackAction emptyBack;
+  /// What [WindowingController.back] does with nothing to go back to.
+  final EmptyBackPolicy emptyBack;
 
   /// The commands to append after [command] took [before] to [after].
   List<WindowingCommand> _effects(
@@ -868,7 +867,7 @@ class WindowingFocusPolicy {
                 after.windows.containsKey(newWindowId) =>
           [ActivateWindow(windowId)],
         CloseWindow(:final windowId) when !after.windows.containsKey(windowId) =>
-          switch (_tabOf(before, windowId)) {
+          switch (before.tabOf(windowId)) {
             final tab? when closeEmptyTab && after.tabs[tab]?.root == null =>
               [CloseTab(tab)],
             final tab? when before.tabs[tab]!.activeWindowId == windowId =>
@@ -892,12 +891,13 @@ class WindowingController {
   /// (spec §4), published back through a [WindowingUndoHost].
   /// With [interceptor], every dispatched command is decided on first.
   /// With [platform], [openShell] opens real shells.
-  /// With [store], it starts from the doc saved there (over [initial]) and
+  /// With [store], it starts from the doc saved there and
   /// saves every published doc under [hibernationKey] (spec §11). A bad
   /// record is deleted and ignored. [persistence] shapes each saved doc
-  /// and [extra] is saved next to it.
+  /// and [extra] is saved next to it. [initial] runs only when nothing was
+  /// restored; null, or a null result, starts from [WindowingDoc.initial].
   WindowingController({
-    WindowingDoc? initial,
+    WindowingDoc? Function()? initial,
     UndoController? undo,
     this.interceptor,
     this.openPolicy = defaultOpenPolicy,
@@ -908,7 +908,7 @@ class WindowingController {
     HibernationStore? store,
     this.persistence = _saveWholeDoc,
   }) : _doc = ValueNotifier(
-         _restore(store) ?? initial ?? WindowingDoc.initial(),
+         _restore(store) ?? initial?.call() ?? WindowingDoc.initial(),
        ),
        _undo = undo,
        _store = store {
@@ -1004,21 +1004,16 @@ class WindowingController {
   /// or without an active window, [focusPolicy] decides. Returns whether
   /// back was handled.
   bool back() {
-    final window = _activeTab(_doc.value).activeWindowId;
+    final window = _doc.value.activeTab.activeWindowId;
     if (window != null &&
         _doc.value.windows[window]!.history.back.isNotEmpty) {
       dispatch(PopBuffer(window));
       return true;
     }
-    switch (focusPolicy.emptyBack) {
-      case EmptyBackAction.nothing:
-        return true;
-      case EmptyBackAction.closeWindow:
-        if (window != null) dispatch(CloseWindow(window));
-        return true;
-      case EmptyBackAction.unhandled:
-        return false;
-    }
+    final commands = focusPolicy.emptyBack(_doc.value);
+    if (commands == null) return false;
+    dispatchAll(commands);
+    return true;
   }
 
   final _vetoes = ValueNotifier<CommandVeto?>(null);
@@ -1030,7 +1025,8 @@ class WindowingController {
 
   /// Applies [commands] in order and publishes once, only when the resulting
   /// doc differs from the current one. Records one undo entry for the batch
-  /// unless only focus changed; a changed shell set clears the timeline.
+  /// unless only focus or window history changed (navigation, not layout);
+  /// a changed shell set clears the timeline.
   /// Consecutive batches with an equal [coalesceKey] merge into one entry.
   void dispatchAll(Iterable<WindowingCommand> commands,
           {Object? coalesceKey}) =>
@@ -1061,7 +1057,7 @@ class WindowingController {
     if (_undo case final undo?) {
       if (!setEquals(next.shells.keys.toSet(), before.shells.keys.toSet())) {
         undo.clearHost<WindowingDoc>(); // layout undo never crosses a pop-out
-      } else if (_withFocusFrom(next, focusSource: before) != before) {
+      } else if (_withNavigationFrom(next, source: before) != before) {
         undo.record(UndoEntry<WindowingDoc>(
           label: const UndoLabel('Change layout'),
           snapshotBefore: before,
@@ -1274,6 +1270,14 @@ WindowingDoc _withFocusFrom(WindowingDoc doc,
               root: t.root,
               activeWindowId: focusSource.tabs[id]?.activeWindowId ??
                   t.activeWindowId))),
+    );
+
+/// [doc] with focus, and the history of each window [source] also has, taken
+/// from [source]: equal to [source] when only navigation changed.
+WindowingDoc _withNavigationFrom(WindowingDoc doc,
+        {required WindowingDoc source}) =>
+    _withFocusFrom(doc, focusSource: source).copyWith(
+      windows: doc.windows.map((id, w) => MapEntry(id, source.windows[id] ?? w)),
     );
 
 /// Publishes [WindowingDoc] snapshots into a controller's doc without

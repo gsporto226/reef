@@ -73,7 +73,7 @@ class LinkTable {
       final token = params.isEmpty && drafts.contains(kind)
           ? BufferId.generate().id
           : params.map(_escape).join('/');
-      return (buffer: BufferId.manual('$kind:$token'), arguments: path.arguments);
+      return (buffer: BufferId.of(kind, token), arguments: path.arguments);
     }
     return null;
   }
@@ -81,14 +81,14 @@ class LinkTable {
   /// [buffer]'s path with [arguments] as its query, or null when its kind
   /// has no template or its token does not fit the template.
   BufferPath? pathOf(BufferId buffer, [Map<String, String> arguments = const {}]) {
-    final colon = buffer.id.indexOf(':');
-    if (colon < 0) return null;
-    final template = templates[buffer.id.substring(0, colon)];
+    final (kind, token) = (buffer.kind, buffer.token);
+    if (kind == null || token == null) return null;
+    final template = templates[kind];
     if (template == null) return null;
     final pattern = _segments(template);
     final params = pattern.where((s) => s.startsWith(':')).length;
     final values = [
-      for (final v in buffer.id.substring(colon + 1).split('/'))
+      for (final v in token.split('/'))
         Uri.decodeComponent(v),
     ];
     if (params > 0 && values.length != params) return null;

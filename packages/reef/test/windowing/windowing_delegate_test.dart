@@ -47,7 +47,7 @@ Future<WindowingController> _pump(
   BufferBuilder? bufferBuilder,
   Widget? child,
 }) async {
-  final controller = WindowingController(initial: _doc());
+  final controller = WindowingController(initial: () => _doc());
   addTearDown(controller.dispose);
   await tester.pumpWidget(
     Directionality(

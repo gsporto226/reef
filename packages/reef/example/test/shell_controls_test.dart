@@ -18,7 +18,7 @@ Future<WindowingController> _pump(
     ..devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final controller =
-      WindowingController(initial: startingLayout(_list), platform: platform)
+      WindowingController(initial: () => startingLayout(_list), platform: platform)
         ..newTab(buffer: _edit);
   addTearDown(controller.dispose);
   final shell = controller.doc.value.focusedShellId;

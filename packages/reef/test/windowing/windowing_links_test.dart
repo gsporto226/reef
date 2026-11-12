@@ -129,7 +129,7 @@ void main() {
     WindowingController controller(WindowingDoc? initial,
         {ShellPlatform? platform}) {
       final c = WindowingController(
-        initial: initial,
+        initial: () => initial,
         links: links,
         platform: platform,
         interceptor: (_, command) => const CommandDecision.approve(),

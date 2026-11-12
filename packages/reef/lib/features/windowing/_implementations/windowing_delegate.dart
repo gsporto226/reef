@@ -254,11 +254,13 @@ class WindowingDelegate {
                     ),
                   ),
                 ),
-                GestureDetector(
-                  key: ValueKey('close ${id.value}'),
-                  onTap: () => strip.close(id),
-                  child: const Text(' × '),
-                ),
+                // A shell's last tab never closes, so it offers no ×.
+                if (strip.tabIds.length > 1)
+                  GestureDetector(
+                    key: ValueKey('close ${id.value}'),
+                    onTap: () => strip.close(id),
+                    child: const Text(' × '),
+                  ),
               ],
             ],
           );
