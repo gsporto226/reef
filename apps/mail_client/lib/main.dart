@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:mail_client/src/components.dart';
 import 'package:reef/reef.dart';
+import 'package:reef_router/reef_router.dart';
 
 void main() => runApp(MailApp(store: InMemoryHibernationStore()));
 
@@ -121,28 +122,73 @@ class Mailbox extends ChangeNotifier {
   }
 }
 
-const folderList = BufferId.manual('folders:');
+/// The folder list: `/folders`.
+final class FoldersRoute {
+  const FoldersRoute();
+
+  static final link = Link<FoldersRoute>('folders').build(FoldersRoute.new);
+}
+
+/// One folder's threads: `/folders/inbox`.
+final class FolderRoute {
+  const FolderRoute(this.id);
+  final String id;
+
+  static final link =
+      Link<FolderRoute>('folders').field((r) => r.id).build(FolderRoute.new);
+}
+
+/// One thread: `/threads/42`.
+final class ThreadRoute {
+  const ThreadRoute(this.id);
+  final String id;
+
+  static final link =
+      Link<ThreadRoute>('threads').field((r) => r.id).build(ThreadRoute.new);
+}
+
+/// The threads matching a query: `/search/lunch`.
+final class SearchRoute {
+  const SearchRoute(this.query);
+  final String query;
+
+  static final link =
+      Link<SearchRoute>('search').field((r) => r.query).build(SearchRoute.new);
+}
+
+/// Any other path.
+final class MailNotFoundRoute {
+  const MailNotFoundRoute(this.path);
+  final List<String> path;
+
+  static final link = Link<MailNotFoundRoute>('')
+      .rest((r) => r.path)
+      .build(MailNotFoundRoute.new);
+}
+
+/// Every mail link. Drafts and the empty detail are buffers no link reaches.
+final links = LinkTree<Object>([
+  FoldersRoute.link,
+  FolderRoute.link,
+  ThreadRoute.link,
+  SearchRoute.link,
+  MailNotFoundRoute.link,
+]);
+
+/// The route [buffer] shows; [MailNotFoundRoute] for a buffer no link
+/// reaches.
+Object routeOf(BufferId buffer) => links.routeOfBuffer(buffer);
+
+final folderList = links.linkOf(const FoldersRoute()).buffer;
 
 /// The detail window's bottom entry: no thread selected.
 const noThread = BufferId.manual('empty:');
 
-BufferId folder(String id) => BufferId.of('folder', id);
+BufferId folder(String id) => links.linkOf(FolderRoute(id)).buffer;
 
-BufferId thread(String id) => BufferId.of('thread', id);
+BufferId thread(String id) => links.linkOf(ThreadRoute(id)).buffer;
 
-BufferId search(String query) => BufferId.of('search', query);
-
-/// One path template per buffer kind; every `/compose` is a fresh draft.
-const links = LinkTable(
-  {
-    'folders': '/folders',
-    'folder': '/folders/:folderId',
-    'thread': '/threads/:threadId',
-    'compose': '/compose',
-    'search': '/search/:query',
-  },
-  drafts: {'compose'},
-);
+BufferId search(String query) => links.linkOf(SearchRoute(query)).buffer;
 
 /// The active tab's windows by role, from the buffer each one shows.
 typedef MailWindows = ({WindowId? nav, WindowId? list, WindowId? detail});
@@ -153,7 +199,7 @@ MailWindows mailWindows(WindowingDoc doc) {
     final buffer = doc.windows[w]!.history.current.buffer;
     if (buffer == folderList) {
       nav = w;
-    } else if (buffer.kind == 'folder' || buffer.kind == 'search') {
+    } else if (routeOf(buffer) is FolderRoute || routeOf(buffer) is SearchRoute) {
       list = w;
     } else {
       detail = w;
@@ -185,16 +231,17 @@ WindowingDoc defaultLayout() {
 List<WindowingCommand> mailOpenPolicy(WindowingDoc doc, BufferId buffer,
     {Map<String, String> arguments = const {}}) {
   final (:nav, :list, :detail) = mailWindows(doc);
-  final kind = buffer.kind;
-  if (kind == 'folder' && list != null) {
+  final route = routeOf(buffer);
+  if (route is FolderRoute && list != null) {
     return [
       AttachBuffer(list, buffer, arguments: arguments),
       if (detail != null) AttachBuffer(detail, noThread),
       ActivateWindow(list),
     ];
   }
-  if (kind == 'search' && list != null) {
-    final searching = doc.windows[list]!.history.current.buffer.kind == 'search';
+  if (route is SearchRoute && list != null) {
+    final searching =
+        routeOf(doc.windows[list]!.history.current.buffer) is SearchRoute;
     return [
       searching
           ? ReplaceBuffer(list, buffer, arguments: arguments)
@@ -202,7 +249,7 @@ List<WindowingCommand> mailOpenPolicy(WindowingDoc doc, BufferId buffer,
       ActivateWindow(list),
     ];
   }
-  if (kind != 'folders' && kind != 'folder' && detail != null) {
+  if (route is! FoldersRoute && route is! FolderRoute && detail != null) {
     return [
       if (doc.windows[detail]!.history.current.buffer != buffer)
         PushBuffer(detail, buffer, arguments: arguments),
@@ -260,7 +307,6 @@ class MailAppState extends State<MailApp> with WidgetsBindingObserver {
       initial: () =>
           widget.launchLink != null ? WindowingDoc.initial() : defaultLayout(),
       store: widget.store,
-      links: links,
       openPolicy: mailOpenPolicy,
       focusPolicy: const WindowingFocusPolicy(emptyBack: _navBack),
     )..doc.addListener(_track);
@@ -293,16 +339,21 @@ class MailAppState extends State<MailApp> with WidgetsBindingObserver {
   };
 
   /// The folder the list window shows; null while it shows a search.
-  String? get listFolder => switch (_shows(windows.list)?.id) {
-    final id? when id.startsWith('folder:') => id.substring('folder:'.length),
+  String? get listFolder => switch (_shows(windows.list)) {
+    final b? => switch (routeOf(b)) {
+      FolderRoute(:final id) => id,
+      _ => null,
+    },
     null => 'inbox',
-    _ => null,
   };
 
   /// The query the list window shows, or empty.
-  String get query => switch (_shows(windows.list)?.id) {
-    final id? when id.startsWith('search:') => id.substring('search:'.length),
-    _ => '',
+  String get query => switch (_shows(windows.list)) {
+    final b? => switch (routeOf(b)) {
+      SearchRoute(:final query) => query,
+      _ => '',
+    },
+    null => '',
   };
 
   /// The search bar's text: a search on the list, pushed over the folder
@@ -316,9 +367,14 @@ class MailAppState extends State<MailApp> with WidgetsBindingObserver {
   }
 
   /// A tapped push notification for [uri].
-  Future<bool> notify(Uri uri) => controller.openLink(BufferPath.fromUri(uri));
+  Future<void> notify(Uri uri) {
+    final (:buffer, :arguments) = links.resolve(uri);
+    return controller.openLink(buffer, arguments: arguments);
+  }
 
-  void compose() => notify(Uri.parse('/compose'));
+  /// A fresh draft each time.
+  void compose() =>
+      controller.openBuffer(BufferId.of('compose', BufferId.generate().id));
 
   void openThread(String id) => controller.openBuffer(thread(id));
 
@@ -627,14 +683,14 @@ class MailPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final token = buffer.token!;
-    return switch (buffer.kind) {
-      'folders' => const _Sidebar(),
-      'folder' => _ThreadList(folderId: token),
-      'search' => _ThreadList(query: token),
-      'thread' => _ThreadPane(token),
-      'compose' => const _ComposePane(),
-      'empty' => const Paper(color: T.surfaceReading, child: SizedBox.expand()),
+    return switch (routeOf(buffer)) {
+      FoldersRoute() => const _Sidebar(),
+      FolderRoute(:final id) => _ThreadList(folderId: id),
+      SearchRoute(:final query) => _ThreadList(query: query),
+      ThreadRoute(:final id) => _ThreadPane(id),
+      _ when buffer.kind == 'compose' => const _ComposePane(),
+      _ when buffer == noThread =>
+        const Paper(color: T.surfaceReading, child: SizedBox.expand()),
       _ => Center(child: Text('Unknown buffer ${buffer.id}')),
     };
   }

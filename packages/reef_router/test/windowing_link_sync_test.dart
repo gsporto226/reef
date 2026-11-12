@@ -10,15 +10,20 @@ const t2 = TabId.manual('t2');
 const left = WindowId.manual('left');
 const right = WindowId.manual('right');
 const other = WindowId.manual('other');
-const list = BufferId.manual('tasks:');
-const edit42 = BufferId.manual('task-edit:42');
-const edit43 = BufferId.manual('task-edit:43');
+const list = BufferId.manual('/tasks:');
+const edit42 = BufferId.manual('/tasks/*/edit:42');
+const edit43 = BufferId.manual('/tasks/*/edit:43');
 const scratch = BufferId.manual('scratch:1');
 
-const links = LinkTable({
-  'tasks': '/tasks',
-  'task-edit': '/tasks/:taskId/edit',
-});
+final links = LinkTree<Object>([
+  Link<String>('tasks').build(() => 'tasks'),
+  Link<(int, String?)>('tasks')
+      .field((r) => r.$1)
+      .literal('edit')
+      .query<String?>('q', (r) => r.$2, fallback: null)
+      .build((id, q) => (id, q)),
+  Link<List<String>>('').rest((path) => path).build((path) => path),
+]);
 
 /// Records what the adapter reports and injects route notifications, as a
 /// browser would.
@@ -87,12 +92,16 @@ WindowingDoc doc({
 
 /// Opens links only after a delay, as a late async openLink would.
 class SlowController extends WindowingController {
-  SlowController({super.initial, super.links});
+  SlowController({super.initial});
 
   @override
-  Future<bool> openLink(BufferPath path, {bool newShell = false}) async {
+  Future<void> openLink(
+    BufferId buffer, {
+    Map<String, String> arguments = const {},
+    bool newShell = false,
+  }) async {
     await Future<void>.delayed(const Duration(milliseconds: 10));
-    return super.openLink(path, newShell: newShell);
+    return super.openLink(buffer, arguments: arguments, newShell: newShell);
   }
 }
 
@@ -144,14 +153,15 @@ void main() {
       bool slow = false,
     }) async {
       controller = slow
-          ? SlowController(initial: () => initial, links: links)
-          : WindowingController(initial: () => initial, links: links);
+          ? SlowController(initial: () => initial)
+          : WindowingController(initial: () => initial);
       provider = FakeRouteInformationProvider(route);
       await tester.pumpWidget(
         WindowingRoot(
           controller: controller,
           bufferBuilder: (_, _) => const SizedBox(),
           child: WindowingLinkSync(
+            tree: links,
             routeInformationProvider: provider,
             child: const SizedBox(),
           ),
@@ -162,9 +172,8 @@ void main() {
     String? focusedPath() {
       final d = controller.doc.value;
       final tab = d.tabs[d.shells[d.focusedShellId]!.activeTabId]!;
-      return links
-          .pathOf(d.windows[tab.activeWindowId]!.history.current.buffer)
-          ?.toString();
+      final entry = d.windows[tab.activeWindowId]!.history.current;
+      return links.uriOfBuffer(entry.buffer, entry.arguments)?.toString();
     }
 
     testWidgets('example 1: the initial route opens its buffer and is not '
@@ -179,10 +188,16 @@ void main() {
       expect(provider.reports, isEmpty);
     });
 
-    testWidgets("an unknown initial route is rewritten to the focused "
-        "buffer's path", (tester) async {
-      await mount(tester, doc(focused: right));
-      expect(provider.reports, [('/tasks/42/edit', replace)]);
+    testWidgets('an unknown initial route opens the not-found route with '
+        'the unmatched path, and keeps the URL', (tester) async {
+      await mount(tester, doc(focused: right), route: '/nope/a');
+      expect(focusedPath(), '/nope/a');
+      expect(
+        links.routeOfBuffer(controller.doc.value.windows[right]!.history
+            .current.buffer),
+        ['nope', 'a'],
+      );
+      expect(provider.reports, isEmpty);
     });
 
     testWidgets('URL write-back keeps the current entry query',
@@ -252,12 +267,15 @@ void main() {
     });
 
     testWidgets('defaults to the platform provider', (tester) async {
-      controller = WindowingController(initial: () => doc(), links: links);
+      controller = WindowingController(initial: () => doc());
       await tester.pumpWidget(
         WindowingRoot(
           controller: controller,
           bufferBuilder: (_, _) => const SizedBox(),
-          child: const WindowingLinkSync(child: SizedBox(key: Key('page'))),
+          child: WindowingLinkSync(
+            tree: links,
+            child: const SizedBox(key: Key('page')),
+          ),
         ),
       );
       controller.dispatch(PushBuffer(left, edit42));
@@ -288,6 +306,7 @@ void main() {
         controller: controller,
         bufferBuilder: (_, _) => const SizedBox(),
         child: WindowingLinkSync(
+          tree: links,
           routeInformationProvider: p,
           child: const SizedBox(),
         ),

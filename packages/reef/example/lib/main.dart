@@ -10,26 +10,20 @@ import 'package:reef_example/features/task_editor/_presentation/edit/task_edit_p
 import 'package:reef_example/features/task_editor/_presentation/list/task_list_page.dart';
 import 'package:reef_example/_kit/kit.dart';
 import 'package:reef_example/json_file_hibernation_store.dart';
+import 'package:reef_example/links.dart';
 import 'package:reef_multi_window/reef_multi_window.dart';
 import 'package:reef_router/reef_router.dart';
 import 'package:reef_example/main_windowing.dart' show startingLayout;
 import 'package:reef_example/undo_providers.dart';
 
-/// The kind→page mapping: the app's buffer builder, shared by every shell.
-final Map<String, Widget Function(BuildContext, BufferId)> bufferPages = {
-  'task-list': (_, id) => TaskListPage(bufferId: id),
-  'task-edit': (_, id) => TaskEditPage(
-        bufferId: id,
-        initial: TaskEditModel(title: id.id.substring('task-edit:'.length)),
-      ),
-};
-
-/// The paths of the buffers a link can reach: `/tasks/Buy milk/edit`.
-const exampleLinks = LinkTable({'task-edit': '/tasks/:title/edit'});
-
-/// Builds the page for any buffer id the app knows.
+/// Builds the page for any buffer id the app knows, shared by every shell.
 Widget bufferPageFor(BuildContext context, BufferId id) =>
-    bufferPages[id.id.split(':').first]?.call(context, id) ?? const SizedBox.shrink();
+    switch (exampleLinks.routeOfBuffer(id)) {
+      TaskListRoute() => TaskListPage(bufferId: id),
+      TaskEditRoute(:final title) =>
+        TaskEditPage(bufferId: id, initial: TaskEditModel(title: title)),
+      _ => const SizedBox.shrink(),
+    };
 
 /// One entry for every platform: multi-shell with `FLUTTER_WINDOWING=true`,
 /// the focused shell inline without it. Run (master channel; never enable
@@ -161,13 +155,12 @@ class _ExampleShellsState extends State<_ExampleShells> {
   final _platform = RealShellPlatform(title: 'Reef example');
   late final _container = ProviderScope.containerOf(context, listen: false);
   late final _controller = WindowingController(
-    initial: () => startingLayout(const BufferId.manual('task-list:all')),
+    initial: () => startingLayout(taskListBuffer),
     undo: _container.read(undoControllerProvider),
     platform: _platform,
     store: _container.read(hibernationStoreProvider),
     // Editors open beside the list, the launch link's too.
     openPolicy: splitBesideOpenPolicy,
-    links: exampleLinks,
   );
 
   @override
@@ -175,7 +168,8 @@ class _ExampleShellsState extends State<_ExampleShells> {
     super.initState();
     // Restored first, then the link on top (spec §9 cold start).
     if (widget.link case final link?) {
-      _controller.openLink(BufferPath.fromUri(Uri.parse(link)));
+      final (:buffer, :arguments) = exampleLinks.resolve(Uri.parse(link));
+      _controller.openLink(buffer, arguments: arguments);
     }
   }
 
@@ -191,6 +185,7 @@ class _ExampleShellsState extends State<_ExampleShells> {
         controller: _controller,
         bufferBuilder: bufferPageFor,
         child: WindowingLinkSync(
+          tree: exampleLinks,
           routeInformationProvider: widget.routeInformationProvider,
           child: WindowingSystemBack(
             child: ShellViews(

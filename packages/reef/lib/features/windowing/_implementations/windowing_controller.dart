@@ -9,7 +9,6 @@ import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/shell_platform.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
-import 'package:reef/features/windowing/_implementations/windowing_links.dart';
 
 /// A windowing mutation (spec §3). Commands carry pre-generated ids for what
 /// they create, so the reducer stays pure. A command invalid in the current
@@ -938,7 +937,6 @@ class WindowingController {
     this.interceptor,
     this.openPolicy = defaultOpenPolicy,
     this.linkPolicy = defaultLinkPolicy,
-    this.links = const LinkTable({}),
     this.focusPolicy = const WindowingFocusPolicy(),
     this.platform,
     HibernationStore? store,
@@ -1009,28 +1007,25 @@ class WindowingController {
   void openBuffer(BufferId buffer) =>
       dispatchAll(openPolicy(_doc.value, buffer));
 
-  /// Resolves the paths [openLink] takes.
-  final LinkTable links;
-
   /// Decides what [openLink] does with a resolved buffer.
   WindowingLinkPolicy linkPolicy;
 
-  /// Resolves [path] through [links] and returns whether it resolved. With
-  /// [newShell] and pop-out support the buffer opens in a new shell;
-  /// otherwise, or when that shell fails to open, [linkPolicy] decides.
-  Future<bool> openLink(BufferPath path, {bool newShell = false}) async {
-    final link = links.resolve(path);
-    if (link == null) return false;
+  /// Opens [buffer], a resolved link, with [arguments]. With [newShell]
+  /// and pop-out support it opens in a new shell; otherwise, or when that
+  /// shell fails to open, [linkPolicy] decides.
+  Future<void> openLink(
+    BufferId buffer, {
+    Map<String, String> arguments = const {},
+    bool newShell = false,
+  }) async {
     if (newShell &&
         capabilities.canPopOut &&
-        (await openShell(buffer: link.buffer, arguments: link.arguments))
-            .isOk) {
-      return true;
+        (await openShell(buffer: buffer, arguments: arguments)).isOk) {
+      return;
     }
     final doc = _doc.value;
-    dispatchAll(linkPolicy(doc, link.buffer, link.arguments) ??
-        openPolicy(doc, link.buffer, arguments: link.arguments));
-    return true;
+    dispatchAll(linkPolicy(doc, buffer, arguments) ??
+        openPolicy(doc, buffer, arguments: arguments));
   }
 
   /// Decides what close, split and [back] do to focus.

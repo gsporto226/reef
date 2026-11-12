@@ -62,7 +62,7 @@ void main() {
     }
 
     String saved(HibernationStore store) =>
-        '${store.load(const BufferId.manual('task-edit:Buy milk'))}';
+        '${store.load(const BufferId.of('/tasks/*/edit', 'Buy milk'))}';
 
     testWidgets('is asked to exit', (tester) async {
       final store = await edit(tester);
