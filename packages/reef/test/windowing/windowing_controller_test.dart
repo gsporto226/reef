@@ -22,7 +22,7 @@ const l3 = WindowLeaf(w3);
 const l4 = WindowLeaf(w4);
 
 WindowState showing(BufferId buffer) =>
-    WindowState(history: BufferHistory(current: buffer));
+    WindowState(history: BufferHistory(current: HistoryEntry(buffer)));
 
 /// A doc whose shells are given as `{shell: (tabs, active)}`; tabs listed in
 /// [windows] hold that one window, the others are empty.
@@ -102,7 +102,10 @@ WindowingDoc floating(
     );
 
 final history = WindowState(
-    history: BufferHistory(back: [b2], current: b1, forward: [b2]));
+    history: BufferHistory(
+        back: [HistoryEntry(b2)],
+        current: HistoryEntry(b1),
+        forward: [HistoryEntry(b2)]));
 
 void main() {
   test('a fresh doc is one focused shell with one empty tab', () {
@@ -125,7 +128,7 @@ void main() {
     expect(() => a.shells[s1]!.tabIds.add(t2), throwsUnsupportedError);
     expect(() => a.tabs.clear(), throwsUnsupportedError);
     expect(() => a.windows.clear(), throwsUnsupportedError);
-    expect(() => (showing(b1).history.back as List).add(b1),
+    expect(() => (showing(b1).history.back as List).add(HistoryEntry(b1)),
         throwsUnsupportedError);
     expect(showing(b1), showing(b1));
     expect(showing(b1).hashCode, showing(b1).hashCode);
@@ -273,7 +276,9 @@ void main() {
       ],
       expected: tree(v([l1, l2]), w2, windows: {
         w1: history,
-        w2: WindowState(history: BufferHistory(back: [b2, b1], current: b2)),
+        w2: WindowState(history: BufferHistory(
+            back: [HistoryEntry(b2), HistoryEntry(b1)],
+            current: HistoryEntry(b2))),
       }),
     ),
     (
@@ -408,7 +413,10 @@ void main() {
           [List<BufferId> forward = const []]) =>
       WindowState(
           history:
-              BufferHistory(back: back, current: current, forward: forward));
+              BufferHistory(
+                  back: back.map(HistoryEntry.new).toList(),
+                  current: HistoryEntry(current),
+                  forward: forward.map(HistoryEntry.new).toList()));
 
   runTable('AttachBuffer', [
     (
@@ -1048,7 +1056,7 @@ void main() {
       controller.closeWindow(w);
       expect(controller.doc.value, tree(l1, w1));
       final other = controller.splitWindow(w1, axis: Axis.vertical, buffer: b2);
-      expect(controller.doc.value.windows[other]!.history.current, b2);
+      expect(controller.doc.value.windows[other]!.history.current.buffer, b2);
     });
 
     test('navigate window history', () {

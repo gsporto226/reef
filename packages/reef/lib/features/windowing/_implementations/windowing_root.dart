@@ -278,7 +278,7 @@ class WindowHost extends StatelessWidget {
     return _Select<(BufferId?, bool)>(
       id: windowId.value,
       selector: (doc) => (
-        doc.windows[windowId]?.history.current,
+        doc.windows[windowId]?.history.current.buffer,
         doc.tabs.values.any((t) => t.activeWindowId == windowId),
       ),
       builder: (context, selected) {

@@ -53,7 +53,7 @@ const push = RouteInformationReportingType.navigate;
 const replace = RouteInformationReportingType.neglect;
 
 WindowState shows(BufferId buffer) =>
-    WindowState(history: BufferHistory(current: buffer));
+    WindowState(history: BufferHistory(current: HistoryEntry(buffer)));
 
 /// s1 holds t1: left (the list) beside right (42); [focused] is active.
 /// With [second], s2 holds t2: other (43).
@@ -163,7 +163,7 @@ void main() {
       final d = controller.doc.value;
       final tab = d.tabs[d.shells[d.focusedShellId]!.activeTabId]!;
       return links
-          .pathOf(d.windows[tab.activeWindowId]!.history.current)
+          .pathOf(d.windows[tab.activeWindowId]!.history.current.buffer)
           ?.toString();
     }
 
@@ -172,7 +172,7 @@ void main() {
       await mount(tester, WindowingDoc.initial(), route: '/tasks/42/edit');
 
       expect(
-        controller.doc.value.windows.values.single.history.current,
+        controller.doc.value.windows.values.single.history.current.buffer,
         edit42,
       );
       expect(provider.value.uri.toString(), '/tasks/42/edit');
@@ -183,6 +183,16 @@ void main() {
         "buffer's path", (tester) async {
       await mount(tester, doc(focused: right));
       expect(provider.reports, [('/tasks/42/edit', replace)]);
+    });
+
+    testWidgets('URL write-back keeps the current entry query',
+        (tester) async {
+      await mount(tester, doc(), route: '/tasks');
+      controller.dispatch(PushBuffer(left, edit42, arguments: {'q': 'x'}));
+      expect(provider.reports, [('/tasks/42/edit?q=x', push)]);
+      controller.dispatch(const PopBuffer(left));
+      controller.dispatch(const NavigateForward(left));
+      expect(provider.reports.last, ('/tasks/42/edit?q=x', push));
     });
 
     testWidgets('example 2: one window pushes an entry; browser back steps '
@@ -215,7 +225,10 @@ void main() {
       expect(focusedPath(), '/tasks/42/edit');
       expect(
         controller.doc.value.windows[right]!.history,
-        BufferHistory(current: edit43, back: [edit42]),
+        BufferHistory(
+          current: HistoryEntry(edit43),
+          back: [HistoryEntry(edit42)],
+        ),
         reason: "the right window's own window history is untouched",
       );
       expect(provider.reports, hasLength(2));

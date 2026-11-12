@@ -104,7 +104,9 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     if (_incoming > 0) return;
     final window = after.windows[_focusedWindow(after)];
     if (window == null) return;
-    final path = _controller.links.pathOf(window.history.current)?.toUri();
+    final entry = window.history.current;
+    final path =
+        _controller.links.pathOf(entry.buffer, entry.arguments)?.toUri();
     if (path == null || path == _provider.value.uri) return;
     _provider.routerReportsNewRouteInformation(
       RouteInformation(uri: path),

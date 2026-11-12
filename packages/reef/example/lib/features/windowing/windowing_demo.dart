@@ -283,7 +283,7 @@ class _WindowingPlaygroundState extends ConsumerState<WindowingPlayground> {
           ),
           Expanded(
             child: Text(
-              history.current.value,
+              history.current.buffer.value,
               overflow: TextOverflow.ellipsis,
               style: const TextStyle(fontWeight: FontWeight.w600),
             ),
@@ -379,8 +379,8 @@ class _WindowingPlaygroundState extends ConsumerState<WindowingPlayground> {
     final style = Theme.of(context).textTheme.bodySmall;
     return Center(
       child: Text(
-        'back: ${h.back.map((b) => b.value).join(', ')}\n'
-        'forward: ${h.forward.map((b) => b.value).join(', ')}',
+        'back: ${h.back.map((e) => e.buffer.value).join(', ')}\n'
+        'forward: ${h.forward.map((e) => e.buffer.value).join(', ')}',
         textAlign: TextAlign.center,
         style: style,
       ),
@@ -415,7 +415,7 @@ class _WindowingPlaygroundState extends ConsumerState<WindowingPlayground> {
     final chain = [
       'Shell ${doc.shells.keys.toList().indexOf(shellId) + 1}',
       'Tab ${shell.tabIds.indexOf(shell.activeTabId) + 1}',
-      if (window != null) doc.windows[window]!.history.current.value,
+      if (window != null) doc.windows[window]!.history.current.buffer.value,
     ].join(' > ');
     final bar = Container(
       width: double.infinity,

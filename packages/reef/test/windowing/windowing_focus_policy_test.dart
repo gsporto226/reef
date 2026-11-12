@@ -30,10 +30,11 @@ final doc = WindowingDoc(
   },
   windows: {
     w1: WindowState(
-        history: BufferHistory(back: [BufferId.manual('b0')], current: b1)),
-    w2: WindowState(history: BufferHistory(current: b2)),
-    w3: WindowState(history: BufferHistory(current: b3)),
-    w4: WindowState(history: BufferHistory(current: b3)),
+        history: BufferHistory(back: [HistoryEntry(BufferId.manual('b0'))],
+            current: HistoryEntry(b1))),
+    w2: WindowState(history: BufferHistory(current: HistoryEntry(b2))),
+    w3: WindowState(history: BufferHistory(current: HistoryEntry(b3))),
+    w4: WindowState(history: BufferHistory(current: HistoryEntry(b3))),
   },
   focusedShellId: s1,
 );
@@ -169,8 +170,8 @@ void main() {
     test('pops the active window and reports it handled', () {
       final c = controller()..activateWindow(w1);
       expect(c.back(), isTrue);
-      expect(d(c).windows[w1]!.history.current, BufferId.manual('b0'));
-      expect(d(c).windows[w1]!.history.forward, [b1]);
+      expect(d(c).windows[w1]!.history.current.buffer, BufferId.manual('b0'));
+      expect(d(c).windows[w1]!.history.forward, [HistoryEntry(b1)]);
     });
 
     test('on an empty back stack does nothing by default, handled', () {

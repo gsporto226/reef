@@ -23,7 +23,7 @@ final links = LinkTable({
 BufferPath path(String uri) => BufferPath.fromUri(Uri.parse(uri));
 
 WindowState showing(BufferId buffer) =>
-    WindowState(history: BufferHistory(current: buffer));
+    WindowState(history: BufferHistory(current: HistoryEntry(buffer)));
 
 /// s1 (focused) holds t1: w1 (list) beside w2 (42), w1 active. s2 holds t2:
 /// w3 (42 or [s2Shows]).
@@ -184,7 +184,7 @@ void main() {
       expect(batches, hasLength(1));
       final d = c.doc.value;
       expect(d.shells[s1]!.tabIds, hasLength(2));
-      expect(d.windows[active(d)]!.history.current, edit43);
+      expect(d.windows[active(d)]!.history.current.buffer, edit43);
     });
 
     test('the link policy gets the buffer and the arguments', () async {
@@ -200,12 +200,36 @@ void main() {
       expect(c.doc.value.focusedShellId, s2);
     });
 
+    test('arguments live in each history entry; back and forward restore '
+        'them', () async {
+      final c = controller(twoShells())
+        ..openPolicy = pushOpenPolicy
+        ..linkPolicy = (_, _, _) => null;
+      await c.openLink(path('/tasks/43/edit?mode=a'));
+      await c.openLink(path('/tasks/43/edit?mode=b'));
+      HistoryEntry current() => c.doc.value.windows[w1]!.history.current;
+      expect(current().buffer, edit43);
+      expect(current().arguments, {'mode': 'b'});
+      c.popBuffer(w1);
+      expect(current().arguments, {'mode': 'a'});
+      c.navigateForward(w1);
+      expect(current().arguments, {'mode': 'b'});
+    });
+
+    test('matching an open window compares the buffer, not its arguments',
+        () async {
+      final c = controller(twoShells());
+      await c.openLink(path('/tasks/42/edit?mode=full'));
+      expect(active(c.doc.value), w2);
+      expect(c.doc.value.windowsShowing(edit42), [w2, w3]);
+    });
+
     test('on a fresh doc it builds shell, tab and window', () async {
       final c = controller(null);
       expect(await c.openLink(path('/tasks/42/edit')), isTrue);
       final d = c.doc.value;
       expect(d.shells, hasLength(1));
-      expect(d.windows.values.single.history.current, edit42);
+      expect(d.windows.values.single.history.current.buffer, edit42);
     });
 
     test('newShell with pop-out support opens a shell showing the buffer',
@@ -215,7 +239,7 @@ void main() {
       expect(await c.openLink(path('/tasks/42/edit'), newShell: true), isTrue);
       final d = c.doc.value;
       expect(platform.opened, [d.focusedShellId]);
-      expect(d.windows[active(d)]!.history.current, edit42);
+      expect(d.windows[active(d)]!.history.current.buffer, edit42);
       expect(d.shells, hasLength(3));
     });
 
@@ -225,7 +249,7 @@ void main() {
       expect(await c.openLink(path('/tasks/43/edit'), newShell: true), isTrue);
       final d = c.doc.value;
       expect(d.shells, hasLength(2));
-      expect(d.windows[w1]!.history.current, edit43);
+      expect(d.windows[w1]!.history.current.buffer, edit43);
     });
 
     test('newShell whose shell fails to open falls back too', () async {

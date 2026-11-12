@@ -150,7 +150,7 @@ typedef MailWindows = ({WindowId? nav, WindowId? list, WindowId? detail});
 MailWindows mailWindows(WindowingDoc doc) {
   WindowId? nav, list, detail;
   for (final w in doc.activeTab.root?.windowIds ?? const <WindowId>[]) {
-    final buffer = doc.windows[w]!.history.current;
+    final buffer = doc.windows[w]!.history.current.buffer;
     if (buffer == folderList) {
       nav = w;
     } else if (buffer.kind == 'folder' || buffer.kind == 'search') {
@@ -182,31 +182,34 @@ WindowingDoc defaultLayout() {
 /// thread or draft is pushed on the detail, unless it shows there already.
 /// The folder list, or a doc without those windows, goes through reef's
 /// default.
-List<WindowingCommand> mailOpenPolicy(WindowingDoc doc, BufferId buffer) {
+List<WindowingCommand> mailOpenPolicy(WindowingDoc doc, BufferId buffer,
+    {Map<String, String> arguments = const {}}) {
   final (:nav, :list, :detail) = mailWindows(doc);
   final kind = buffer.kind;
   if (kind == 'folder' && list != null) {
     return [
-      AttachBuffer(list, buffer),
+      AttachBuffer(list, buffer, arguments: arguments),
       if (detail != null) AttachBuffer(detail, noThread),
       ActivateWindow(list),
     ];
   }
   if (kind == 'search' && list != null) {
-    final searching = doc.windows[list]!.history.current.kind == 'search';
+    final searching = doc.windows[list]!.history.current.buffer.kind == 'search';
     return [
-      searching ? ReplaceBuffer(list, buffer) : PushBuffer(list, buffer),
+      searching
+          ? ReplaceBuffer(list, buffer, arguments: arguments)
+          : PushBuffer(list, buffer, arguments: arguments),
       ActivateWindow(list),
     ];
   }
   if (kind != 'folders' && kind != 'folder' && detail != null) {
     return [
-      if (doc.windows[detail]!.history.current != buffer)
-        PushBuffer(detail, buffer),
+      if (doc.windows[detail]!.history.current.buffer != buffer)
+        PushBuffer(detail, buffer, arguments: arguments),
       ActivateWindow(detail),
     ];
   }
-  return defaultOpenPolicy(doc, buffer);
+  return defaultOpenPolicy(doc, buffer, arguments: arguments);
 }
 
 /// Back with nothing behind it: the open nav closes onto the list; else
@@ -281,7 +284,7 @@ class MailAppState extends State<MailApp> with WidgetsBindingObserver {
   MailWindows get windows => mailWindows(controller.doc.value);
 
   BufferId? _shows(WindowId? window) =>
-      controller.doc.value.windows[window]?.history.current;
+      controller.doc.value.windows[window]?.history.current.buffer;
 
   /// The detail window shows a thread or a draft.
   bool get hasDetail => switch (_shows(windows.detail)) {

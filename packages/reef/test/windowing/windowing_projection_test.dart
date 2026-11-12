@@ -10,7 +10,7 @@ const _b = WindowId.manual('b');
 const _f = WindowId.manual('f');
 
 WindowState _shows(String buffer) =>
-    WindowState(history: BufferHistory(current: BufferId.manual(buffer)));
+    WindowState(history: BufferHistory(current: HistoryEntry(BufferId.manual(buffer))));
 
 /// Tab `t1`: `a` beside `b`, `a` active, a floating `f`. Tab `t2`: empty.
 WindowingDoc _doc() => WindowingDoc(

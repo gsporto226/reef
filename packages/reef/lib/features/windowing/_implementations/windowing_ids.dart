@@ -38,3 +38,15 @@ extension type WindowId._(String value) {
   /// The raw id string.
   String get id => value;
 }
+
+/// Identity of a window history entry; stable across serialisation.
+extension type HistoryEntryId._(String value) {
+  /// Creates an entry id from a fixed string: tests, restoration.
+  const HistoryEntryId.manual(String manual) : value = manual;
+
+  /// Generates a fresh entry id (uuid v7).
+  static HistoryEntryId generate() => HistoryEntryId._(const Uuid().v7());
+
+  /// The raw id string.
+  String get id => value;
+}

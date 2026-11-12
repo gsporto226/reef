@@ -10,7 +10,7 @@ const _c = WindowId.manual('c');
 const _d = WindowId.manual('d');
 
 WindowState _shows(String buffer) =>
-    WindowState(history: BufferHistory(current: BufferId.manual(buffer)));
+    WindowState(history: BufferHistory(current: HistoryEntry(BufferId.manual(buffer))));
 
 /// `a` | (`b` over `c`) | `d`, thirds; the middle one halves.
 WindowingDoc _doc() => WindowingDoc(

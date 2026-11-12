@@ -36,7 +36,7 @@ Future<WindowingController> _pump(
 Iterable<BufferId> _buffers(WindowingDoc doc, ShellId shell) => [
       for (final tab in doc.shells[shell]!.tabIds)
         for (final window in doc.tabs[tab]!.root!.windowIds)
-          doc.windows[window]!.history.current,
+          doc.windows[window]!.history.current.buffer,
     ];
 
 void main() {

@@ -19,7 +19,7 @@ const _w2 = WindowId.manual('w2');
 const _w3 = WindowId.manual('w3');
 
 WindowState _shows(String buffer) =>
-    WindowState(history: BufferHistory(current: BufferId.manual(buffer)));
+    WindowState(history: BufferHistory(current: HistoryEntry(BufferId.manual(buffer))));
 
 /// Shell `s1` shows buffer A. Shell `s2` shows B beside A.
 WindowingDoc _doc() => WindowingDoc(
