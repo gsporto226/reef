@@ -84,6 +84,45 @@ void main() {
         entryOf(task));
   });
 
+  test('back and forward move through the focused window history', () {
+    expect(nav.back(), isFalse);
+    nav.push(task);
+    expect(nav.forward(), isFalse);
+    expect(nav.back(), isTrue);
+    expect(current().buffer, const BufferId.manual('home:'));
+    expect(nav.forward(), isTrue);
+    expect(current(), entryOf(task));
+  });
+
+  test('openInNewWindow opens a new shell where supported', () async {
+    final platform = FakeShellPlatform();
+    final multi = WindowingController(platform: platform);
+    addTearDown(multi.dispose);
+    await LinkNavigator(tree, multi).openInNewWindow(task);
+    expect(platform.opened, hasLength(1));
+    expect(multi.doc.value.focusedShellId, platform.opened.single);
+    expect(multi.doc.value.windows.values.single.history.current,
+        entryOf(task));
+  });
+
+  test('openInNewWindow falls back to a new tab without pop-out', () async {
+    final tabs = doc().tabs.length;
+    await nav.openInNewWindow(task);
+    expect(doc().tabs, hasLength(tabs + 1));
+    expect(current(), entryOf(task));
+  });
+
+  testWidgets('the mixin passes fresh through', (tester) async {
+    await tester.pumpWidget(LinkScope<AppRoute>(
+      navigator: nav,
+      child: Builder(builder: (context) {
+        task.push(context, fresh: true);
+        return const SizedBox();
+      }),
+    ));
+    expect(tree.isFresh(current().buffer), isTrue);
+  });
+
   testWidgets('widgets reach the navigator through the scope, and routes '
       'navigate through the mixin', (tester) async {
     await tester.pumpWidget(LinkScope<AppRoute>(

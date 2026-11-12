@@ -54,17 +54,50 @@ class LinkNavigator<R> {
     return true;
   }
 
+  /// Steps the focused window back. Returns false with nothing to go back
+  /// to or without a focused window.
+  bool back() => _step((h) => h.back, PopBuffer.new);
+
+  /// Steps the focused window forward; false as [back].
+  bool forward() => _step((h) => h.forward, NavigateForward.new);
+
+  bool _step(List<HistoryEntry> Function(BufferHistory) side,
+      WindowingCommand Function(WindowId) command) {
+    final doc = controller.doc.value;
+    final window = doc.activeWindowId;
+    if (window == null || side(doc.windows[window]!.history).isEmpty) {
+      return false;
+    }
+    controller.dispatch(command(window));
+    return true;
+  }
+
   /// Opens [route] in a new tab of the focused shell.
-  void openInNewTab(R route) => _dispatch(route, newTabOpenPolicy);
+  void openInNewTab(R route, {bool? fresh}) =>
+      _dispatch(tree.linkOf(route, fresh: fresh), newTabOpenPolicy);
 
   /// Opens [route] in a new window beside the focused one.
-  void openInSplit(R route) => _dispatch(route, splitBesideOpenPolicy);
+  void openInSplit(R route, {bool? fresh}) =>
+      _dispatch(tree.linkOf(route, fresh: fresh), splitBesideOpenPolicy);
 
-  void _dispatch(R route, WindowingOpenPolicy policy) {
-    final (:buffer, :arguments) = tree.linkOf(route);
-    controller.dispatchAll(
-        policy(controller.doc.value, buffer, arguments: arguments));
+  /// Opens [route] in a new platform window (a new shell) where pop-out is
+  /// supported. Without pop-out, or when the shell fails to open, it opens
+  /// in a new tab of the focused shell, the nearest in-app equivalent.
+  Future<void> openInNewWindow(R route, {bool? fresh}) async {
+    final link = tree.linkOf(route, fresh: fresh);
+    if (controller.capabilities.canPopOut &&
+        (await controller.openShell(
+          buffer: link.buffer,
+          arguments: link.arguments,
+        )).isOk) {
+      return;
+    }
+    _dispatch(link, newTabOpenPolicy);
   }
+
+  void _dispatch(ResolvedLink link, WindowingOpenPolicy policy) =>
+      controller.dispatchAll(policy(controller.doc.value, link.buffer,
+          arguments: link.arguments));
 }
 
 /// Gives the widgets below it [navigator], read by [LinkNavigator.of].
@@ -82,17 +115,21 @@ class LinkScope<R> extends InheritedWidget {
 mixin LinkVerbs<R> {
   R get _self => this as R;
 
-  Future<void> go(BuildContext context, {bool newShell = false}) =>
-      LinkNavigator.of<R>(context).go(_self, newShell: newShell);
+  Future<void> go(BuildContext context, {bool newShell = false, bool? fresh}) =>
+      LinkNavigator.of<R>(context).go(_self, newShell: newShell, fresh: fresh);
 
-  void push(BuildContext context) => LinkNavigator.of<R>(context).push(_self);
+  void push(BuildContext context, {bool? fresh}) =>
+      LinkNavigator.of<R>(context).push(_self, fresh: fresh);
 
-  void replace(BuildContext context) =>
-      LinkNavigator.of<R>(context).replace(_self);
+  void replace(BuildContext context, {bool? fresh}) =>
+      LinkNavigator.of<R>(context).replace(_self, fresh: fresh);
 
-  void openInNewTab(BuildContext context) =>
-      LinkNavigator.of<R>(context).openInNewTab(_self);
+  void openInNewTab(BuildContext context, {bool? fresh}) =>
+      LinkNavigator.of<R>(context).openInNewTab(_self, fresh: fresh);
 
-  void openInSplit(BuildContext context) =>
-      LinkNavigator.of<R>(context).openInSplit(_self);
+  void openInSplit(BuildContext context, {bool? fresh}) =>
+      LinkNavigator.of<R>(context).openInSplit(_self, fresh: fresh);
+
+  Future<void> openInNewWindow(BuildContext context, {bool? fresh}) =>
+      LinkNavigator.of<R>(context).openInNewWindow(_self, fresh: fresh);
 }
