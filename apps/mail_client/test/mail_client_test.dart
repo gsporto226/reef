@@ -8,10 +8,10 @@ void main() {
   test('the default layout is nav | inbox | the first thread', () {
     final doc = defaultLayout();
     final (:nav, :list, :detail) = mailWindows(doc);
-    expect(doc.windows[nav]!.history.current, folderList);
-    expect(doc.windows[list]!.history.current, folder('inbox'));
-    expect(doc.windows[detail]!.history.current, thread('42'));
-    expect(doc.windows[detail]!.history.back, [noThread]);
+    expect(doc.windows[nav]!.history.current.buffer, folderList);
+    expect(doc.windows[list]!.history.current.buffer, folder('inbox'));
+    expect(doc.windows[detail]!.history.current.buffer, thread('42'));
+    expect(doc.windows[detail]!.history.back, [HistoryEntry(noThread)]);
   });
 
   test('the open policy routes folders to the list and threads to the '
@@ -180,7 +180,7 @@ void main() {
 
     final list = app.windows.list!;
     expect(app.controller.doc.value.windows[list]!.history.back, [
-      folder('inbox'),
+      HistoryEntry(folder('inbox')),
     ]); // one entry for the whole query
 
     await tester.binding.handlePopRoute();
