@@ -84,9 +84,8 @@ final class _Query extends _Part {
 
 /// The parent value; the tree replaces it with the parent's parts.
 final class _Parent extends _Part {
-  const _Parent(this.read, this.fits);
+  const _Parent(this.read);
   final Object? Function(Object? route) read;
-  final bool Function(TypedLink<Object?> parent) fits;
 }
 
 /// [part] reading its value from the parent value [get] gives.
@@ -130,33 +129,42 @@ _Query _query<R, V>(
 
 _Rest _rest<R>(List<String> Function(R route) get) => _Rest((r) => get(r as R));
 
-_Parent _parent<R, P>(P Function(R route) get) =>
-    _Parent((r) => get(r as R), (l) => l is TypedLink<P>);
+_Parent _parent<R, P>(P Function(R route) get) => _Parent((r) => get(r as R));
 
 /// A buffer and the arguments of its history entry.
 typedef ResolvedLink = ({BufferId buffer, Map<String, String> arguments});
 
-/// A link and the links mounted under it (ADR 0004 D12, D13, D14).
-sealed class LinkNode<R> {
-  const LinkNode();
+/// A node of the link tree to route type [R], mounted under a link to
+/// exactly [P]; [P] is `Never` for a node with no parent (a root, or a
+/// child of a [ValuelessLink]). Wrong nesting is a compile error (#69).
+typedef LinkNode<R, P> = LinkNodeOf<R, P Function(P)>;
 
-  TypedLink<R> get _link;
-  List<LinkNode<Object?>> get _children;
+/// A built link to [R] with values, mounted under a link to exactly [P].
+typedef TypedLink<R, P> = TypedLinkOf<R, P Function(P)>;
+
+/// [LinkNode] with its parent type as [Q] = `P Function(P)`: a function
+/// type is invariant in `P`, so a child expecting a subtype or a supertype
+/// of its parent's route does not fit. Write [LinkNode] instead.
+sealed class LinkNodeOf<R, Q> {
+  const LinkNodeOf();
+
+  LinkOf<R, Q> get _link;
+  List<LinkNodeOf<Object?, Object?>> get _children;
 }
 
-final class _Branch<R> extends LinkNode<R> {
+final class _Branch<R, Q> extends LinkNodeOf<R, Q> {
   const _Branch(this._link, this._children);
 
   @override
-  final TypedLink<R> _link;
+  final LinkOf<R, Q> _link;
 
   @override
-  final List<LinkNode<Object?>> _children;
+  final List<LinkNodeOf<Object?, Object?>> _children;
 }
 
 /// A built link: the URL of route type [R], both ways (ADR 0004).
-final class TypedLink<R> extends LinkNode<R> {
-  TypedLink._(this._parts, this._create) {
+sealed class LinkOf<R, Q> extends LinkNodeOf<R, Q> {
+  LinkOf._(this._parts, this._create) {
     final path = _parts.where((p) => p is! _Query && p is! _Parent).toList();
     if (path.indexWhere((p) => p is _Rest) case final i
         when i >= 0 && i != path.length - 1) {
@@ -168,18 +176,34 @@ final class TypedLink<R> extends LinkNode<R> {
   final R Function(List<Object?> values) _create;
 
   @override
-  TypedLink<R> get _link => this;
+  LinkOf<R, Q> get _link => this;
 
   @override
-  List<LinkNode<Object?>> get _children => const [];
+  List<LinkNodeOf<Object?, Object?>> get _children => const [];
 
   Type get _route => R;
 
   bool _owns(Object? route) => route is R;
+}
+
+/// See [TypedLink].
+final class TypedLinkOf<R, Q> extends LinkOf<R, Q> {
+  TypedLinkOf._(super._parts, super._create) : super._();
+
+  /// This link with [children] mounted under it; each reads its parent
+  /// value with `.parent` and extends its path and query.
+  LinkNodeOf<R, Q> children(List<LinkNode<Object?, R>> children) =>
+      _Branch(this, children);
+}
+
+/// A built link to [R] with no values and no parent: its one route needs
+/// no `.parent` in its children.
+final class ValuelessLink<R> extends LinkOf<R, Never Function(Never)> {
+  ValuelessLink._(super._parts, super._create) : super._();
 
   /// This link with [children] mounted under it; each extends its path
   /// and query.
-  LinkNode<R> children(List<LinkNode<Object?>> children) =>
+  LinkNode<R, Never> children(List<LinkNode<Object?, Never>> children) =>
       _Branch(this, children);
 }
 
@@ -190,7 +214,7 @@ final class _Mount {
   /// The parent route of a route of this mount; null at the root.
   final Object? Function(Object? route)? up;
 
-  final TypedLink<Object?> link;
+  final LinkOf<Object?, Object?> link;
   final List<_Part> parts;
   final Object? Function(List<Object?> values) create;
 
@@ -265,17 +289,18 @@ final class _Mount {
 
 /// Every link of an app, matched by specificity (ADR 0004 D4, D6). It
 /// needs a root catch-all (`Link('').rest(...)`), the not-found route.
-/// Children extend their parent's path and query (D12, D13, D14).
+/// Children extend their parent's path and query (D12, D13, D14). Where a
+/// link may be mounted is checked by its type; the rest at startup.
 final class LinkTree<R> {
-  LinkTree(List<LinkNode<R>> roots) {
-    final mounted = <TypedLink<Object?>>{};
-    void mount(LinkNode<Object?> node, _Mount? parent) {
+  LinkTree(List<LinkNode<R, Never>> roots) {
+    final mounted = <LinkOf<Object?, Object?>>{};
+    void mount(LinkNodeOf<Object?, Object?> node, _Mount? parent) {
       final link = node._link;
       final name = link._route;
       if (!mounted.add(link)) {
         throw StateError('The link to $name is mounted twice; use two types');
       }
-      if (link is! TypedLink<R>) {
+      if (link is! LinkOf<R, Object?>) {
         throw StateError('The link to $name does not build a $R');
       }
       final own = link._parts.where((p) => p is! _Parent).toList();
@@ -290,26 +315,25 @@ final class LinkTree<R> {
       }
       final _Mount at;
       if (link._parts.whereType<_Parent>().firstOrNull case final p?) {
-        if (parent == null || !p.fits(parent.link)) {
-          throw StateError('The link to $name needs a parent of its type');
-        }
-        final n = parent._valueCount;
-        at = _Mount(link, [
-          for (final q in inherited) _through(q, p.read),
-          ...own,
-        ], (v) => link._create([parent.create(v.sublist(0, n)), ...v.skip(n)]),
-            p.read);
+        // The types put a link with .parent under a parent with values.
+        final n = parent!._valueCount;
+        at = _Mount(
+          link,
+          [for (final q in inherited) _through(q, p.read), ...own],
+          (v) => link._create([parent.create(v.sublist(0, n)), ...v.skip(n)]),
+          p.read,
+        );
       } else {
-        if (parent != null && parent._valueCount > 0) {
-          throw StateError(
-            'The link to $name needs .parent: its parent has values',
-          );
-        }
-        at = _Mount(link, [...inherited, ...own], link._create, switch (parent) {
-          // A parent with no values has one route.
-          final p? => (_) => p.create(const []),
-          null => null,
-        });
+        at = _Mount(
+          link,
+          [...inherited, ...own],
+          link._create,
+          switch (parent) {
+            // A parent with no values has one route.
+            final p? => (_) => p.create(const []),
+            null => null,
+          },
+        );
       }
       if (at.parts.whereType<_Rest>().length > 1) {
         throw StateError('The link to $name has two rest parts');

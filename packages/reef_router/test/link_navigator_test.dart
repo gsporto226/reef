@@ -3,8 +3,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_router/reef_router.dart';
 
-import 'link_nesting_test.dart'
-    show AppRoute, FileEditRoute, FilesRoute, ProjectRoute, TaskRoute, tree;
+import 'link_nesting_test.dart' show tree;
+import 'nesting_routes.dart';
 
 const project = ProjectRoute('p1', page: 3);
 const task = TaskRoute(project, 't9');

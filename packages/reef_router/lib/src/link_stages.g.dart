@@ -3,13 +3,14 @@
 part of 'links.dart';
 
 /// A link to [R] being built, holding 0 value(s).
+
 final class Link<R> {
   /// Starts at [path], literal segments split by `/`.
   Link(String path) : _parts = _literals(path);
 
   /// Mounts under a parent link to [P], read by [get]; the
   /// parent value is the first constructor parameter.
-  Link1<R, P> parent<P>(P Function(R route) get) =>
+  Link1<R, P, P> parent<P>(P Function(R route) get) =>
       Link1._([..._parts, _parent(get)]);
 
   const Link._(this._parts);
@@ -22,12 +23,12 @@ final class Link<R> {
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link1<R, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link1<R, Never, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link1._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link1<R, V> query<V>(
+  Link1<R, Never, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -36,32 +37,33 @@ final class Link<R> {
       Link1._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link1<R, List<String>> rest(List<String> Function(R route) get) =>
+  Link1<R, Never, List<String>> rest(List<String> Function(R route) get) =>
       Link1._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function() create) =>
-      TypedLink._(_parts, (v) => create());
+  ValuelessLink<R> build(R Function() create) =>
+      ValuelessLink._(_parts, (v) => create());
 }
 
 /// A link to [R] being built, holding 1 value(s).
-final class Link1<R, V1> {
+/// [P] is its parent route, `Never` for none.
+final class Link1<R, P, V1> {
   const Link1._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link1<R, V1> literal(String text) =>
+  Link1<R, P, V1> literal(String text) =>
       Link1._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link2<R, V1, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link2<R, P, V1, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link2._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link2<R, V1, V> query<V>(
+  Link2<R, P, V1, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -70,32 +72,33 @@ final class Link1<R, V1> {
       Link2._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link2<R, V1, List<String>> rest(List<String> Function(R route) get) =>
+  Link2<R, P, V1, List<String>> rest(List<String> Function(R route) get) =>
       Link2._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1));
+  TypedLink<R, P> build(R Function(V1) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1));
 }
 
 /// A link to [R] being built, holding 2 value(s).
-final class Link2<R, V1, V2> {
+/// [P] is its parent route, `Never` for none.
+final class Link2<R, P, V1, V2> {
   const Link2._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link2<R, V1, V2> literal(String text) =>
+  Link2<R, P, V1, V2> literal(String text) =>
       Link2._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link3<R, V1, V2, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link3<R, P, V1, V2, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link3._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link3<R, V1, V2, V> query<V>(
+  Link3<R, P, V1, V2, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -104,32 +107,33 @@ final class Link2<R, V1, V2> {
       Link3._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link3<R, V1, V2, List<String>> rest(List<String> Function(R route) get) =>
+  Link3<R, P, V1, V2, List<String>> rest(List<String> Function(R route) get) =>
       Link3._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2));
+  TypedLink<R, P> build(R Function(V1, V2) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2));
 }
 
 /// A link to [R] being built, holding 3 value(s).
-final class Link3<R, V1, V2, V3> {
+/// [P] is its parent route, `Never` for none.
+final class Link3<R, P, V1, V2, V3> {
   const Link3._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link3<R, V1, V2, V3> literal(String text) =>
+  Link3<R, P, V1, V2, V3> literal(String text) =>
       Link3._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link4<R, V1, V2, V3, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link4<R, P, V1, V2, V3, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link4._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link4<R, V1, V2, V3, V> query<V>(
+  Link4<R, P, V1, V2, V3, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -138,32 +142,33 @@ final class Link3<R, V1, V2, V3> {
       Link4._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link4<R, V1, V2, V3, List<String>> rest(List<String> Function(R route) get) =>
+  Link4<R, P, V1, V2, V3, List<String>> rest(List<String> Function(R route) get) =>
       Link4._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3));
+  TypedLink<R, P> build(R Function(V1, V2, V3) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3));
 }
 
 /// A link to [R] being built, holding 4 value(s).
-final class Link4<R, V1, V2, V3, V4> {
+/// [P] is its parent route, `Never` for none.
+final class Link4<R, P, V1, V2, V3, V4> {
   const Link4._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link4<R, V1, V2, V3, V4> literal(String text) =>
+  Link4<R, P, V1, V2, V3, V4> literal(String text) =>
       Link4._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link5<R, V1, V2, V3, V4, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link5<R, P, V1, V2, V3, V4, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link5._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link5<R, V1, V2, V3, V4, V> query<V>(
+  Link5<R, P, V1, V2, V3, V4, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -172,32 +177,33 @@ final class Link4<R, V1, V2, V3, V4> {
       Link5._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link5<R, V1, V2, V3, V4, List<String>> rest(List<String> Function(R route) get) =>
+  Link5<R, P, V1, V2, V3, V4, List<String>> rest(List<String> Function(R route) get) =>
       Link5._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4));
 }
 
 /// A link to [R] being built, holding 5 value(s).
-final class Link5<R, V1, V2, V3, V4, V5> {
+/// [P] is its parent route, `Never` for none.
+final class Link5<R, P, V1, V2, V3, V4, V5> {
   const Link5._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link5<R, V1, V2, V3, V4, V5> literal(String text) =>
+  Link5<R, P, V1, V2, V3, V4, V5> literal(String text) =>
       Link5._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link6<R, V1, V2, V3, V4, V5, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link6<R, P, V1, V2, V3, V4, V5, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link6._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link6<R, V1, V2, V3, V4, V5, V> query<V>(
+  Link6<R, P, V1, V2, V3, V4, V5, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -206,32 +212,33 @@ final class Link5<R, V1, V2, V3, V4, V5> {
       Link6._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link6<R, V1, V2, V3, V4, V5, List<String>> rest(List<String> Function(R route) get) =>
+  Link6<R, P, V1, V2, V3, V4, V5, List<String>> rest(List<String> Function(R route) get) =>
       Link6._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5));
 }
 
 /// A link to [R] being built, holding 6 value(s).
-final class Link6<R, V1, V2, V3, V4, V5, V6> {
+/// [P] is its parent route, `Never` for none.
+final class Link6<R, P, V1, V2, V3, V4, V5, V6> {
   const Link6._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link6<R, V1, V2, V3, V4, V5, V6> literal(String text) =>
+  Link6<R, P, V1, V2, V3, V4, V5, V6> literal(String text) =>
       Link6._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link7<R, V1, V2, V3, V4, V5, V6, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link7<R, P, V1, V2, V3, V4, V5, V6, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link7._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link7<R, V1, V2, V3, V4, V5, V6, V> query<V>(
+  Link7<R, P, V1, V2, V3, V4, V5, V6, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -240,32 +247,33 @@ final class Link6<R, V1, V2, V3, V4, V5, V6> {
       Link7._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link7<R, V1, V2, V3, V4, V5, V6, List<String>> rest(List<String> Function(R route) get) =>
+  Link7<R, P, V1, V2, V3, V4, V5, V6, List<String>> rest(List<String> Function(R route) get) =>
       Link7._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6));
 }
 
 /// A link to [R] being built, holding 7 value(s).
-final class Link7<R, V1, V2, V3, V4, V5, V6, V7> {
+/// [P] is its parent route, `Never` for none.
+final class Link7<R, P, V1, V2, V3, V4, V5, V6, V7> {
   const Link7._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link7<R, V1, V2, V3, V4, V5, V6, V7> literal(String text) =>
+  Link7<R, P, V1, V2, V3, V4, V5, V6, V7> literal(String text) =>
       Link7._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link8<R, V1, V2, V3, V4, V5, V6, V7, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link8<R, P, V1, V2, V3, V4, V5, V6, V7, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link8._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link8<R, V1, V2, V3, V4, V5, V6, V7, V> query<V>(
+  Link8<R, P, V1, V2, V3, V4, V5, V6, V7, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -274,32 +282,33 @@ final class Link7<R, V1, V2, V3, V4, V5, V6, V7> {
       Link8._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link8<R, V1, V2, V3, V4, V5, V6, V7, List<String>> rest(List<String> Function(R route) get) =>
+  Link8<R, P, V1, V2, V3, V4, V5, V6, V7, List<String>> rest(List<String> Function(R route) get) =>
       Link8._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7));
 }
 
 /// A link to [R] being built, holding 8 value(s).
-final class Link8<R, V1, V2, V3, V4, V5, V6, V7, V8> {
+/// [P] is its parent route, `Never` for none.
+final class Link8<R, P, V1, V2, V3, V4, V5, V6, V7, V8> {
   const Link8._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link8<R, V1, V2, V3, V4, V5, V6, V7, V8> literal(String text) =>
+  Link8<R, P, V1, V2, V3, V4, V5, V6, V7, V8> literal(String text) =>
       Link8._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link9<R, V1, V2, V3, V4, V5, V6, V7, V8, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link9<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link9._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link9<R, V1, V2, V3, V4, V5, V6, V7, V8, V> query<V>(
+  Link9<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -308,32 +317,33 @@ final class Link8<R, V1, V2, V3, V4, V5, V6, V7, V8> {
       Link9._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link9<R, V1, V2, V3, V4, V5, V6, V7, V8, List<String>> rest(List<String> Function(R route) get) =>
+  Link9<R, P, V1, V2, V3, V4, V5, V6, V7, V8, List<String>> rest(List<String> Function(R route) get) =>
       Link9._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8));
 }
 
 /// A link to [R] being built, holding 9 value(s).
-final class Link9<R, V1, V2, V3, V4, V5, V6, V7, V8, V9> {
+/// [P] is its parent route, `Never` for none.
+final class Link9<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9> {
   const Link9._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link9<R, V1, V2, V3, V4, V5, V6, V7, V8, V9> literal(String text) =>
+  Link9<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9> literal(String text) =>
       Link9._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link10<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link10<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link10._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link10<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V> query<V>(
+  Link10<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -342,32 +352,33 @@ final class Link9<R, V1, V2, V3, V4, V5, V6, V7, V8, V9> {
       Link10._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link10<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, List<String>> rest(List<String> Function(R route) get) =>
+  Link10<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, List<String>> rest(List<String> Function(R route) get) =>
       Link10._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9));
 }
 
 /// A link to [R] being built, holding 10 value(s).
-final class Link10<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10> {
+/// [P] is its parent route, `Never` for none.
+final class Link10<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10> {
   const Link10._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link10<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10> literal(String text) =>
+  Link10<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10> literal(String text) =>
       Link10._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link11<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link11<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link11._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link11<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V> query<V>(
+  Link11<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -376,32 +387,33 @@ final class Link10<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10> {
       Link11._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link11<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, List<String>> rest(List<String> Function(R route) get) =>
+  Link11<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, List<String>> rest(List<String> Function(R route) get) =>
       Link11._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10));
 }
 
 /// A link to [R] being built, holding 11 value(s).
-final class Link11<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11> {
+/// [P] is its parent route, `Never` for none.
+final class Link11<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11> {
   const Link11._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link11<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11> literal(String text) =>
+  Link11<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11> literal(String text) =>
       Link11._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link12<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link12<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link12._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link12<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V> query<V>(
+  Link12<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -410,32 +422,33 @@ final class Link11<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11> {
       Link12._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link12<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, List<String>> rest(List<String> Function(R route) get) =>
+  Link12<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, List<String>> rest(List<String> Function(R route) get) =>
       Link12._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11));
 }
 
 /// A link to [R] being built, holding 12 value(s).
-final class Link12<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12> {
+/// [P] is its parent route, `Never` for none.
+final class Link12<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12> {
   const Link12._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link12<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12> literal(String text) =>
+  Link12<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12> literal(String text) =>
       Link12._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link13<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link13<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link13._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link13<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V> query<V>(
+  Link13<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -444,32 +457,33 @@ final class Link12<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12> {
       Link13._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link13<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, List<String>> rest(List<String> Function(R route) get) =>
+  Link13<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, List<String>> rest(List<String> Function(R route) get) =>
       Link13._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12));
 }
 
 /// A link to [R] being built, holding 13 value(s).
-final class Link13<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13> {
+/// [P] is its parent route, `Never` for none.
+final class Link13<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13> {
   const Link13._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link13<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13> literal(String text) =>
+  Link13<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13> literal(String text) =>
       Link13._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link14<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link14<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link14._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link14<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V> query<V>(
+  Link14<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -478,32 +492,33 @@ final class Link13<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13> {
       Link14._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link14<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, List<String>> rest(List<String> Function(R route) get) =>
+  Link14<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, List<String>> rest(List<String> Function(R route) get) =>
       Link14._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13));
 }
 
 /// A link to [R] being built, holding 14 value(s).
-final class Link14<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14> {
+/// [P] is its parent route, `Never` for none.
+final class Link14<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14> {
   const Link14._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link14<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14> literal(String text) =>
+  Link14<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14> literal(String text) =>
       Link14._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link15<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link15<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link15._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link15<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V> query<V>(
+  Link15<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -512,32 +527,33 @@ final class Link14<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V1
       Link15._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link15<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, List<String>> rest(List<String> Function(R route) get) =>
+  Link15<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, List<String>> rest(List<String> Function(R route) get) =>
       Link15._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14));
 }
 
 /// A link to [R] being built, holding 15 value(s).
-final class Link15<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15> {
+/// [P] is its parent route, `Never` for none.
+final class Link15<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15> {
   const Link15._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link15<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15> literal(String text) =>
+  Link15<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15> literal(String text) =>
       Link15._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link16<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link16<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link16._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link16<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V> query<V>(
+  Link16<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -546,32 +562,33 @@ final class Link15<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V1
       Link16._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link16<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, List<String>> rest(List<String> Function(R route) get) =>
+  Link16<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, List<String>> rest(List<String> Function(R route) get) =>
       Link16._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14, v[14] as V15));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14, v[14] as V15));
 }
 
 /// A link to [R] being built, holding 16 value(s).
-final class Link16<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16> {
+/// [P] is its parent route, `Never` for none.
+final class Link16<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16> {
   const Link16._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link16<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16> literal(String text) =>
+  Link16<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16> literal(String text) =>
       Link16._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link17<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link17<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link17._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link17<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V> query<V>(
+  Link17<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -580,32 +597,33 @@ final class Link16<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V1
       Link17._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link17<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, List<String>> rest(List<String> Function(R route) get) =>
+  Link17<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, List<String>> rest(List<String> Function(R route) get) =>
       Link17._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14, v[14] as V15, v[15] as V16));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14, v[14] as V15, v[15] as V16));
 }
 
 /// A link to [R] being built, holding 17 value(s).
-final class Link17<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17> {
+/// [P] is its parent route, `Never` for none.
+final class Link17<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17> {
   const Link17._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link17<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17> literal(String text) =>
+  Link17<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17> literal(String text) =>
       Link17._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link18<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link18<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link18._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link18<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V> query<V>(
+  Link18<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -614,32 +632,33 @@ final class Link17<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V1
       Link18._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link18<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, List<String>> rest(List<String> Function(R route) get) =>
+  Link18<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, List<String>> rest(List<String> Function(R route) get) =>
       Link18._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14, v[14] as V15, v[15] as V16, v[16] as V17));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14, v[14] as V15, v[15] as V16, v[16] as V17));
 }
 
 /// A link to [R] being built, holding 18 value(s).
-final class Link18<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18> {
+/// [P] is its parent route, `Never` for none.
+final class Link18<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18> {
   const Link18._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link18<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18> literal(String text) =>
+  Link18<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18> literal(String text) =>
       Link18._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link19<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link19<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link19._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link19<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V> query<V>(
+  Link19<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -648,32 +667,33 @@ final class Link18<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V1
       Link19._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link19<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, List<String>> rest(List<String> Function(R route) get) =>
+  Link19<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, List<String>> rest(List<String> Function(R route) get) =>
       Link19._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14, v[14] as V15, v[15] as V16, v[16] as V17, v[17] as V18));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14, v[14] as V15, v[15] as V16, v[16] as V17, v[17] as V18));
 }
 
 /// A link to [R] being built, holding 19 value(s).
-final class Link19<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19> {
+/// [P] is its parent route, `Never` for none.
+final class Link19<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19> {
   const Link19._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link19<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19> literal(String text) =>
+  Link19<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19> literal(String text) =>
       Link19._([..._parts, _Literal(text)]);
 
   /// Adds a path segment read by [get], in [codec] or the
   /// codec inferred from [V].
-  Link20<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
+  Link20<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V> field<V>(V Function(R route) get, {LinkCodec<V>? codec}) =>
       Link20._([..._parts, _field(get, codec)]);
 
   /// Adds the query argument [name] read by [get]; [fallback]
   /// stands for an absent argument and is left out of the URL.
-  Link20<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V> query<V>(
+  Link20<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V> query<V>(
     String name,
     V Function(R route) get, {
     required V fallback,
@@ -682,25 +702,26 @@ final class Link19<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V1
       Link20._([..._parts, _query(name, get, fallback, codec)]);
 
   /// Adds a rest part: every remaining path segment.
-  Link20<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, List<String>> rest(List<String> Function(R route) get) =>
+  Link20<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, List<String>> rest(List<String> Function(R route) get) =>
       Link20._([..._parts, _rest(get)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14, v[14] as V15, v[15] as V16, v[16] as V17, v[17] as V18, v[18] as V19));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14, v[14] as V15, v[15] as V16, v[16] as V17, v[17] as V18, v[18] as V19));
 }
 
 /// A link to [R] being built, holding 20 value(s).
-final class Link20<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20> {
+/// [P] is its parent route, `Never` for none.
+final class Link20<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20> {
   const Link20._(this._parts);
 
   final List<_Part> _parts;
 
   /// Adds the literal path segment [text].
-  Link20<R, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20> literal(String text) =>
+  Link20<R, P, V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20> literal(String text) =>
       Link20._([..._parts, _Literal(text)]);
 
   /// The link, building its route with [create].
-  TypedLink<R> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20) create) =>
-      TypedLink._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14, v[14] as V15, v[15] as V16, v[16] as V17, v[17] as V18, v[18] as V19, v[19] as V20));
+  TypedLink<R, P> build(R Function(V1, V2, V3, V4, V5, V6, V7, V8, V9, V10, V11, V12, V13, V14, V15, V16, V17, V18, V19, V20) create) =>
+      TypedLinkOf._(_parts, (v) => create(v[0] as V1, v[1] as V2, v[2] as V3, v[3] as V4, v[4] as V5, v[5] as V6, v[6] as V7, v[7] as V8, v[8] as V9, v[9] as V10, v[10] as V11, v[11] as V12, v[12] as V13, v[13] as V14, v[14] as V15, v[15] as V16, v[16] as V17, v[17] as V18, v[18] as V19, v[19] as V20));
 }

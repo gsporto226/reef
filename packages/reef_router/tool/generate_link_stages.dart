@@ -15,13 +15,16 @@ String generate() {
     final vs = [for (var i = 1; i <= n; i++) 'V$i'];
     String stage(List<String> values) => values.isEmpty
         ? 'Link<R>'
-        : 'Link${values.length}<R, ${values.join(', ')}>';
+        : 'Link${values.length}<R, P, ${values.join(', ')}>';
     final self = stage(vs);
-    final next = stage([...vs, 'V']);
-    final nextRest = stage([...vs, 'List<String>']);
+    // Stage 0 has no parent: its next stage's parent is Never.
+    String grow(String v) => n == 0 ? 'Link1<R, Never, $v>' : stage([...vs, v]);
+    final next = grow('V');
+    final nextRest = grow('List<String>');
     out
       ..writeln()
       ..writeln('/// A link to [R] being built, holding $n value(s).')
+      ..writeln(n == 0 ? '' : '/// [P] is its parent route, `Never` for none.')
       ..writeln('final class $self {');
     if (n == 0) {
       out
@@ -30,7 +33,7 @@ String generate() {
         ..writeln()
         ..writeln('  /// Mounts under a parent link to [P], read by [get]; the')
         ..writeln('  /// parent value is the first constructor parameter.')
-        ..writeln('  Link1<R, P> parent<P>(P Function(R route) get) =>')
+        ..writeln('  Link1<R, P, P> parent<P>(P Function(R route) get) =>')
         ..writeln('      Link1._([..._parts, _parent(get)]);')
         ..writeln();
     }
@@ -73,11 +76,15 @@ String generate() {
         ..writeln('      ${_ctor(n + 1)}([..._parts, _rest(get)]);');
     }
     final args = [for (var i = 0; i < n; i++) 'v[$i] as ${vs[i]}'].join(', ');
+    final built = n == 0 ? 'ValuelessLink' : 'TypedLinkOf';
     out
       ..writeln()
       ..writeln('  /// The link, building its route with [create].')
-      ..writeln('  TypedLink<R> build(R Function(${vs.join(', ')}) create) =>')
-      ..writeln('      TypedLink._(_parts, (v) => create($args));')
+      ..writeln(
+        '  ${n == 0 ? 'ValuelessLink<R>' : 'TypedLink<R, P>'} '
+        'build(R Function(${vs.join(', ')}) create) =>',
+      )
+      ..writeln('      $built._(_parts, (v) => create($args));')
       ..writeln('}');
   }
   return out.toString();
