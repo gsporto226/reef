@@ -1019,9 +1019,6 @@ class WindowingController {
        _store = store {
     undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
     restoration = ReefRootRestorationBucket(store);
-    claimBucket(_reefBucket).register('extra', _extra);
-    // Records saved before ADR 0010 held extra next to the doc.
-    _extra.value ??= store?.load(hibernationKey)?['extra'];
     if (store != null) _doc.addListener(_save);
   }
 
@@ -1031,21 +1028,10 @@ class WindowingController {
   final WindowingPersistence persistence;
 
   /// The root of the app's restoration buckets (ADR 0010), loaded from the
-  /// store before the first frame and saved there once per frame.
+  /// store before the first frame and saved there once per frame. State
+  /// not tied to a widget claims a child with `restoration.claimChild(id)`;
+  /// ids are saved data, so renaming one drops its state.
   late final ReefRootRestorationBucket restoration;
-
-  /// The child bucket [id] of [restoration], for state not tied to a
-  /// widget. Ids are saved data: renaming one drops its state.
-  ReefRestorationBucket claimBucket(String id) => restoration.claimChild(id);
-
-  static const _reefBucket = 'reef:';
-  final _extra = ReefRestorableValue<Object?>(null);
-
-  /// An app-owned JSON value, a value in a reserved restoration bucket.
-  @Deprecated('Claim a restoration bucket with claimBucket (ADR 0010)')
-  Object? get extra => _extra.value;
-  @Deprecated('Claim a restoration bucket with claimBucket (ADR 0010)')
-  set extra(Object? value) => _extra.value = value;
 
   void _save() =>
       _store?.save(hibernationKey, persistence(_doc.value).toRecord());
@@ -1374,7 +1360,6 @@ class WindowingController {
 
   void dispose() {
     _doc.dispose();
-    _extra.dispose();
     _vetoes.dispose();
   }
 }
@@ -1416,15 +1401,15 @@ class WindowingUndoHost implements UndoHost<WindowingDoc> {
   final ValueNotifier<WindowingDoc> _doc;
 
   @override
-  void undo(UndoEntry<WindowingDoc> entry) => _doc.value =
-      WindowingPatch.diff(entry.snapshotBefore, entry.snapshotAfter)
-          .reversed
-          .apply(_doc.value) ??
-      entry.snapshotBefore;
+  void undo(UndoEntry<WindowingDoc> entry) =>
+      _publish(entry.snapshotAfter, entry.snapshotBefore);
 
   @override
-  void redo(UndoEntry<WindowingDoc> entry) => _doc.value =
-      WindowingPatch.diff(entry.snapshotBefore, entry.snapshotAfter)
-          .apply(_doc.value) ??
-      entry.snapshotAfter;
+  void redo(UndoEntry<WindowingDoc> entry) =>
+      _publish(entry.snapshotBefore, entry.snapshotAfter);
+
+  /// Applies the patch [from] -> [to] to the live doc; on conflict
+  /// publishes [to] whole (ADR 0009).
+  void _publish(WindowingDoc from, WindowingDoc to) =>
+      _doc.value = WindowingPatch.diff(from, to).apply(_doc.value) ?? to;
 }

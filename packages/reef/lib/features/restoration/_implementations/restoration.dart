@@ -2,12 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:flutter/widgets.dart';
 import 'package:reef/features/hibernation/_interfaces/hibernation_store.dart';
-import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
+import 'package:reef/features/hibernation/_implementations/lifecycle.dart';
 import 'package:reef/features/windowing/_implementations/windowing_root.dart';
-
-/// The reserved store id the root restoration bucket is saved under
-/// (ADR 0010).
-const restorationHibernationKey = BufferId.manual('restoration:');
 
 /// Turns a restorable value into JSON and back. [decode] throws on JSON it
 /// cannot read; the bucket is then dropped to defaults.
@@ -101,6 +97,19 @@ class ReefRestorationBucket {
     }
   }
 
+  /// What registering [value] under [key] would restore, without
+  /// registering it: the saved value decoded with [value]'s codec, or its
+  /// default when nothing is saved or it fails to decode. Reads a setting
+  /// before the controller restores the doc.
+  T peek<T>(String key, ReefRestorableValue<T> value) {
+    if (!_values.containsKey(key)) return value.defaultValue;
+    try {
+      return value.codec.decode(_values[key]);
+    } catch (_) {
+      return value.defaultValue;
+    }
+  }
+
   /// The saved JSON under [key], or null.
   Object? read(String key) => _values[key];
 
@@ -179,7 +188,8 @@ mixin ReefRestorationMixin<S extends StatefulWidget> on State<S> {
   void didChangeDependencies() {
     super.didChangeDependencies();
     if (_bucket != null) return;
-    _bucket = WindowingScope.of(context).controller.claimBucket(restorationId);
+    _bucket = WindowingScope.of(context).controller.restoration
+        .claimChild(restorationId);
     restoreState();
   }
 

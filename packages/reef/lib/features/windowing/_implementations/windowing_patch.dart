@@ -39,7 +39,10 @@ class WindowingPatch {
     _swap(_tabs),
     _swap(_windows),
     _swap(_floating),
-    _focus.let((f) => (f.$2, f.$1)),
+    switch (_focus) {
+      (final a, final b) => (b, a),
+      null => null,
+    },
   );
 
   /// [doc] with every touched unit set to its "after" value and every other
@@ -82,10 +85,3 @@ Map<K, V> _set<K, V extends Object>(Map<K, V> doc, Map<K, (V?, V?)> d) => {
   for (final MapEntry(:key, :value) in d.entries)
     if (!doc.containsKey(key)) key: ?value.$2,
 };
-
-extension<T extends Object> on T? {
-  R? let<R>(R Function(T) f) => switch (this) {
-    final v? => f(v),
-    _ => null,
-  };
-}

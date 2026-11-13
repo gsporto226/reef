@@ -70,12 +70,12 @@ class _WindowingPlaygroundState extends ConsumerState<WindowingPlayground> {
   @override
   void initState() {
     super.initState();
-    _c.claimBucket('playground').register('projection', _projection);
+    _c.restoration.claimChild('playground').register('projection', _projection);
   }
 
   @override
   void dispose() {
-    _c.claimBucket('playground').unregister('projection');
+    _c.restoration.claimChild('playground').unregister('projection');
     _projection.dispose();
     super.dispose();
   }

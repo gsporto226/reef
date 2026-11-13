@@ -108,7 +108,7 @@ void main() {
     expect(windows(), findsNWidgets(2));
     await project('Auto');
     expect(windows(), findsOneWidget);
-    expect(c.claimBucket('playground').read('projection'), 'auto');
+    expect(c.restoration.claimChild('playground').read('projection'), 'auto');
   });
 
   testWidgets('the projection switch is saved in a restoration bucket and restored from it', (
@@ -120,7 +120,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Tabbed').last);
     await tester.pumpAndSettle();
-    expect(c.claimBucket('playground').read('projection'), 'tabbed');
+    expect(c.restoration.claimChild('playground').read('projection'), 'tabbed');
 
     await tester.pumpWidget(const SizedBox());
     await show(tester);
