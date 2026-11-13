@@ -12,7 +12,16 @@ import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_router/reef_router.dart';
 
-void main() => runApp(BrowserApp(store: InMemoryHibernationStore()));
+import 'file_store.dart';
+
+/// Launched with a URL (the default browser), it opens on top of the
+/// restored session.
+void main(List<String> args) => runApp(
+  BrowserApp(
+    store: JsonFileHibernationStore(sessionFile()),
+    launchArg: args.firstOrNull,
+  ),
+);
 
 /// Design tokens, from design/tokens.json.
 abstract final class T {
@@ -286,10 +295,13 @@ String titleOf(Object route) => switch (route) {
   _ => links.uriOf(route).toString(),
 };
 
+/// The browser over [store]. [launchArg], a URL or an internal path, opens
+/// in a new tab on top of the restored session (spec §9 cold start).
 class BrowserApp extends StatefulWidget {
-  const BrowserApp({super.key, required this.store});
+  const BrowserApp({super.key, required this.store, this.launchArg});
 
   final HibernationStore store;
+  final String? launchArg;
 
   static BrowserAppState of(BuildContext context) =>
       context.findAncestorStateOfType<BrowserAppState>()!;
@@ -307,11 +319,34 @@ class BrowserAppState extends State<BrowserApp> {
   late final _bound = links.bind(settingsLocked);
   late final controller = WindowingController(
     undo: undo,
-    initial: () =>
-        WindowingDoc.initial(buffer: links.linkOf(const NewTabRoute()).buffer),
-    store: widget.store,
+    // Runs only when nothing was restored: a launch URL is then the only tab.
+    initial: () => (_fresh = widget.launchArg != null)
+        ? WindowingDoc.initial()
+        : WindowingDoc.initial(
+            buffer: links.linkOf(const NewTabRoute()).buffer,
+          ),
+    store: _forgetSessionUnlessRestored(widget.store),
     interceptor: _bound.interceptor,
   );
+
+  /// Deletes the saved layout before the controller reads it when
+  /// "Restore session on start" is off. Read straight from the bucket: the
+  /// value is registered on the controller, which restores the doc first.
+  static HibernationStore _forgetSessionUnlessRestored(HibernationStore store) {
+    final saved = ReefRootRestorationBucket(store)
+        .claimChild(_bucket)
+        .read(_restoreKey);
+    if (saved == false) store.delete(WindowingController.hibernationKey);
+    return store;
+  }
+
+  /// Nothing was restored and a launch URL fills the empty first tab.
+  var _fresh = false;
+
+  static const _bucket = 'browser', _restoreKey = 'restoreSession';
+
+  /// The "Restore session on start" setting; off starts fresh.
+  final restoreSession = ReefRestorableValue(true);
   late final nav = LinkNavigator(links, controller);
   late final void Function() _unwatch;
 
@@ -319,7 +354,13 @@ class BrowserAppState extends State<BrowserApp> {
   void initState() {
     super.initState();
     _unwatch = _bound.watch(controller, refresh: settingsLocked);
-    controller.claimBucket('browser').register('bookmarks', bookmarks);
+    controller.claimBucket(_bucket)
+      ..register('bookmarks', bookmarks)
+      ..register(_restoreKey, restoreSession);
+    if (widget.launchArg case final arg?) {
+      final route = routeOfInput(arg);
+      _fresh ? nav.go(route) : nav.openInNewTab(route);
+    }
   }
 
   /// The bookmarked routes, oldest first; restored across restarts.
@@ -361,6 +402,7 @@ class BrowserAppState extends State<BrowserApp> {
     controller.dispose();
     settingsLocked.dispose();
     bookmarks.dispose();
+    restoreSession.dispose();
     super.dispose();
   }
 
@@ -863,14 +905,52 @@ class _BrowserPageState extends State<BrowserPage> {
         (app) => historyOf(app.controller.doc.value),
       ),
       BookmarksRoute() => _PageList('Bookmarks', (app) => app.bookmarks.value),
-      SettingsRoute() => const _Notice(
-        'Settings',
-        'Settings is guarded: while it is locked from the menu, opening it '
-            'redirects to the new tab page.',
-      ),
+      SettingsRoute() => const _Settings(),
       _ => const _Notice('New tab', null),
     },
   );
+}
+
+/// `/settings`: the restore toggle and the guard's note.
+class _Settings extends StatelessWidget {
+  const _Settings();
+
+  @override
+  Widget build(BuildContext context) {
+    final restore = BrowserApp.of(context).restoreSession;
+    return Material(
+      color: T.page,
+      child: ListView(
+        padding: const EdgeInsets.all(T.space40),
+        children: [
+          const Text(
+            'Settings',
+            style: TextStyle(
+              fontSize: 28,
+              fontWeight: FontWeight.w600,
+              color: T.textPrimary,
+            ),
+          ),
+          const SizedBox(height: T.space16),
+          ValueListenableBuilder(
+            valueListenable: restore,
+            builder: (_, on, _) => SwitchListTile(
+              title: const Text('Restore session on start'),
+              value: on,
+              activeThumbColor: T.accent,
+              onChanged: (v) => restore.value = v,
+            ),
+          ),
+          const SizedBox(height: T.space16),
+          const Text(
+            'Settings is guarded: while it is locked from the menu, opening it '
+            'redirects to the new tab page.',
+            style: TextStyle(fontSize: 14, color: T.textMuted),
+          ),
+        ],
+      ),
+    );
+  }
 }
 
 /// An internal page listing the web pages [pagesOf] reads from the doc.
