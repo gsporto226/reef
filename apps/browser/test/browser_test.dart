@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:browser/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -237,42 +239,49 @@ void main() {
     const a = WebPage('http', Host('h'), ['a'], '');
     const b = WebPage('http', Host('h'), ['b'], '');
 
-    WindowingDoc docOf(List<(Object, bool)> visits) {
+    WindowingDoc docOf(List<Object> visits) {
       final d = WindowingDoc.initial();
       var doc = NewTab(
         shellId: d.focusedShellId,
         tabId: TabId.generate(),
         buffer: (w, links.linkOf(const NewTabRoute()).buffer),
       ).apply(d);
-      for (final (route, marked) in visits) {
+      for (final route in visits) {
         final (:buffer, :arguments) = links.linkOf(route);
-        doc = PushBuffer(
-          w,
-          buffer,
-          arguments: {...arguments, if (marked) bookmarkKey: ''},
-        ).apply(doc);
+        doc = PushBuffer(w, buffer, arguments: arguments).apply(doc);
       }
       return doc;
     }
 
     test('history is every web page in the doc, once each', () {
       final doc = docOf([
-        (a, false),
-        (const NotFoundRoute(['x']), false),
-        (b, false),
-        (a, false),
+        a,
+        const NotFoundRoute(['x']),
+        b,
+        a,
       ]);
       expect(historyOf(doc), unorderedEquals([a, b]));
     });
 
-    test('bookmarks are the pages whose entry is marked', () {
-      expect(bookmarksOf(docOf([(a, true), (b, false)])), [a]);
+    test('bookmarks round-trip through their codec', () {
+      final routes = [a, const HistoryRoute()];
+      expect(
+        bookmarksCodec.decode(
+          jsonDecode(jsonEncode(bookmarksCodec.encode(routes))),
+        ),
+        routes,
+      );
     });
   });
 
   group('settings guard', () {
-    Future<BrowserAppState> boot(WidgetTester tester) async {
-      await tester.pumpWidget(BrowserApp(store: InMemoryHibernationStore()));
+    Future<BrowserAppState> boot(
+      WidgetTester tester, [
+      HibernationStore? store,
+    ]) async {
+      await tester.pumpWidget(
+        BrowserApp(store: store ?? InMemoryHibernationStore()),
+      );
       await tester.pumpAndSettle();
       return tester.state<BrowserAppState>(find.byType(BrowserApp));
     }
@@ -334,15 +343,38 @@ void main() {
       expect(app.focusedRoute, const SettingsRoute());
     });
 
-    testWidgets('Bookmark marks the current entry', (tester) async {
+    testWidgets('Bookmark toggles the current page, not its entry', (
+      tester,
+    ) async {
       final app = await boot(tester);
+      await menu(tester, 'History');
+      final arguments = history(app).current.arguments;
+      await tester.tap(find.byTooltip('Bookmark'));
+      await tester.pumpAndSettle();
+      expect(app.bookmarks.value, [const HistoryRoute()]);
+      expect(find.byIcon(Icons.star), findsOneWidget);
+      expect(history(app).current.arguments, arguments);
+      await tester.tap(find.byTooltip('Bookmark'));
+      await tester.pumpAndSettle();
+      expect(app.bookmarks.value, isEmpty);
+    });
+
+    testWidgets('bookmarks survive a restart and outlive their tab', (
+      tester,
+    ) async {
+      final store = InMemoryHibernationStore();
+      final first = await boot(tester, store);
       await menu(tester, 'History');
       await tester.tap(find.byTooltip('Bookmark'));
       await tester.pumpAndSettle();
-      expect(history(app).current.arguments, contains(bookmarkKey));
-      await tester.tap(find.byTooltip('Bookmark'));
-      await tester.pumpAndSettle();
-      expect(history(app).current.arguments, isNot(contains(bookmarkKey)));
+      expect(first.bookmarked, isTrue);
+
+      await tester.pumpWidget(const SizedBox());
+      final second = await boot(tester, store);
+      expect(second, isNot(same(first)));
+      expect(second.bookmarks.value, [const HistoryRoute()]);
+      await menu(tester, 'Bookmarks');
+      expect(find.text('/history'), findsWidgets);
     });
   });
 

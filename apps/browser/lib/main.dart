@@ -1,4 +1,4 @@
-﻿// The browser integration app (docs/integration-apps.md): real web pages in
+// The browser integration app (docs/integration-apps.md): real web pages in
 // reef windows. reef owns every navigation; the webview only renders the
 // current history entry. This is the tracer: one shell, an address bar, the
 // link tree, and tabs.
@@ -171,33 +171,30 @@ final links = LinkTree<Object>([
   NotFoundRoute.link,
 ]);
 
-/// The entry argument that bookmarks an entry. The doc is the only store,
-/// so a bookmark is a mark on a history entry.
-// ponytail: a bookmark lives and dies with its entry (closing the tab drops
-// it); a doc-level app-data slot in reef would fix that.
-const bookmarkKey = 'bookmark';
+/// Bookmarks saved as link URIs: a restorable value in the `browser`
+/// bucket (ADR 0010), so they outlive their history entries.
+final bookmarksCodec = RestorableCodec<List<Object>>(
+  encode: (routes) => [for (final r in routes) links.uriOf(r).toString()],
+  decode: (json) => [
+    for (final s in json! as List) links.routeOf(Uri.parse(s as String)),
+  ],
+);
 
 /// Every history entry in [doc], back, current and forward, as routes.
-Iterable<(Object, HistoryEntry)> _entries(WindowingDoc doc) => [
+Iterable<Object> _entries(WindowingDoc doc) => [
   for (final w in doc.windows.values)
     for (final e in [
       ...w.history.back,
       w.history.current,
       ...w.history.forward,
     ])
-      (links.routeOfBuffer(e.buffer, e.arguments), e),
+      links.routeOfBuffer(e.buffer, e.arguments),
 ];
 
 /// Every web page in [doc]'s histories, once each.
 List<WebPage> historyOf(WindowingDoc doc) => {
-  for (final (r, _) in _entries(doc))
+  for (final r in _entries(doc))
     if (r is WebPage) r,
-}.toList();
-
-/// The web pages with a bookmarked entry in [doc], once each.
-List<WebPage> bookmarksOf(WindowingDoc doc) => {
-  for (final (r, e) in _entries(doc))
-    if (r is WebPage && e.arguments.containsKey(bookmarkKey)) r,
 }.toList();
 
 /// What typing [text] into the address bar opens: a path is an internal
@@ -322,30 +319,27 @@ class BrowserAppState extends State<BrowserApp> {
   void initState() {
     super.initState();
     _unwatch = _bound.watch(controller, refresh: settingsLocked);
+    controller.claimBucket('browser').register('bookmarks', bookmarks);
   }
 
-  /// Bookmarks the focused window's entry, or clears its bookmark.
+  /// The bookmarked routes, oldest first; restored across restarts.
+  final bookmarks = ReefRestorableValue<List<Object>>(
+    const [],
+    codec: bookmarksCodec,
+  );
+
+  /// Bookmarks the focused route, or clears its bookmark.
   void toggleBookmark() {
-    final doc = controller.doc.value;
-    final id = doc.activeWindowId;
-    final entry = doc.windows[id]?.history.current;
-    if (id == null || entry == null) return;
-    final arguments = {...entry.arguments};
-    if (arguments.remove(bookmarkKey) == null) arguments[bookmarkKey] = '';
-    controller.dispatch(ReplaceBuffer(id, entry.buffer, arguments: arguments));
+    final route = focusedRoute;
+    if (route == null) return;
+    final now = bookmarks.value;
+    bookmarks.value = now.contains(route)
+        ? [...now.where((r) => r != route)]
+        : [...now, route];
   }
 
-  /// Whether the focused window's entry is bookmarked.
-  bool get bookmarked =>
-      controller
-          .doc
-          .value
-          .windows[controller.doc.value.activeWindowId]
-          ?.history
-          .current
-          .arguments
-          .containsKey(bookmarkKey) ??
-      false;
+  /// Whether the focused route is bookmarked.
+  bool get bookmarked => bookmarks.value.contains(focusedRoute);
 
   /// Each web page window's webview, for tests to read the page through.
   final webViews = <WindowId, InAppWebViewController>{};
@@ -366,6 +360,7 @@ class BrowserAppState extends State<BrowserApp> {
     _unwatch();
     controller.dispose();
     settingsLocked.dispose();
+    bookmarks.dispose();
     super.dispose();
   }
 
@@ -583,6 +578,7 @@ class _ToolbarState extends State<Toolbar> {
   void initState() {
     super.initState();
     app.controller.doc.addListener(_follow);
+    app.bookmarks.addListener(_follow);
     _address();
   }
 
@@ -596,6 +592,7 @@ class _ToolbarState extends State<Toolbar> {
   @override
   void dispose() {
     app.controller.doc.removeListener(_follow);
+    app.bookmarks.removeListener(_follow);
     text.dispose();
     super.dispose();
   }
@@ -861,8 +858,11 @@ class _BrowserPageState extends State<BrowserPage> {
             ),
         ],
       ),
-      HistoryRoute() => _PageList('History', historyOf),
-      BookmarksRoute() => _PageList('Bookmarks', bookmarksOf),
+      HistoryRoute() => _PageList(
+        'History',
+        (app) => historyOf(app.controller.doc.value),
+      ),
+      BookmarksRoute() => _PageList('Bookmarks', (app) => app.bookmarks.value),
       SettingsRoute() => const _Notice(
         'Settings',
         'Settings is guarded: while it is locked from the menu, opening it '
@@ -878,14 +878,14 @@ class _PageList extends StatelessWidget {
   const _PageList(this.heading, this.pagesOf);
 
   final String heading;
-  final List<WebPage> Function(WindowingDoc) pagesOf;
+  final List<Object> Function(BrowserAppState app) pagesOf;
 
   @override
   Widget build(BuildContext context) {
     final app = BrowserApp.of(context);
-    return ValueListenableBuilder(
-      valueListenable: app.controller.doc,
-      builder: (_, doc, _) => Material(
+    return ListenableBuilder(
+      listenable: Listenable.merge([app.controller.doc, app.bookmarks]),
+      builder: (_, _) => Material(
         color: T.page,
         child: ListView(
           padding: const EdgeInsets.all(T.space40),
@@ -899,7 +899,7 @@ class _PageList extends StatelessWidget {
               ),
             ),
             const SizedBox(height: T.space16),
-            for (final page in pagesOf(doc))
+            for (final page in pagesOf(app))
               ListTile(
                 leading: const Icon(Icons.public, color: T.textMuted),
                 title: Text(titleOf(page)),

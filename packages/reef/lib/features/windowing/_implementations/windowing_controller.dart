@@ -4,6 +4,7 @@ import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef_fp/result.dart';
 import 'package:reef/features/hibernation/_interfaces/hibernation_store.dart';
 import 'package:reef/features/hibernation/_implementations/lifecycle.dart';
+import 'package:reef/features/restoration/_implementations/restoration.dart';
 import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/shell_platform.dart';
@@ -999,8 +1000,7 @@ class WindowingController {
   /// With [platform], [openShell] opens real shells.
   /// With [store], it starts from the doc saved there and
   /// saves every published doc under [hibernationKey] (spec §11). A bad
-  /// record is deleted and ignored. [persistence] shapes each saved doc
-  /// and [extra] is saved next to it. [initial] runs only when nothing was
+  /// record is deleted and ignored. [persistence] shapes each saved doc. [initial] runs only when nothing was
   /// restored; null, or a null result, starts from [WindowingDoc.initial].
   WindowingController({
     WindowingDoc? Function()? initial,
@@ -1018,8 +1018,10 @@ class WindowingController {
        _undo = undo,
        _store = store {
     undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
-    // A discarded record was deleted by _restore, so it yields no extra.
-    _extra = store?.load(hibernationKey)?['extra'];
+    restoration = ReefRootRestorationBucket(store);
+    claimBucket(_reefBucket).register('extra', _extra);
+    // Records saved before ADR 0010 held extra next to the doc.
+    _extra.value ??= store?.load(hibernationKey)?['extra'];
     if (store != null) _doc.addListener(_save);
   }
 
@@ -1028,20 +1030,25 @@ class WindowingController {
   /// Turns the live doc into the doc that is saved; the live doc is kept.
   final WindowingPersistence persistence;
 
-  Object? _extra;
+  /// The root of the app's restoration buckets (ADR 0010), loaded from the
+  /// store before the first frame and saved there once per frame.
+  late final ReefRootRestorationBucket restoration;
 
-  /// An app-owned JSON value saved next to the doc; restored from the
-  /// record, null without one.
-  Object? get extra => _extra;
-  set extra(Object? value) {
-    _extra = value;
-    _save();
-  }
+  /// The child bucket [id] of [restoration], for state not tied to a
+  /// widget. Ids are saved data: renaming one drops its state.
+  ReefRestorationBucket claimBucket(String id) => restoration.claimChild(id);
 
-  void _save() => _store?.save(hibernationKey, {
-    ...persistence(_doc.value).toRecord(),
-    'extra': _extra,
-  });
+  static const _reefBucket = 'reef:';
+  final _extra = ReefRestorableValue<Object?>(null);
+
+  /// An app-owned JSON value, a value in a reserved restoration bucket.
+  @Deprecated('Claim a restoration bucket with claimBucket (ADR 0010)')
+  Object? get extra => _extra.value;
+  @Deprecated('Claim a restoration bucket with claimBucket (ADR 0010)')
+  set extra(Object? value) => _extra.value = value;
+
+  void _save() =>
+      _store?.save(hibernationKey, persistence(_doc.value).toRecord());
 
   /// The reserved store id the doc hibernates under.
   static const hibernationKey = windowingHibernationKey;
@@ -1367,6 +1374,7 @@ class WindowingController {
 
   void dispose() {
     _doc.dispose();
+    _extra.dispose();
     _vetoes.dispose();
   }
 }

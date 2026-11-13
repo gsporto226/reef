@@ -310,9 +310,8 @@ controller constructor.
 - `persistence`: what the hibernation record keeps. Unlike the other hooks
   it is a `WindowingController` constructor parameter next to the store,
   because restore happens before any widget mounts: a doc-to-doc transform
-  applied before saving (default: the whole doc). The controller's `extra`
-  is an app-owned JSON value saved next to the doc and restored with it
-  (default: none), e.g. the projection choice.
+  applied before saving (default: the whole doc). App state such as the
+  projection choice lives in restoration buckets (§11, ADR 0010).
 
 Non-overridable core: doc invariants (reducer), the command set, the undo
 timeline, buffer live sync. Delegates work through the pipeline
@@ -522,17 +521,19 @@ The doc hibernates as one record under the reserved id
 `HibernationStore`. Buffer providers must not use that id; debug builds
 assert on it.
 
-- The record holds `version` (currently 1), `doc` and `extra`. `doc`
+- The record holds `version` (currently 1) and `doc`. `doc`
   holds the shells (ordered tabs, active tab), the tabs (window trees with
   axes and ratios, active window), every window's history (back, current,
   forward), the floating entries (scope, zIndex, geometry hint) and the
   focused shell. Not saved: undo history (in memory only) and platform
   shell state.
 - `persistence`, a constructor parameter, turns the live doc into the doc
-  that is saved (default: the whole doc). `controller.extra` is an
-  app-owned JSON value saved next to it and restored with it.
-- With a `store`, the controller saves on every published doc change and
-  on every `extra` write.
+  that is saved (default: the whole doc).
+- App state is not in this record: apps restore it through restoration
+  buckets (ADR 0010, `docs/adr/0010-apps-restore-state-through-restoration-buckets.md`),
+  saved under the reserved id `restoration:`. `controller.extra` is now a
+  value in the reserved `reef:` bucket and is deprecated.
+- With a `store`, the controller saves on every published doc change.
 - At construction, the controller loads the record. A record with another
   version, a malformed record and a record whose doc breaks an invariant
   are deleted and ignored. Without a restored doc the controller calls
