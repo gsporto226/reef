@@ -235,10 +235,25 @@ const reefOpen = (url) =>
   window.flutter_inappwebview.callHandler('reefOpen', new URL(url, location.href).href);
 window.open = (url) => { if (url) reefOpen(String(url)); return null; };
 document.addEventListener('click', (e) => {
-  const a = e.target.closest && e.target.closest('a[target="_blank"][href]');
+  const a = e.target.closest && e.target.closest('a[href]');
   if (!a) return;
+  if (e.ctrlKey) {
+    e.preventDefault();
+    window.flutter_inappwebview.callHandler('reefSplit', a.href);
+  } else if (a.target == '_blank') {
+    e.preventDefault();
+    reefOpen(a.href);
+  }
+}, true);
+''';
+
+/// Sends the app's shortcuts to reef while the page has keyboard focus:
+/// WebView2 then holds native focus and Flutter sees no key events.
+const shortcutScript = '''
+document.addEventListener('keydown', (e) => {
+  if (!e.ctrlKey || e.altKey || e.key.toLowerCase() != 't') return;
   e.preventDefault();
-  reefOpen(a.href);
+  window.flutter_inappwebview.callHandler('reefShortcut', e.shiftKey ? 'reopen' : 'newTab');
 }, true);
 ''';
 
@@ -387,6 +402,12 @@ class BrowserAppState extends State<BrowserApp> {
 
   /// Opens a fresh new tab page in a new tab.
   void newTab() => nav.openInNewTab(const NewTabRoute());
+
+  /// Opens [route], the focused page when null, in a new window beside the
+  /// focused one: an independent view with its own webview.
+  void openInSplit([Object? route]) {
+    if (route ?? focusedRoute case final r?) nav.openInSplit(r);
+  }
 
   @override
   Widget build(BuildContext context) => MaterialApp(
@@ -627,6 +648,10 @@ class _ToolbarState extends State<Toolbar> {
                   value: () => app.nav.go(route),
                   child: Text(label),
                 ),
+              PopupMenuItem(
+                value: () => app.openInSplit(),
+                child: const Text('Open in split'),
+              ),
               for (final (label, open) in [
                 ('Picture in picture', app.pictureInPicture),
                 ('Find in page', app.findInPage),
@@ -724,7 +749,7 @@ class _BrowserPageState extends State<BrowserPage> {
           useShouldOverrideUrlLoading: true,
         ),
         initialUserScripts: UnmodifiableListView([
-          for (final source in [historyScript, newTabScript])
+          for (final source in [historyScript, newTabScript, shortcutScript])
             UserScript(
               source: source,
               injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
@@ -736,6 +761,16 @@ class _BrowserPageState extends State<BrowserPage> {
             handlerName: 'reefOpen',
             callback: (args) =>
                 app.nav.openInNewTab(WebPage.of(Uri.parse(args[0] as String))),
+          );
+          c.addJavaScriptHandler(
+            handlerName: 'reefSplit',
+            callback: (args) =>
+                app.openInSplit(WebPage.of(Uri.parse(args[0] as String))),
+          );
+          c.addJavaScriptHandler(
+            handlerName: 'reefShortcut',
+            callback: (args) =>
+                args[0] == 'reopen' ? app.undo.undo() : app.newTab(),
           );
           c.addJavaScriptHandler(
             handlerName: 'reefHistory',

@@ -148,6 +148,81 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
   });
 
+  testWidgets('flow 3: Ctrl+click splits; an open URL focuses its window; '
+      'Ctrl+T and Ctrl+Shift+T work from inside the page', (tester) async {
+    final app = await boot(tester);
+    String at(String path) => 'http://127.0.0.1:${server.port}$path';
+    WebPage page(String path) => WebPage.of(Uri.parse(at(path)));
+    WindowingDoc doc() => app.controller.doc.value;
+
+    Future<Object?> evaluateIn(WindowId window, String js) async {
+      for (var i = 0; i < 100; i++) {
+        final result = await app.webViews[window]?.evaluateJavascript(
+          source: js,
+        );
+        if (result != null) return result;
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      fail('No result for $js');
+    }
+
+    Future<void> until(bool Function() done) async {
+      for (var i = 0; i < 100 && !done(); i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(done(), isTrue);
+    }
+
+    const ready = "document.readyState == 'complete' ? document.title : null";
+    const ctrlClick =
+        "document.querySelector('a').dispatchEvent(new MouseEvent('click', "
+        '{ctrlKey: true, bubbles: true, cancelable: true})); 1';
+    String key({required bool shift}) =>
+        "document.dispatchEvent(new KeyboardEvent('keydown', {key: "
+        "'${shift ? 'T' : 't'}', ctrlKey: true, shiftKey: $shift, "
+        'bubbles: true})); 1';
+
+    await type(tester, at('/links.html'));
+    final left = doc().activeWindowId!;
+    await evaluateIn(left, ready);
+
+    // Ctrl+click opens the link in a split with its own webview; the page
+    // stays where it is.
+    await evaluateIn(left, ctrlClick);
+    await until(() => doc().windows.length == 2);
+    final right = doc().activeWindowId!;
+    expect(right, isNot(left));
+    expect(app.routeOf(right), page('/two.html'));
+    expect(app.routeOf(left), page('/links.html'));
+    expect(await evaluateIn(right, ready), 'Page two');
+
+    // Ctrl+Shift+T inside the page undoes the split.
+    await evaluateIn(left, key(shift: true));
+    await until(() => doc().windows.length == 1);
+    expect(doc().windows.keys, [left]);
+
+    // Typing a URL that is already open focuses its window.
+    await evaluateIn(left, ctrlClick);
+    await until(() => doc().windows.length == 2);
+    // The split rebuilt the toolbar, so the field needs focus again.
+    await tester.tap(addressBar);
+    await tester.pumpAndSettle();
+    await type(tester, at('/links.html'));
+    expect(
+      doc().activeWindowId,
+      left,
+      reason: '${{for (final w in doc().windows.keys) w: app.routeOf(w)}}',
+    );
+    expect(doc().windows, hasLength(2));
+
+    // Ctrl+T inside the page opens a new tab.
+    await evaluateIn(left, key(shift: false));
+    await until(() => doc().shells[doc().focusedShellId]!.tabIds.length == 2);
+    expect(app.focusedRoute, isA<NewTabRoute>());
+    // Let the plugin's async position reports land before teardown.
+    await tester.pump(const Duration(seconds: 1));
+  });
+
   testWidgets('an unknown internal path shows not-found', (tester) async {
     final app = await boot(tester);
 
