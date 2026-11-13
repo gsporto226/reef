@@ -8,8 +8,9 @@ const windowingHibernationKey = BufferId.manual('windowing:');
 
 bool _notReserved(BufferId bufferId) {
   assert(
-    bufferId != windowingHibernationKey,
-    '$bufferId is reserved for the layout record',
+    bufferId != windowingHibernationKey &&
+        bufferId != const BufferId.manual('restoration:'),
+    '$bufferId is reserved for the layout record or the restoration buckets',
   );
   return true;
 }
