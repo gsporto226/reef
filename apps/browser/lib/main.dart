@@ -10,16 +10,19 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:reef/reef.dart';
+import 'package:reef_multi_window/reef_multi_window.dart';
 import 'package:reef_router/reef_router.dart';
 
 import 'file_store.dart';
 
 /// Launched with a URL (the default browser), it opens on top of the
-/// restored session.
-void main(List<String> args) => runApp(
+/// restored session. A dragged-out tab is a real window with
+/// `FLUTTER_WINDOWING=true` (master channel); without it, one window.
+void main(List<String> args) => runWidget(
   BrowserApp(
     store: JsonFileHibernationStore(sessionFile()),
     launchArg: args.firstOrNull,
+    platform: RealShellPlatform(title: 'Browser'),
   ),
 );
 
@@ -298,10 +301,20 @@ String titleOf(Object route) => switch (route) {
 /// The browser over [store]. [launchArg], a URL or an internal path, opens
 /// in a new tab on top of the restored session (spec §9 cold start).
 class BrowserApp extends StatefulWidget {
-  const BrowserApp({super.key, required this.store, this.launchArg});
+  const BrowserApp({
+    super.key,
+    required this.store,
+    this.launchArg,
+    this.platform,
+  });
 
   final HibernationStore store;
   final String? launchArg;
+
+  /// Opens the shells a dragged-out tab lands in: a [RealShellPlatform]
+  /// draws each in its own platform window; any other (tests) draws every
+  /// shell side by side in one view.
+  final ShellPlatform? platform;
 
   static BrowserAppState of(BuildContext context) =>
       context.findAncestorStateOfType<BrowserAppState>()!;
@@ -327,6 +340,7 @@ class BrowserAppState extends State<BrowserApp> {
           ),
     store: _forgetSessionUnlessRestored(widget.store),
     interceptor: _bound.interceptor,
+    platform: widget.platform,
   );
 
   /// Deletes the saved layout before the controller reads it when
@@ -369,9 +383,10 @@ class BrowserAppState extends State<BrowserApp> {
     codec: bookmarksCodec,
   );
 
-  /// Bookmarks the focused route, or clears its bookmark.
-  void toggleBookmark() {
-    final route = focusedRoute;
+  /// Bookmarks [route] (the focused route by default), or clears its
+  /// bookmark.
+  void toggleBookmark([Object? route]) {
+    route ??= focusedRoute;
     if (route == null) return;
     final now = bookmarks.value;
     bookmarks.value = now.contains(route)
@@ -462,50 +477,103 @@ class BrowserAppState extends State<BrowserApp> {
     if (route ?? focusedRoute case final r?) nav.openInSplit(r);
   }
 
+  /// Moves [tab] to the end of [shell]'s strip. The last tab of its shell
+  /// takes the shell with it (the doc refuses to empty a shell).
+  // ponytail: always appends; drop at the pointer's index if order matters.
+  void moveTabTo(TabId tab, ShellId shell) {
+    final doc = controller.doc.value;
+    final from = doc.shells.keys.firstWhere(
+      (s) => doc.shells[s]!.tabIds.contains(tab),
+    );
+    if (from == shell) return;
+    final index = doc.shells[shell]!.tabIds.length;
+    if (doc.shells[from]!.tabIds.length > 1) {
+      return controller.moveTab(tab, shellId: shell, index: index);
+    }
+    final placeholder = TabId.generate();
+    controller.dispatchAll([
+      NewTab(shellId: from, tabId: placeholder),
+      MoveTab(tab, shellId: shell, index: index),
+      CloseShell(from),
+    ]);
+  }
+
+  /// Each shell's surface, built once so a doc change doesn't rebuild it.
+  final _shells = <ShellId, Widget>{};
+  Widget _shell(ShellId id) =>
+      _shells.putIfAbsent(id, () => _BrowserShell(id, key: ObjectKey(id)));
+
   @override
-  Widget build(BuildContext context) => MaterialApp(
-    title: 'Browser',
-    debugShowCheckedModeBanner: false,
-    theme: ThemeData(useMaterial3: true, colorSchemeSeed: T.accent),
-    home: Material(
-      color: T.chrome,
-      child: LinkScope(
-        navigator: nav,
+  Widget build(BuildContext context) => LinkScope(
+    navigator: nav,
+    child: WindowingRoot(
+      controller: controller,
+      bufferBuilder: (_, buffer) => BrowserPage(buffer),
+      delegate: WindowingDelegate(
+        pageIdentity: links.pageIdentityOf,
+        windowChrome: (_, id, _, page) =>
+            controller.doc.value.floating.containsKey(id)
+            ? FloatPanel(id, page)
+            : page,
+        // The chrome: tab strip over the toolbar.
+        tabStrip: (_, shellId) => Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [TabStrip(shellId), Toolbar(shellId)],
+        ),
+        projectionPolicy: (_, _, _) =>
+            (_, _, shellId) => DesktopProjection(shellId),
+      ),
+      child: switch (widget.platform) {
+        final RealShellPlatform platform => ShellViews(
+          controller: controller,
+          platform: platform,
+          shellBuilder: (_, id) => _shell(id),
+        ),
+        _ => ValueListenableBuilder(
+          valueListenable: controller.doc,
+          builder: (_, doc, _) => Row(
+            textDirection: TextDirection.ltr,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              for (final id in doc.shells.keys) Expanded(child: _shell(id)),
+            ],
+          ),
+        ),
+      },
+    ),
+  );
+}
+
+/// Shell [shellId]'s surface in its view: the app, its shortcuts, the shell.
+class _BrowserShell extends StatelessWidget {
+  const _BrowserShell(this.shellId, {super.key});
+
+  final ShellId shellId;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = BrowserApp.of(context);
+    return MaterialApp(
+      title: 'Browser',
+      debugShowCheckedModeBanner: false,
+      theme: ThemeData(useMaterial3: true, colorSchemeSeed: T.accent),
+      home: Material(
+        color: T.chrome,
         child: CallbackShortcuts(
           bindings: {
             const SingleActivator(LogicalKeyboardKey.keyT, control: true):
-                newTab,
+                app.newTab,
             const SingleActivator(
               LogicalKeyboardKey.keyT,
               control: true,
               shift: true,
-            ): undo.undo,
+            ): app.undo.undo,
           },
-          child: FocusScope(
-            autofocus: true,
-            child: WindowingRoot(
-              controller: controller,
-              bufferBuilder: (_, buffer) => BrowserPage(buffer),
-              delegate: WindowingDelegate(
-                pageIdentity: links.pageIdentityOf,
-                windowChrome: (_, id, _, page) =>
-                    controller.doc.value.floating.containsKey(id)
-                    ? FloatPanel(id, page)
-                    : page,
-                // The chrome: tab strip over the toolbar.
-                tabStrip: (_, shellId) => Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [TabStrip(shellId), Toolbar(shellId)],
-                ),
-                projectionPolicy: (_, _, _) =>
-                    (_, _, shellId) => DesktopProjection(shellId),
-              ),
-            ),
-          ),
+          child: FocusScope(autofocus: true, child: ShellProjection(shellId)),
         ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// Shell [shellId]'s tabs: a tap activates, Ã— closes, + opens a new tab.
@@ -517,6 +585,15 @@ class TabStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = BrowserApp.of(context);
+    // A tab dropped here from another shell moves in; one dropped on no
+    // strip pops out into a new shell.
+    return DragTarget<(TabId,)>(
+      onAcceptWithDetails: (d) => app.moveTabTo(d.data.$1, shellId),
+      builder: (_, _, _) => _strip(app),
+    );
+  }
+
+  Widget _strip(BrowserAppState app) {
     return SizedBox(
       height: T.tabbarHeight,
       child: TabStripSlot(
@@ -527,6 +604,7 @@ class TabStrip extends StatelessWidget {
             children: [
               for (final id in strip.tabIds) ...[
                 _Tab(
+                  id: id,
                   title: titleOf(
                     app.routeOf(
                           app.controller.doc.value.tabs[id]?.activeWindowId,
@@ -554,12 +632,14 @@ class TabStrip extends StatelessWidget {
 
 class _Tab extends StatelessWidget {
   const _Tab({
+    required this.id,
     required this.title,
     required this.active,
     required this.onTap,
     required this.onClose,
   });
 
+  final TabId id;
   final String title;
   final bool active;
   final VoidCallback onTap;
@@ -567,36 +647,52 @@ class _Tab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Flexible(
-    child: Material(
-      color: active ? T.tabActive : Colors.transparent,
-      borderRadius: BorderRadius.circular(T.radiusSm),
-      child: InkWell(
+    child: Draggable<(TabId,)>(
+      data: (id,),
+      feedback: Material(
+        color: T.tabActive,
+        elevation: 4,
         borderRadius: BorderRadius.circular(T.radiusSm),
-        onTap: onTap,
-        child: SizedBox(
-          width: T.tabWidth,
-          height: T.tabbarHeight,
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(T.space12, 0, T.space4, 0),
-            child: Row(
-              children: [
-                const Icon(Icons.public, size: 18, color: T.textMuted),
-                const SizedBox(width: T.space8),
-                Expanded(
-                  child: Text(
-                    title,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 14, color: T.textPrimary),
-                  ),
+        child: Padding(
+          padding: const EdgeInsets.all(T.space12),
+          child: Text(title),
+        ),
+      ),
+      onDraggableCanceled: (_, _) =>
+          BrowserApp.of(context).controller.popOutTab(id),
+      child: _body(),
+    ),
+  );
+
+  Widget _body() => Material(
+    color: active ? T.tabActive : Colors.transparent,
+    borderRadius: BorderRadius.circular(T.radiusSm),
+    child: InkWell(
+      borderRadius: BorderRadius.circular(T.radiusSm),
+      onTap: onTap,
+      child: SizedBox(
+        width: T.tabWidth,
+        height: T.tabbarHeight,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(T.space12, 0, T.space4, 0),
+          child: Row(
+            children: [
+              const Icon(Icons.public, size: 18, color: T.textMuted),
+              const SizedBox(width: T.space8),
+              Expanded(
+                child: Text(
+                  title,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 14, color: T.textPrimary),
                 ),
-                IconButton(
-                  tooltip: 'Close tab',
-                  iconSize: 18,
-                  icon: const Icon(Icons.close),
-                  onPressed: onClose,
-                ),
-              ],
-            ),
+              ),
+              IconButton(
+                tooltip: 'Close tab',
+                iconSize: 18,
+                icon: const Icon(Icons.close),
+                onPressed: onClose,
+              ),
+            ],
           ),
         ),
       ),
@@ -694,11 +790,19 @@ class _ToolbarState extends State<Toolbar> {
           ),
           ListenableBuilder(
             listenable: Listenable.merge([bar.shown, app.bookmarks]),
-            builder: (_, _) => IconButton(
-              tooltip: 'Bookmark',
-              icon: Icon(app.bookmarked ? Icons.star : Icons.star_border),
-              onPressed: app.toggleBookmark,
-            ),
+            // The star reads this shell's page, not the focused shell's.
+            builder: (_, _) {
+              final route = links.routeOf(bar.value.uri);
+              return IconButton(
+                tooltip: 'Bookmark',
+                icon: Icon(
+                  app.bookmarks.value.contains(route)
+                      ? Icons.star
+                      : Icons.star_border,
+                ),
+                onPressed: () => app.toggleBookmark(route),
+              );
+            },
           ),
           PopupMenuButton<VoidCallback>(
             tooltip: 'Menu',
@@ -740,8 +844,7 @@ class _ToolbarState extends State<Toolbar> {
 
 /// A shell's address bar as route information. Reports land in [shown];
 /// only [browse] (a submitted address) notifies the sync.
-class AddressBarProvider extends RouteInformationProvider
-    with ChangeNotifier {
+class AddressBarProvider extends RouteInformationProvider with ChangeNotifier {
   /// The reported route information.
   final shown = ValueNotifier(RouteInformation(uri: Uri.parse('/')));
 

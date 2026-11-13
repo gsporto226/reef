@@ -687,4 +687,103 @@ void main() {
       expect(app.controller.doc.value.windows, hasLength(2));
     });
   });
+
+  group('pop-out (#83)', () {
+    late FakeShellPlatform platform;
+    // The second tab on screen: the /nope tab before and after pop-out.
+    final nopeTab = find.byWidgetPredicate((w) => w is Draggable).at(1);
+
+    Future<BrowserAppState> boot(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(2000, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      platform = FakeShellPlatform();
+      await tester.pumpWidget(
+        BrowserApp(store: InMemoryHibernationStore(), platform: platform),
+      );
+      await tester.pumpAndSettle();
+      return tester.state<BrowserAppState>(find.byType(BrowserApp));
+    }
+
+    Future<void> type(WidgetTester tester, Finder bar, String text) async {
+      await tester.enterText(bar, text);
+      await tester.testTextInput.receiveAction(TextInputAction.go);
+      await tester.pumpAndSettle();
+    }
+
+    String textOf(WidgetTester tester, Finder bar) =>
+        tester.widget<EditableText>(bar).controller.text;
+
+    /// A second tab on /nope, dragged out of the strip: its own shell.
+    Future<(ShellId, ShellId)> popOut(
+      WidgetTester tester,
+      BrowserAppState app,
+    ) async {
+      final first = app.controller.doc.value.focusedShellId;
+      app.newTab();
+      await tester.pumpAndSettle();
+      await type(tester, addressBar, '/nope');
+      await tester.drag(nopeTab, const Offset(0, 400));
+      await tester.pumpAndSettle();
+      final doc = app.controller.doc.value;
+      return (first, doc.shells.keys.firstWhere((s) => s != first));
+    }
+
+    testWidgets('flow 5: drag out makes a shell with its own bar and history; '
+        'drag back restores it', (tester) async {
+      final app = await boot(tester);
+      final (first, popped) = await popOut(tester, app);
+
+      final doc = app.controller.doc.value;
+      expect(platform.opened, [popped]);
+      final tab = doc.shells[popped]!.tabIds.single;
+      expect(doc.shells[first]!.tabIds, hasLength(1));
+      expect(
+        doc.windows[doc.tabs[tab]!.activeWindowId]!.history.back,
+        hasLength(1),
+      );
+      expect(addressBar, findsNWidgets(2));
+      expect(textOf(tester, addressBar.at(0)), '');
+      expect(textOf(tester, addressBar.at(1)), '/nope');
+
+      // Back onto the first shell's strip: the popped shell closes.
+      await tester.drag(
+        nopeTab,
+        tester.getCenter(find.byTooltip('New tab').first) -
+            tester.getCenter(nopeTab),
+      );
+      await tester.pumpAndSettle();
+
+      final back = app.controller.doc.value;
+      expect(back.shells.keys, [first]);
+      expect(back.shells[first]!.tabIds, contains(tab));
+      expect(platform.closed, [popped]);
+      expect(addressBar, findsOneWidget);
+      expect(textOf(tester, addressBar), '/nope');
+    });
+
+    testWidgets('flow 2: each bar follows its shell; typing in one leaves the '
+        'other; the star follows its own shell', (tester) async {
+      final app = await boot(tester);
+      final (first, popped) = await popOut(tester, app);
+
+      await type(tester, addressBar.at(0), '/history');
+      expect(app.controller.doc.value.focusedShellId, first);
+      expect(textOf(tester, addressBar.at(0)), '/history');
+      expect(textOf(tester, addressBar.at(1)), '/nope');
+
+      // The popped shell's star bookmarks its own page, not the focused one.
+      await tester.tap(find.byTooltip('Bookmark').at(1));
+      await tester.pumpAndSettle();
+      expect(app.bookmarks.value, [
+        const NotFoundRoute(['nope']),
+      ]);
+      expect(find.byIcon(Icons.star), findsOneWidget);
+      expect(
+        tester.getCenter(find.byIcon(Icons.star)).dx,
+        greaterThan(tester.getCenter(find.byIcon(Icons.star_border)).dx),
+      );
+      expect(app.controller.doc.value.shells.keys, [first, popped]);
+    });
+  });
 }
