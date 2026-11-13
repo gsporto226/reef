@@ -77,6 +77,27 @@ void main() {
     });
   });
 
+  group('webview navigation', () {
+    final url = Uri.parse('http://127.0.0.1:8080/docs/a%20b.html?x=1&y=2');
+    final other = Uri.parse('http://127.0.0.1:8080/other.html');
+
+    test('the entry itself loads in the webview', () {
+      expect(verbOfNavigation(page, url, redirect: false), isNull);
+    });
+
+    test('anything else is cancelled and pushed through reef', () {
+      expect(verbOfNavigation(page, other, redirect: false), LinkVerb.push);
+      expect(
+        verbOfNavigation(const NewTabRoute(), url, redirect: false),
+        LinkVerb.push,
+      );
+    });
+
+    test('a server redirect replaces', () {
+      expect(verbOfNavigation(page, other, redirect: true), LinkVerb.replace);
+    });
+  });
+
   testWidgets('boots on a new tab; an unknown internal path shows not-found', (
     tester,
   ) async {
