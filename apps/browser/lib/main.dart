@@ -2,6 +2,8 @@
 // reef windows. reef owns every navigation; the webview only renders the
 // current history entry. This is the tracer: one shell, an address bar, the
 // link tree.
+import 'dart:collection';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
@@ -112,6 +114,26 @@ Object routeOfInput(String text) {
   if (t.startsWith('/')) return links.routeOf(Uri.parse(t));
   return WebPage.of(Uri.parse(t.contains('://') ? t : 'https://$t'));
 }
+
+/// How reef takes a main-frame navigation the webview is about to make to
+/// [url] while its window shows [current]: null lets it load (it is the
+/// entry itself); otherwise the load is cancelled and the verb goes through
+/// reef. A server redirect replaces; anything else pushes.
+LinkVerb? verbOfNavigation(Object? current, Uri url, {required bool redirect}) {
+  if (WebPage.of(url) == current) return null;
+  return redirect ? LinkVerb.replace : LinkVerb.push;
+}
+
+/// Reports the page's pushState/replaceState to reef, after they ran.
+const historyScript = '''
+for (const kind of ['pushState', 'replaceState']) {
+  const original = history[kind].bind(history);
+  history[kind] = (...args) => {
+    original(...args);
+    window.flutter_inappwebview.callHandler('reefHistory', kind, location.href);
+  };
+}
+''';
 
 /// The address bar text for [route].
 String addressOf(Object route) => switch (route) {
@@ -239,6 +261,16 @@ class _ToolbarState extends State<Toolbar> {
       ),
       child: Row(
         children: [
+          IconButton(
+            tooltip: 'Back',
+            icon: const Icon(Icons.arrow_back),
+            onPressed: app.nav.back,
+          ),
+          IconButton(
+            tooltip: 'Forward',
+            icon: const Icon(Icons.arrow_forward),
+            onPressed: app.nav.forward,
+          ),
           const Icon(Icons.lock_outline, size: 20, color: T.textMuted),
           const SizedBox(width: 8),
           Expanded(
@@ -276,19 +308,57 @@ class BrowserPage extends StatefulWidget {
 class _BrowserPageState extends State<BrowserPage> {
   late final app = BrowserApp.of(context);
   late final window = WindowHost.of(context);
+  late Object route = _entryRoute();
+  InAppWebViewController? web;
 
-  // ponytail: read once; an entry replaced with new arguments on the same
-  // buffer (replaceState) will need to listen to the doc.
-  late final Object route = () {
-    final entry = app.controller.doc.value.windows[window]!.history.current;
+  // flutter_inappwebview_windows 0.6.0 never sets isRedirect (it reads
+  // Fetch.requestPaused's redirectedRequestId from inside `request`, where
+  // CDP doesn't put it). So a main-frame request that arrives while the
+  // entry's own load is still running counts as a server redirect.
+  // ponytail: a script navigating before load stop also replaces; drop this
+  // once the plugin reports isRedirect.
+  bool _loading = false;
+
+  /// This window's current entry as a route, read from the doc: the builder
+  /// only gets the buffer.
+  Object _entryRoute() {
+    final entry = app.controller.doc.value.windows[window]?.history.current;
     return links.routeOfBuffer(
       widget.buffer,
-      entry.buffer == widget.buffer ? entry.arguments : const {},
+      entry?.buffer == widget.buffer ? entry!.arguments : const {},
     );
-  }();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    app.controller.doc.addListener(_follow);
+  }
+
+  /// The entry changed on this buffer (back/forward, pushState, a replace):
+  /// render it, loading it unless the webview already shows it (pushState).
+  Future<void> _follow() async {
+    if (app.controller.doc.value.windows[window] == null) return;
+    final next = _entryRoute();
+    if (next == route) return;
+    setState(() => route = next);
+    final w = web;
+    if (next is! WebPage || w == null || next == _shown) return;
+    await w.loadUrl(urlRequest: URLRequest(url: WebUri.uri(next.uri)));
+  }
+
+  /// The page the webview's document is at, as pushState left it.
+  WebPage? _shown;
+
+  // ponytail: verbs act on the focused window, which is this one while the
+  // app has a single window; target this window once splits land.
+  void _go(LinkVerb verb, Uri url) => verb == LinkVerb.replace
+      ? app.nav.replace(WebPage.of(url))
+      : app.nav.push(WebPage.of(url));
 
   @override
   void dispose() {
+    app.controller.doc.removeListener(_follow);
     app.webViews.remove(window);
     super.dispose();
   }
@@ -299,7 +369,48 @@ class _BrowserPageState extends State<BrowserPage> {
     child: switch (route) {
       final WebPage page => InAppWebView(
         initialUrlRequest: URLRequest(url: WebUri.uri(page.uri)),
-        onWebViewCreated: (c) => app.webViews[window] = c,
+        initialSettings: InAppWebViewSettings(
+          useShouldOverrideUrlLoading: true,
+        ),
+        initialUserScripts: UnmodifiableListView([
+          UserScript(
+            source: historyScript,
+            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+          ),
+        ]),
+        onWebViewCreated: (c) {
+          web = app.webViews[window] = c;
+          c.addJavaScriptHandler(
+            handlerName: 'reefHistory',
+            callback: (args) {
+              final url = Uri.parse(args[1] as String);
+              _shown = WebPage.of(url);
+              _go(
+                args[0] == 'replaceState' ? LinkVerb.replace : LinkVerb.push,
+                url,
+              );
+            },
+          );
+        },
+        shouldOverrideUrlLoading: (_, action) async {
+          final url = action.request.url;
+          if (action.isForMainFrame == false || url == null) {
+            return NavigationActionPolicy.ALLOW;
+          }
+          final verb = verbOfNavigation(
+            route,
+            url,
+            redirect: (action.isRedirect ?? false) || _loading,
+          );
+          if (verb == null) {
+            _loading = true;
+            _shown = WebPage.of(url);
+            return NavigationActionPolicy.ALLOW;
+          }
+          _go(verb, url);
+          return NavigationActionPolicy.CANCEL;
+        },
+        onLoadStop: (_, _) => _loading = false,
       ),
       NotFoundRoute(:final path) => _Notice(
         'Page not found',
