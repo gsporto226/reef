@@ -495,7 +495,7 @@ class BrowserAppState extends State<BrowserApp> {
                 // The chrome: tab strip over the toolbar.
                 tabStrip: (_, shellId) => Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [TabStrip(shellId), const Toolbar()],
+                  children: [TabStrip(shellId), Toolbar(shellId)],
                 ),
                 projectionPolicy: (_, _, _) =>
                     (_, _, shellId) => DesktopProjection(shellId),
@@ -604,9 +604,14 @@ class _Tab extends StatelessWidget {
   );
 }
 
-/// The toolbar: the address bar, showing the focused window's address.
+/// The toolbar of shell [shellId]. Its address bar is the shell's route
+/// information: a per-shell [WindowingLinkSync] reports the shell's active
+/// window into it, and a submitted address is a route notification that
+/// opens in this shell (ADR 0011).
 class Toolbar extends StatefulWidget {
-  const Toolbar({super.key});
+  const Toolbar(this.shellId, {super.key});
+
+  final ShellId shellId;
 
   @override
   State<Toolbar> createState() => _ToolbarState();
@@ -614,33 +619,33 @@ class Toolbar extends StatefulWidget {
 
 class _ToolbarState extends State<Toolbar> {
   final text = TextEditingController();
+  final bar = AddressBarProvider();
   late final app = BrowserApp.of(context);
 
   @override
   void initState() {
     super.initState();
-    app.controller.doc.addListener(_follow);
-    app.bookmarks.addListener(_follow);
-    _address();
+    bar.shown.addListener(_address);
   }
 
-  void _follow() => setState(_address);
-
-  void _address() => text.text = switch (app.focusedRoute) {
-    final r? => addressOf(r),
-    null => '',
-  };
+  void _address() => text.text = addressOf(links.routeOf(bar.value.uri));
 
   @override
   void dispose() {
-    app.controller.doc.removeListener(_follow);
-    app.bookmarks.removeListener(_follow);
+    bar.dispose();
     text.dispose();
     super.dispose();
   }
 
   @override
-  Widget build(BuildContext context) => Container(
+  Widget build(BuildContext context) => WindowingLinkSync(
+    tree: links,
+    shell: widget.shellId,
+    routeInformationProvider: bar,
+    child: _bar(),
+  );
+
+  Widget _bar() => Container(
     height: T.toolbarHeight,
     padding: const EdgeInsets.symmetric(horizontal: T.space12),
     alignment: Alignment.center,
@@ -680,15 +685,20 @@ class _ToolbarState extends State<Toolbar> {
                   hintText: 'Search or type a URL',
                 ),
                 onSubmitted: (t) {
-                  if (t.trim().isNotEmpty) app.nav.go(routeOfInput(t));
+                  if (t.trim().isNotEmpty) {
+                    bar.browse(links.uriOf(routeOfInput(t)));
+                  }
                 },
               ),
             ),
           ),
-          IconButton(
-            tooltip: 'Bookmark',
-            icon: Icon(app.bookmarked ? Icons.star : Icons.star_border),
-            onPressed: app.toggleBookmark,
+          ListenableBuilder(
+            listenable: Listenable.merge([bar.shown, app.bookmarks]),
+            builder: (_, _) => IconButton(
+              tooltip: 'Bookmark',
+              icon: Icon(app.bookmarked ? Icons.star : Icons.star_border),
+              onPressed: app.toggleBookmark,
+            ),
           ),
           PopupMenuButton<VoidCallback>(
             tooltip: 'Menu',
@@ -726,6 +736,35 @@ class _ToolbarState extends State<Toolbar> {
       ),
     ),
   );
+}
+
+/// A shell's address bar as route information. Reports land in [shown];
+/// only [browse] (a submitted address) notifies the sync.
+class AddressBarProvider extends RouteInformationProvider
+    with ChangeNotifier {
+  /// The reported route information.
+  final shown = ValueNotifier(RouteInformation(uri: Uri.parse('/')));
+
+  @override
+  RouteInformation get value => shown.value;
+
+  /// A typed address: opens [uri] in the bar's shell.
+  void browse(Uri uri) {
+    shown.value = RouteInformation(uri: uri);
+    notifyListeners();
+  }
+
+  @override
+  void routerReportsNewRouteInformation(
+    RouteInformation routeInformation, {
+    RouteInformationReportingType type = RouteInformationReportingType.none,
+  }) => shown.value = routeInformation;
+
+  @override
+  void dispose() {
+    shown.dispose();
+    super.dispose();
+  }
 }
 
 /// The page [buffer] shows in its window. It stays mounted across the
