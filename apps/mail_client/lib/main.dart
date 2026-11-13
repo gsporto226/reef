@@ -134,8 +134,9 @@ final class FolderRoute {
   const FolderRoute(this.id);
   final String id;
 
-  static final link =
-      Link<FolderRoute>('folders').field((r) => r.id).build(FolderRoute.new);
+  static final link = Link<FolderRoute>(
+    'folders',
+  ).field((r) => r.id).build(FolderRoute.new);
 }
 
 /// One thread: `/threads/42`.
@@ -143,8 +144,9 @@ final class ThreadRoute {
   const ThreadRoute(this.id);
   final String id;
 
-  static final link =
-      Link<ThreadRoute>('threads').field((r) => r.id).build(ThreadRoute.new);
+  static final link = Link<ThreadRoute>(
+    'threads',
+  ).field((r) => r.id).build(ThreadRoute.new);
 }
 
 /// The threads matching a query: `/search/lunch`.
@@ -152,16 +154,18 @@ final class SearchRoute {
   const SearchRoute(this.query);
   final String query;
 
-  static final link =
-      Link<SearchRoute>('search').field((r) => r.query).build(SearchRoute.new);
+  static final link = Link<SearchRoute>(
+    'search',
+  ).field((r) => r.query).build(SearchRoute.new);
 }
 
 /// A new draft: `/compose`. Fresh, so each open is its own draft (D3).
 final class ComposeRoute {
   const ComposeRoute();
 
-  static final link =
-      Link<ComposeRoute>('compose').build(ComposeRoute.new).fresh();
+  static final link = Link<ComposeRoute>(
+    'compose',
+  ).build(ComposeRoute.new).fresh();
 }
 
 /// Any other path.
@@ -169,9 +173,9 @@ final class MailNotFoundRoute {
   const MailNotFoundRoute(this.path);
   final List<String> path;
 
-  static final link = Link<MailNotFoundRoute>('')
-      .rest((r) => r.path)
-      .build(MailNotFoundRoute.new);
+  static final link = Link<MailNotFoundRoute>(
+    '',
+  ).rest((r) => r.path).build(MailNotFoundRoute.new);
 }
 
 /// Every mail link. The empty detail is a buffer no link reaches.
@@ -208,7 +212,8 @@ MailWindows mailWindows(WindowingDoc doc) {
     final buffer = doc.windows[w]!.history.current.buffer;
     if (buffer == folderList) {
       nav = w;
-    } else if (routeOf(buffer) is FolderRoute || routeOf(buffer) is SearchRoute) {
+    } else if (routeOf(buffer) is FolderRoute ||
+        routeOf(buffer) is SearchRoute) {
       list = w;
     } else {
       detail = w;
@@ -237,8 +242,11 @@ WindowingDoc defaultLayout() {
 /// thread or draft is pushed on the detail, unless it shows there already.
 /// The folder list, or a doc without those windows, goes through reef's
 /// default.
-List<WindowingCommand> mailOpenPolicy(WindowingDoc doc, BufferId buffer,
-    {Map<String, String> arguments = const {}}) {
+List<WindowingCommand> mailOpenPolicy(
+  WindowingDoc doc,
+  BufferId buffer, {
+  Map<String, String> arguments = const {},
+}) {
   final (:nav, :list, :detail) = mailWindows(doc);
   final route = routeOf(buffer);
   if (route is FolderRoute && list != null) {
@@ -273,8 +281,9 @@ List<WindowingCommand> mailOpenPolicy(WindowingDoc doc, BufferId buffer,
 /// back reaches the platform.
 List<WindowingCommand>? _navBack(WindowingDoc doc) =>
     switch (mailWindows(doc)) {
-      (:final nav?, :final list?, detail: _) when doc.activeWindowId == nav =>
-        [ActivateWindow(list)],
+      (:final nav?, :final list?, detail: _) when doc.activeWindowId == nav => [
+        ActivateWindow(list),
+      ],
       _ => null,
     };
 
@@ -296,6 +305,7 @@ class MailApp extends StatefulWidget {
 
 class MailAppState extends State<MailApp> with WidgetsBindingObserver {
   late final WindowingController controller;
+  late final nav = LinkNavigator(links, controller);
 
   /// Desktop sidebar `State=Collapsed`.
   final collapsed = ValueNotifier(false);
@@ -377,10 +387,7 @@ class MailAppState extends State<MailApp> with WidgetsBindingObserver {
   }
 
   /// A tapped push notification for [uri].
-  Future<void> notify(Uri uri) {
-    final (:buffer, :arguments) = links.resolve(uri);
-    return controller.openLink(buffer, arguments: arguments);
-  }
+  Future<void> notify(Uri uri) => nav.go(links.routeOf(uri));
 
   /// A fresh draft each time.
   void compose() =>
@@ -484,18 +491,21 @@ class MailAppState extends State<MailApp> with WidgetsBindingObserver {
           autofocus: true,
           child: Material(
             color: T.surfaceList,
-            child: WindowingRoot(
-              controller: controller,
-              bufferBuilder: (_, buffer) => MailPage(buffer),
-              delegate: WindowingDelegate(
-                windowChrome: (_, _, _, page) => page,
-                windowArrangement: WindowArrangement.custom(
-                  (_, tabId) => MailLayout(tabId),
+            child: LinkScope(
+              navigator: nav,
+              child: WindowingRoot(
+                controller: controller,
+                bufferBuilder: (_, buffer) => MailPage(buffer),
+                delegate: WindowingDelegate(
+                  windowChrome: (_, _, _, page) => page,
+                  windowArrangement: WindowArrangement.custom(
+                    (_, tabId) => MailLayout(tabId),
+                  ),
+                  // One projection on every screen class, without a tab strip.
+                  projectionPolicy: (_, _, _) =>
+                      (_, _, shellId) =>
+                          DesktopProjection(shellId, showTabStrip: false),
                 ),
-                // One projection on every screen class, without a tab strip.
-                projectionPolicy: (_, _, _) =>
-                    (_, _, shellId) =>
-                        DesktopProjection(shellId, showTabStrip: false),
               ),
             ),
           ),
@@ -699,8 +709,10 @@ class MailPage extends StatelessWidget {
       SearchRoute(:final query) => _ThreadList(query: query),
       ThreadRoute(:final id) => _ThreadPane(id),
       ComposeRoute() => const _ComposePane(),
-      _ when buffer == noThread =>
-        const Paper(color: T.surfaceReading, child: SizedBox.expand()),
+      _ when buffer == noThread => const Paper(
+        color: T.surfaceReading,
+        child: SizedBox.expand(),
+      ),
       _ => Center(child: Text('Unknown buffer ${buffer.id}')),
     };
   }

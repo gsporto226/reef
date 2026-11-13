@@ -20,8 +20,10 @@ import 'package:reef_example/undo_providers.dart';
 Widget bufferPageFor(BuildContext context, BufferId id) =>
     switch (exampleLinks.routeOfBuffer(id)) {
       TaskListRoute() => TaskListPage(bufferId: id),
-      TaskEditRoute(:final title) =>
-        TaskEditPage(bufferId: id, initial: TaskEditModel(title: title)),
+      TaskEditRoute(:final title) => TaskEditPage(
+        bufferId: id,
+        initial: TaskEditModel(title: title),
+      ),
       _ => const SizedBox.shrink(),
     };
 
@@ -32,10 +34,12 @@ Widget bufferPageFor(BuildContext context, BufferId id) =>
 ///   fvm flutter run -d windows
 /// A task path given as the first launch argument opens that editor:
 ///   fvm flutter run -d windows -a "/tasks/Buy milk/edit"
-void main([List<String> args = const []]) => runWidget(ReefExampleApp(
-      store: exampleStore(desktop: runsOnDesktop()),
-      launchArgs: args,
-    ));
+void main([List<String> args = const []]) => runWidget(
+  ReefExampleApp(
+    store: exampleStore(desktop: runsOnDesktop()),
+    launchArgs: args,
+  ),
+);
 
 /// Whether this run is a desktop app outside tests.
 bool runsOnDesktop() =>
@@ -51,12 +55,14 @@ HibernationStore exampleStore({
   required bool desktop,
   Directory? directory,
   String name = 'reef_example',
-}) =>
-    desktop
-        ? JsonFileHibernationStore.load(File(
-            '${(directory ?? File(Platform.resolvedExecutable).parent).path}'
-            '/${name}_hibernation.json'))
-        : InMemoryHibernationStore();
+}) => desktop
+    ? JsonFileHibernationStore.load(
+        File(
+          '${(directory ?? File(Platform.resolvedExecutable).parent).path}'
+          '/${name}_hibernation.json',
+        ),
+      )
+    : InMemoryHibernationStore();
 
 /// One [ProviderScope] above every shell, so a buffer shown in two shells is
 /// the same viewmodel. Buffers and the layout hibernate into [store]. The
@@ -85,10 +91,12 @@ class _ReefExampleAppState extends State<ReefExampleApp> {
   /// layout while the buffers above it stay.
   var _layout = 0;
 
-  late final _container = ProviderContainer(overrides: [
-    if (widget.store case final store?)
-      hibernationStoreProvider.overrideWithValue(store),
-  ]);
+  late final _container = ProviderContainer(
+    overrides: [
+      if (widget.store case final store?)
+        hibernationStoreProvider.overrideWithValue(store),
+    ],
+  );
 
   /// A closing desktop app may never dispose its tree, so the buffers are
   /// disposed, and so hibernated, when the app is asked to exit or detaches.
@@ -162,14 +170,14 @@ class _ExampleShellsState extends State<_ExampleShells> {
     // Editors open beside the list, the launch link's too.
     openPolicy: splitBesideOpenPolicy,
   );
+  late final _nav = LinkNavigator(exampleLinks, _controller);
 
   @override
   void initState() {
     super.initState();
     // Restored first, then the link on top (spec §9 cold start).
     if (widget.link case final link?) {
-      final (:buffer, :arguments) = exampleLinks.resolve(Uri.parse(link));
-      _controller.openLink(buffer, arguments: arguments);
+      _nav.go(exampleLinks.routeOf(Uri.parse(link)));
     }
   }
 
@@ -181,27 +189,30 @@ class _ExampleShellsState extends State<_ExampleShells> {
   }
 
   @override
-  Widget build(BuildContext context) => WindowingRoot(
-        controller: _controller,
-        bufferBuilder: bufferPageFor,
-        child: WindowingLinkSync(
-          tree: exampleLinks,
-          routeInformationProvider: widget.routeInformationProvider,
-          child: WindowingSystemBack(
-            child: ShellViews(
-              controller: _controller,
-              platform: _platform,
-              shellBuilder: (_, shellId) => ExampleShell(
-                shellId,
-                onResetLayout: () {
-                  _controller.discardSavedLayout();
-                  widget.onResetLayout();
-                },
-              ),
+  Widget build(BuildContext context) => LinkScope(
+    navigator: _nav,
+    child: WindowingRoot(
+      controller: _controller,
+      bufferBuilder: bufferPageFor,
+      child: WindowingLinkSync(
+        tree: exampleLinks,
+        routeInformationProvider: widget.routeInformationProvider,
+        child: WindowingSystemBack(
+          child: ShellViews(
+            controller: _controller,
+            platform: _platform,
+            shellBuilder: (_, shellId) => ExampleShell(
+              shellId,
+              onResetLayout: () {
+                _controller.discardSavedLayout();
+                widget.onResetLayout();
+              },
             ),
           ),
         ),
-      );
+      ),
+    ),
+  );
 }
 
 /// Shell [shellId]'s surface: the shell controls over the shell drawn by the
@@ -216,29 +227,28 @@ class ExampleShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => WidgetsApp(
-        title: 'Reef example',
-        color: const Color(0xFF00695C),
-        builder: (context, _) => Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(8),
-              child: Row(
-                children: [
-                  KitButton(label: 'Reset layout', onPressed: onResetLayout),
-                  if (WindowingScope.of(context)
-                      .controller
-                      .capabilities
-                      .canPopOut) ...[
-                    const SizedBox(width: 8),
-                    _ShellBar(shellId),
-                  ],
-                ],
-              ),
-            ),
-            Expanded(child: ShellProjection(shellId)),
-          ],
+    title: 'Reef example',
+    color: const Color(0xFF00695C),
+    builder: (context, _) => Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.all(8),
+          child: Row(
+            children: [
+              KitButton(label: 'Reset layout', onPressed: onResetLayout),
+              if (WindowingScope.of(
+                context,
+              ).controller.capabilities.canPopOut) ...[
+                const SizedBox(width: 8),
+                _ShellBar(shellId),
+              ],
+            ],
+          ),
         ),
-      );
+        Expanded(child: ShellProjection(shellId)),
+      ],
+    ),
+  );
 }
 
 /// Shown only where the platform can open shells.
@@ -257,7 +267,8 @@ class _ShellBar extends StatelessWidget {
         KitButton(
           label: 'Pop out tab',
           onPressed: () => controller.popOutTab(
-              controller.doc.value.shells[shellId]!.activeTabId),
+            controller.doc.value.shells[shellId]!.activeTabId,
+          ),
         ),
         const SizedBox(width: 8),
         KitButton(
