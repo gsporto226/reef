@@ -527,6 +527,59 @@ void main() {
     });
   });
 
+  testWidgets('flow 8: restart restores the session; a cold-start URL opens '
+      'on top', (tester) async {
+    String at(String path) => 'http://127.0.0.1:${server.port}$path';
+    final store = InMemoryHibernationStore();
+    Future<BrowserAppState> start([String? launch]) async {
+      await tester.pumpWidget(
+        BrowserApp(key: UniqueKey(), store: store, launchArg: launch),
+      );
+      await tester.pumpAndSettle();
+      return tester.state<BrowserAppState>(find.byType(BrowserApp));
+    }
+
+    var app = await start();
+    await type(tester, at('/links.html'));
+    app.openInSplit();
+    await tester.pumpAndSettle();
+    app.toggleBookmark();
+    final before = app.controller.doc.value;
+    // Let both webviews finish starting before they are torn down: the
+    // plugin's async init setStates after an early dispose.
+    for (final w in before.windows.keys) {
+      for (var i = 0; i < 100 && app.webViews[w] == null; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+    await evaluate(
+      tester,
+      app,
+      "document.readyState == 'complete' ? document.title : null",
+    );
+
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 1));
+    app = await start(at('/three.html'));
+
+    final doc = app.controller.doc.value;
+    expect(doc.tabs.keys, containsAll(before.tabs.keys));
+    expect(doc.tabs, hasLength(before.tabs.length + 1));
+    for (final MapEntry(:key, :value) in before.windows.entries) {
+      expect(doc.windows[key]!.history, value.history);
+    }
+    expect(app.bookmarks.value, [WebPage.of(Uri.parse(at('/links.html')))]);
+    expect(app.focusedRoute, WebPage.of(Uri.parse(at('/three.html'))));
+    expect(
+      await evaluate(
+        tester,
+        app,
+        "document.readyState == 'complete' ? document.title : null",
+      ),
+      'Page three',
+    );
+  });
+
   testWidgets('flow 9: PiP docks left and right; focus raises every scope', (
     tester,
   ) async {

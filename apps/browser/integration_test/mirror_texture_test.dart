@@ -26,42 +26,48 @@ void main() {
     InAppWebViewController? c;
     final id = ValueNotifier<int?>(null);
     final a = GlobalKey(), b = GlobalKey();
-    await t.pumpWidget(MaterialApp(
-      home: Column(children: [
-        RepaintBoundary(
-          key: a,
-          child: SizedBox(
-            width: 200,
-            height: 150,
-            child: InAppWebView(
-              initialData: InAppWebViewInitialData(
-                data: '<body style="margin:0;background:#ff0000"></body>',
+    await t.pumpWidget(
+      MaterialApp(
+        home: Column(
+          children: [
+            RepaintBoundary(
+              key: a,
+              child: SizedBox(
+                width: 200,
+                height: 150,
+                child: InAppWebView(
+                  initialData: InAppWebViewInitialData(
+                    data: '<body style="margin:0;background:#ff0000"></body>',
+                  ),
+                  onWebViewCreated: (ctl) {
+                    c = ctl;
+                    id.value = ctl.getViewId() as int;
+                  },
+                ),
               ),
-              onWebViewCreated: (ctl) {
-                c = ctl;
-                id.value = ctl.getViewId() as int;
-              },
             ),
-          ),
-        ),
-        RepaintBoundary(
-          key: b,
-          child: SizedBox(
-            width: 200,
-            height: 150,
-            child: ValueListenableBuilder<int?>(
-              valueListenable: id,
-              builder: (_, v, _) =>
-                  v == null ? const SizedBox() : Texture(textureId: v),
+            RepaintBoundary(
+              key: b,
+              child: SizedBox(
+                width: 200,
+                height: 150,
+                child: ValueListenableBuilder<int?>(
+                  valueListenable: id,
+                  builder: (_, v, _) =>
+                      v == null ? const SizedBox() : Texture(textureId: v),
+                ),
+              ),
             ),
-          ),
+          ],
         ),
-      ]),
-    ));
+      ),
+    );
 
     Future<void> settle() async {
       for (var i = 0; i < 20; i++) {
-        await t.runAsync(() => Future.delayed(const Duration(milliseconds: 100)));
+        await t.runAsync(
+          () => Future.delayed(const Duration(milliseconds: 100)),
+        );
         await t.pump();
       }
     }
@@ -72,8 +78,11 @@ void main() {
     expect(red.sublist(0, 4), [255, 0, 0, 255]);
     expect(await pixels(t, a), red);
 
-    await t.runAsync(() => c!.evaluateJavascript(
-        source: 'document.body.style.background="#0000ff"'));
+    await t.runAsync(
+      () => c!.evaluateJavascript(
+        source: 'document.body.style.background="#0000ff"',
+      ),
+    );
     await settle();
     final blue = await pixels(t, b);
     expect(blue.sublist(0, 4), [0, 0, 255, 255]);

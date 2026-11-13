@@ -1,5 +1,7 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:browser/file_store.dart';
 import 'package:browser/main.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -375,6 +377,134 @@ void main() {
       expect(second.bookmarks.value, [const HistoryRoute()]);
       await menu(tester, 'Bookmarks');
       expect(find.text('/history'), findsWidgets);
+    });
+  });
+
+  test('the session file store survives a reload; a bad file is empty', () {
+    final dir = Directory.systemTemp.createTempSync('browser_store');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}/sub/session.json');
+    const key = BufferId.manual('k');
+    JsonFileHibernationStore(file).save(key, {'a': 1});
+    expect(JsonFileHibernationStore(file).load(key), {'a': 1});
+    file.writeAsStringSync('not json');
+    expect(JsonFileHibernationStore(file).load(key), isNull);
+  });
+
+  group('session restore (#84)', () {
+    Future<BrowserAppState> boot(
+      WidgetTester tester,
+      HibernationStore store, {
+      String? launch,
+    }) async {
+      // A new key: a restart is a new app, not an update of the old one.
+      await tester.pumpWidget(
+        BrowserApp(key: UniqueKey(), store: store, launchArg: launch),
+      );
+      await tester.pumpAndSettle();
+      return tester.state<BrowserAppState>(find.byType(BrowserApp));
+    }
+
+    Future<void> restart(WidgetTester tester) async {
+      await tester.pumpWidget(const SizedBox());
+      await tester.pump();
+    }
+
+    /// A session with two tabs, a split, a float, history and a bookmark.
+    Future<BrowserAppState> browse(
+      WidgetTester tester,
+      HibernationStore s,
+    ) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final app = await boot(tester, s);
+      app.nav.go(const HistoryRoute());
+      await tester.pumpAndSettle();
+      app.toggleBookmark();
+      app.newTab();
+      await tester.pumpAndSettle();
+      app.nav.go(const BookmarksRoute());
+      await tester.pumpAndSettle();
+      app.openInSplit(const HistoryRoute());
+      await tester.pumpAndSettle();
+      app.downloads();
+      await tester.pumpAndSettle();
+      return app;
+    }
+
+    testWidgets('flow 8: shells, tabs, splits, floats, histories and '
+        'bookmarks survive a restart', (tester) async {
+      final store = InMemoryHibernationStore();
+      final before = (await browse(tester, store)).controller.doc.value;
+      expect(before.floating, hasLength(1));
+      expect(before.tabs, hasLength(2));
+
+      await restart(tester);
+      final app = await boot(tester, store);
+
+      expect(app.controller.doc.value.toRecord(), before.toRecord());
+      expect(app.bookmarks.value, [const HistoryRoute()]);
+    });
+
+    testWidgets('flow 8: a launch URL opens in a new tab on top', (
+      tester,
+    ) async {
+      final store = InMemoryHibernationStore();
+      final before = (await browse(tester, store)).controller.doc.value;
+      await restart(tester);
+
+      final app = await boot(tester, store, launch: '/settings');
+
+      final doc = app.controller.doc.value;
+      expect(doc.tabs.keys, containsAll(before.tabs.keys));
+      expect(doc.tabs, hasLength(3));
+      expect(app.focusedRoute, const SettingsRoute());
+    });
+
+    testWidgets('a launch URL on a fresh install is the only tab', (
+      tester,
+    ) async {
+      final app = await boot(
+        tester,
+        InMemoryHibernationStore(),
+        launch: '/history',
+      );
+      expect(app.controller.doc.value.tabs, hasLength(1));
+      expect(app.focusedRoute, const HistoryRoute());
+    });
+
+    testWidgets('a restored buffer whose route no longer resolves shows '
+        'not-found (D4)', (tester) async {
+      final store = InMemoryHibernationStore()
+        ..save(
+          WindowingController.hibernationKey,
+          WindowingDoc.initial(buffer: BufferId.of('/old/*', '5')).toRecord(),
+        );
+      final app = await boot(tester, store);
+      expect(app.focusedRoute, const NotFoundRoute(['old', '5']));
+      expect(find.text('Page not found'), findsOneWidget);
+    });
+
+    testWidgets('with "Restore session on start" off, a restart starts fresh', (
+      tester,
+    ) async {
+      final store = InMemoryHibernationStore();
+      final first = await browse(tester, store);
+      first.nav.go(const SettingsRoute());
+      await tester.pumpAndSettle();
+      expect(first.restoreSession.value, isTrue);
+      await tester.tap(find.text('Restore session on start'));
+      await tester.pumpAndSettle();
+      expect(first.restoreSession.value, isFalse);
+      await restart(tester);
+
+      final app = await boot(tester, store);
+      expect(app.restoreSession.value, isFalse, reason: 'the setting is kept');
+      expect(app.controller.doc.value.tabs, hasLength(1));
+      expect(app.controller.doc.value.floating, isEmpty);
+      expect(app.focusedRoute, isA<NewTabRoute>());
+      expect(app.bookmarks.value, [const HistoryRoute()]);
     });
   });
 
