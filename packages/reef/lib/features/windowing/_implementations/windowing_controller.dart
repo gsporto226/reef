@@ -9,6 +9,7 @@ import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/shell_platform.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
+import 'package:reef/features/windowing/_implementations/windowing_patch.dart';
 
 /// A windowing mutation (spec §3). Commands carry pre-generated ids for what
 /// they create, so the reducer stays pure. A command invalid in the current
@@ -1397,16 +1398,25 @@ WindowingDoc _withNavigationFrom(WindowingDoc doc,
       windows: doc.windows.map((id, w) => MapEntry(id, source.windows[id] ?? w)),
     );
 
-/// Publishes [WindowingDoc] snapshots into a controller's doc without
-/// recording them.
+/// Publishes entries into a controller's doc without recording them. Undo
+/// applies the reverse [WindowingPatch] of the entry to the current doc and
+/// redo the forward one, so units the entry did not touch keep their state;
+/// on conflict it publishes the entry's whole snapshot (ADR 0009).
 class WindowingUndoHost implements UndoHost<WindowingDoc> {
   WindowingUndoHost(this._doc);
 
   final ValueNotifier<WindowingDoc> _doc;
 
   @override
-  void undo(WindowingDoc snapshotBefore) => _doc.value = snapshotBefore;
+  void undo(UndoEntry<WindowingDoc> entry) => _doc.value =
+      WindowingPatch.diff(entry.snapshotBefore, entry.snapshotAfter)
+          .reversed
+          .apply(_doc.value) ??
+      entry.snapshotBefore;
 
   @override
-  void redo(WindowingDoc snapshotAfter) => _doc.value = snapshotAfter;
+  void redo(UndoEntry<WindowingDoc> entry) => _doc.value =
+      WindowingPatch.diff(entry.snapshotBefore, entry.snapshotAfter)
+          .apply(_doc.value) ??
+      entry.snapshotAfter;
 }

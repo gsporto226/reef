@@ -135,8 +135,8 @@ class UndoEntry<S> {
 }
 
 abstract interface class UndoHost<S> {
-  void undo(S snapshotBefore);
-  void redo(S snapshotAfter);
+  void undo(UndoEntry<S> entry);           // reverses the entry
+  void redo(UndoEntry<S> entry);           // replays it
 }
 
 class UndoController {
@@ -150,8 +150,11 @@ class UndoController {
 
 Semantics:
 
-- Snapshots, not inverse commands. `undo()` moves a pointer and republishes
-  a snapshot. Total function; no failure modes (§4 in reef principle 3 does
+- Snapshots, not inverse commands. `undo()` moves a pointer and hands the
+  entry to its host. For the windowing host, undo applies the reverse of the
+  patch between the entry's snapshots to the current doc, and redo the
+  forward patch; units the entry did not touch keep their state, and on
+  conflict the whole snapshot is published (ADR 0009). Total function; no failure modes (§4 in reef principle 3 does
   not apply: nothing here is fallible).
 - Type safety: `registerHost<S>` and `record<S>` key the internal map by the
   reified type argument. The one downcast happens inside the controller.
@@ -178,8 +181,8 @@ Roles:
 | Recorders | subsystem mutation paths | submit entries at recorded mutations |
 | Consumers | shortcuts, menus, dev tools | call undo/redo, read `$canUndo`/`$canRedo`; never see hosts or entries |
 
-Reef ships two hosts. `WindowingUndoHost` (keyed `WindowingDoc`) publishes
-doc snapshots; the windowing dispatcher records one entry per batch.
+Reef ships two hosts. `WindowingUndoHost` (keyed `WindowingDoc`) applies
+`WindowingPatch`es (ADR 0009); the windowing dispatcher records one entry per batch.
 `BufferUndoHost` (keyed `BufferSnapshot`, a uniform `bufferId + model`
 record) publishes models through the owning viewmodel; viewmodels opt in
 with an `UndoableModel` mixin. Models are already immutable freezed
