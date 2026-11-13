@@ -135,8 +135,8 @@ void main() {
     final rightHistory = app.controller.doc.value.windows[right]!.history;
 
     // pushState and a link click in the unfocused page navigate its window.
-    await evaluateIn(left, "history.pushState({}, '', '?step=2'); 1");
-    await routeIs(left, page('/links.html?step=2'));
+    await evaluateIn(left, "history.pushState({}, '', '/links/step2'); 1");
+    await routeIs(left, page('/links/step2'));
     await evaluateIn(left, "document.querySelector('a').click(); 1");
     await routeIs(left, page('/two.html'));
 
@@ -286,12 +286,17 @@ void main() {
     await showing('Page three');
     expect(history().$1, [page('/links.html'), page('/two.html')]);
 
-    // pushState pushes, replaceState replaces, neither reloads.
+    // pushState pushes, replaceState replaces, neither reloads, even when
+    // they change the path (ADR 0008).
     await evaluate(tester, app, "window.marker = 'kept'; 1");
-    await evaluate(tester, app, "history.pushState({}, '', '?step=2'); 1");
-    await routeIs(page('/three.html?step=2'));
-    await evaluate(tester, app, "history.replaceState({}, '', '?step=3'); 1");
-    await routeIs(page('/three.html?step=3'));
+    await evaluate(tester, app, "history.pushState({}, '', '/three/step2'); 1");
+    await routeIs(page('/three/step2'));
+    await evaluate(
+      tester,
+      app,
+      "history.replaceState({}, '', '/three/step3'); 1",
+    );
+    await routeIs(page('/three/step3'));
     expect(history().$1, [
       page('/links.html'),
       page('/two.html'),
@@ -299,8 +304,14 @@ void main() {
     ]);
     expect(await evaluate(tester, app, 'window.marker'), 'kept');
 
-    // Back and forward move reef's history and reload the entry.
-    Future<void> press(String button, String path, String title) async {
+    // Back and forward move reef's history and step the webview's: within
+    // one document (pushState) the page is [kept], else the entry loads.
+    Future<void> press(
+      String button,
+      String path,
+      String title, {
+      bool kept = false,
+    }) async {
       await tester.tap(find.byTooltip(button));
       await tester.pumpAndSettle();
       await routeIs(page(path));
@@ -311,20 +322,20 @@ void main() {
           tester,
           app,
           "location.href == '${at(path)}' && document.readyState == 'complete'"
-          ' && window.marker === undefined ? 1 : null',
+          ' && window.marker ${kept ? "== 'kept'" : '=== undefined'} ? 1 : null',
         ),
         1,
       );
       expect(find.text(at(path)), findsWidgets);
     }
 
-    // Each reloads the entry, so the pushState page's marker is gone.
-    await press('Back', '/three.html', 'Page three');
+    // Back to the entry pushState left keeps the document; the rest load.
+    await press('Back', '/three.html', 'Page three', kept: true);
     await press('Back', '/two.html', 'Page two');
     await press('Back', '/links.html', 'Links fixture');
     await press('Forward', '/two.html', 'Page two');
     await press('Forward', '/three.html', 'Page three');
-    await press('Forward', '/three.html?step=3', 'Page three');
+    await press('Forward', '/three/step3', 'Page three');
     expect(history().$3, isEmpty);
   });
 

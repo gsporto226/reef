@@ -99,6 +99,34 @@ void main() {
     });
   });
 
+  group('page identity (ADR 0008)', () {
+    BufferId buffer(String url) =>
+        links.linkOf(WebPage.of(Uri.parse(url))).buffer;
+
+    test('a web page is one page per origin', () {
+      final a = links.pageIdentityOf(buffer('http://a.test/one'));
+      expect(a, links.pageIdentityOf(buffer('http://a.test/two/three?x=1')));
+      expect(a, isNot(links.pageIdentityOf(buffer('http://b.test/one'))));
+      expect(a, isNot(links.pageIdentityOf(buffer('https://a.test/one'))));
+    });
+
+    test('back and forward are one step; a push is none', () {
+      HistoryEntry e(String url) => HistoryEntry(buffer(url));
+      final a = e('http://a.test/a'), b = e('http://a.test/b');
+      final atB = BufferHistory(back: [a], current: b);
+      final atA = BufferHistory(current: a, forward: [b]);
+      expect(historyStep(atB, atA), -1);
+      expect(historyStep(atA, atB), 1);
+      expect(
+        historyStep(
+          atA,
+          BufferHistory(back: [a], current: e('http://a.test/b')),
+        ),
+        isNull,
+      );
+    });
+  });
+
   testWidgets('boots on a new tab; an unknown internal path shows not-found', (
     tester,
   ) async {

@@ -66,6 +66,11 @@ final class PageTransition {
 /// the page at once.
 typedef PageTransitionPicker = PageTransition? Function(BufferId buffer);
 
+/// The page identity of [buffer] (ADR 0008): a window keeps its mounted
+/// page across entries with equal identities. Usually a link tree's
+/// `pageIdentityOf`.
+typedef PageIdentityPicker = Object? Function(BufferId buffer);
+
 /// How a tab's windows show: the window tree as nested flexes ([flexTree]),
 /// the active window alone ([focusedOnly]), or a [custom] builder given the
 /// tab id.
@@ -132,7 +137,12 @@ class WindowingDelegate {
     this.linkPolicy,
     this.projectionPolicy = defaultWindowingProjection,
     this.pageTransition = _noTransition,
+    this.pageIdentity = _bufferIdentity,
   });
+
+  /// Picks the page identity of a window's entry. Default: the buffer, so
+  /// every new buffer mounts a new page.
+  final PageIdentityPicker pageIdentity;
 
   /// Picks the transition into a window's new page. Default: none.
   final PageTransitionPicker pageTransition;
@@ -201,6 +211,7 @@ class WindowingDelegate {
     WindowingLinkPolicy? linkPolicy,
     WindowingProjectionPolicy? projectionPolicy,
     PageTransitionPicker? pageTransition,
+    PageIdentityPicker? pageIdentity,
   }) => WindowingDelegate(
     windowChrome: windowChrome ?? this.windowChrome,
     emptyBuilder: emptyBuilder ?? this.emptyBuilder,
@@ -216,7 +227,10 @@ class WindowingDelegate {
     linkPolicy: linkPolicy ?? this.linkPolicy,
     projectionPolicy: projectionPolicy ?? this.projectionPolicy,
     pageTransition: pageTransition ?? this.pageTransition,
+    pageIdentity: pageIdentity ?? this.pageIdentity,
   );
+
+  static Object? _bufferIdentity(BufferId buffer) => buffer;
 
   static PageTransition? _noTransition(BufferId _) => null;
 

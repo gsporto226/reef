@@ -155,10 +155,17 @@ sealed class LinkNodeOf<R, Q> {
   List<LinkNodeOf<Object?, Object?>> get _children;
   List<TreeGuard<Object?>> get _guards => const [];
   bool? get _fresh => null;
+  Object? Function(Object? route)? get _identity => null;
 
   /// This node's own freshness, over the tree's (ADR 0004 D3): a fresh
   /// link opens a new buffer each time, as a browser tab does.
   LinkNodeOf<R, Q> fresh([bool fresh = true]) => _Fresh(this, fresh);
+
+  /// This node's page identity (ADR 0008): entries of its route whose
+  /// [identity] values are equal share one mounted page. Without it, the
+  /// identity is the buffer. Not inherited by children.
+  LinkNodeOf<R, Q> identity(Object? Function(R route) identity) =>
+      _Identity(this, (r) => identity(r as R));
 
   /// This node with [guard] run for its route and every route below it,
   /// after the guards already on it (ADR 0004 D9-D11). [name] is for
@@ -186,6 +193,30 @@ final class _Guarded<R, Q> extends LinkNodeOf<R, Q> {
 
   @override
   bool? get _fresh => _node._fresh;
+
+  @override
+  Object? Function(Object? route)? get _identity => _node._identity;
+}
+
+final class _Identity<R, Q> extends LinkNodeOf<R, Q> {
+  const _Identity(this._node, this._identity);
+
+  final LinkNodeOf<R, Q> _node;
+
+  @override
+  final Object? Function(Object? route) _identity;
+
+  @override
+  LinkOf<R, Q> get _link => _node._link;
+
+  @override
+  List<LinkNodeOf<Object?, Object?>> get _children => _node._children;
+
+  @override
+  List<TreeGuard<Object?>> get _guards => _node._guards;
+
+  @override
+  bool? get _fresh => _node._fresh;
 }
 
 final class _Fresh<R, Q> extends LinkNodeOf<R, Q> {
@@ -204,6 +235,9 @@ final class _Fresh<R, Q> extends LinkNodeOf<R, Q> {
 
   @override
   List<TreeGuard<Object?>> get _guards => _node._guards;
+
+  @override
+  Object? Function(Object? route)? get _identity => _node._identity;
 }
 
 /// What a guard decides about opening a route: allow or redirect, never
@@ -336,10 +370,13 @@ final class _Mount {
     this.parts,
     this.create,
     this.guards,
-    this.fresh, [
+    this.fresh,
+    this.identity, [
     this.parent,
     this.up,
   ]);
+
+  final Object? Function(Object? route)? identity;
 
   final List<TreeGuard<Object?>> guards;
   final bool? fresh;
@@ -491,6 +528,7 @@ final class LinkTree<R> {
           (v) => link._create([parent.create(v.sublist(0, n)), ...v.skip(n)]),
           node._guards,
           node._fresh ?? parent.fresh, // ADR 0007
+          node._identity,
           parent,
           p.read,
         );
@@ -501,6 +539,7 @@ final class LinkTree<R> {
           link._create,
           node._guards,
           node._fresh ?? parent?.fresh, // ADR 0007
+          node._identity,
           parent,
           switch (parent) {
             // A parent with no values has one route.
@@ -644,6 +683,16 @@ final class LinkTree<R> {
   /// Whether a link mounts [buffer]'s kind.
   bool _mounts(BufferId buffer) => _links.any((l) => l._kind == buffer.kind);
 
+  /// [buffer]'s page identity (ADR 0008): its link's identity of its
+  /// route, or the buffer itself for a link without one. Hand it to
+  /// `WindowingDelegate.pageIdentity`.
+  Object? pageIdentityOf(BufferId buffer) {
+    final kind = buffer.kind;
+    final identity = _links.where((l) => l._kind == kind).firstOrNull?.identity;
+    if (identity == null) return buffer;
+    return (kind, identity(routeOfBuffer(buffer)));
+  }
+
   /// The buffer and arguments [uri] stands for.
   ResolvedLink resolve(Uri uri) => linkOf(routeOf(uri));
 
@@ -680,9 +729,7 @@ final class LinkTree<R> {
   Uri? uriOfBuffer(
     BufferId buffer, [
     Map<String, String> arguments = const {},
-  ]) => _mounts(buffer)
-      ? uriOf(routeOfBuffer(buffer, arguments))
-      : null;
+  ]) => _mounts(buffer) ? uriOf(routeOfBuffer(buffer, arguments)) : null;
 
   static Uri _uri(List<String> segments, Map<String, String> arguments) => Uri(
     path: '/${segments.map(Uri.encodeComponent).join('/')}',
@@ -690,8 +737,10 @@ final class LinkTree<R> {
   );
 
   /// Escapes only what would make the token ambiguous.
-  static String _escape(String value) =>
-      value.replaceAll('%', '%25').replaceAll('/', '%2F').replaceAll('~', '%7E');
+  static String _escape(String value) => value
+      .replaceAll('%', '%25')
+      .replaceAll('/', '%2F')
+      .replaceAll('~', '%7E');
 }
 
 /// A [LinkTree] whose guards are bound to an environment: checks routes,
@@ -748,8 +797,10 @@ final class BoundLinkTree<R> {
       final commands = [
         for (final MapEntry(key: id, value: window)
             in controller.doc.value.windows.entries)
-          if (_redirect(window.history.current)
-              case (:final buffer, :final arguments))
+          if (_redirect(window.history.current) case (
+            :final buffer,
+            :final arguments,
+          ))
             ReplaceBuffer(id, buffer, arguments: arguments),
       ];
       if (commands.isNotEmpty) controller.dispatchAll(commands);
@@ -802,18 +853,30 @@ final class BoundLinkTree<R> {
           ),
           AttachBuffer c => (
             entry(c.buffer, c.arguments),
-            (l) => AttachBuffer(c.windowId, l.buffer,
-                arguments: l.arguments, entryId: c.entryId),
+            (l) => AttachBuffer(
+              c.windowId,
+              l.buffer,
+              arguments: l.arguments,
+              entryId: c.entryId,
+            ),
           ),
           PushBuffer c => (
             entry(c.buffer, c.arguments),
-            (l) => PushBuffer(c.windowId, l.buffer,
-                arguments: l.arguments, entryId: c.entryId),
+            (l) => PushBuffer(
+              c.windowId,
+              l.buffer,
+              arguments: l.arguments,
+              entryId: c.entryId,
+            ),
           ),
           ReplaceBuffer c => (
             entry(c.buffer, c.arguments),
-            (l) => ReplaceBuffer(c.windowId, l.buffer,
-                arguments: l.arguments, entryId: c.entryId),
+            (l) => ReplaceBuffer(
+              c.windowId,
+              l.buffer,
+              arguments: l.arguments,
+              entryId: c.entryId,
+            ),
           ),
           PopBuffer(:final windowId) => (
             last(doc.windows[windowId]?.history.back),
