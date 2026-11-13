@@ -33,6 +33,7 @@ abstract final class T {
   static const chrome = Color(0xFFF3EEE6);
   static const field = Color(0xFFFFFFFF);
   static const tabActive = Color(0xFFFFFDF9);
+  static const selected = Color(0xFFE3EDEA);
   static const page = Color(0xFFFFFFFF);
   static const textPrimary = Color(0xFF1F1B16);
   static const textMuted = Color(0xFF7A7064);
@@ -282,6 +283,28 @@ document.addEventListener('keydown', (e) => {
 }, true);
 ''';
 
+/// The entry argument that says how a window draws its page: `shared` draws
+/// another window's webview (a mirror split), anything else its own.
+const viewKey = 'view';
+
+/// The window whose webview mirror [window] draws: another window on the
+/// same page (ADR 0008 identity) with its own view. Null when [window] is
+/// not a mirror, or its original is gone: it then draws its own view.
+WindowId? mirrorSourceOf(WindowingDoc doc, WindowId window) {
+  final entry = doc.windows[window]?.history.current;
+  if (entry == null || entry.arguments[viewKey] != 'shared') return null;
+  final page = links.pageIdentityOf(entry.buffer);
+  for (final MapEntry(:key, :value) in doc.windows.entries) {
+    final other = value.history.current;
+    if (key != window &&
+        other.arguments[viewKey] != 'shared' &&
+        links.pageIdentityOf(other.buffer) == page) {
+      return key;
+    }
+  }
+  return null;
+}
+
 /// The address bar text for [route].
 String addressOf(Object route) => switch (route) {
   WebPage() => route.uri.toString(),
@@ -400,6 +423,9 @@ class BrowserAppState extends State<BrowserApp> {
   /// Each web page window's webview, for tests to read the page through.
   final webViews = <WindowId, InAppWebViewController>{};
 
+  /// Bumped when [webViews] changes, so a mirror finds its original's.
+  final webViewsChanged = ValueNotifier(0);
+
   /// The route the focused window shows; null without one.
   Object? get focusedRoute => routeOf(controller.doc.value.activeWindowId);
 
@@ -418,6 +444,7 @@ class BrowserAppState extends State<BrowserApp> {
     settingsLocked.dispose();
     bookmarks.dispose();
     restoreSession.dispose();
+    webViewsChanged.dispose();
     super.dispose();
   }
 
@@ -475,6 +502,24 @@ class BrowserAppState extends State<BrowserApp> {
   /// focused one: an independent view with its own webview.
   void openInSplit([Object? route]) {
     if (route ?? focusedRoute case final r?) nav.openInSplit(r);
+  }
+
+  /// Mirrors the focused window beside it: the same entry with
+  /// `view: shared`, drawing the original's webview (no second one).
+  void mirrorSplit() {
+    final doc = controller.doc.value;
+    final focused = doc.activeWindowId;
+    final entry = doc.windows[focused]?.history.current;
+    if (focused == null || entry == null) return;
+    controller.dispatchAll([
+      SplitWindow(
+        focused,
+        newWindowId: WindowId.generate(),
+        axis: Axis.horizontal,
+        buffer: entry.buffer,
+        arguments: {...entry.arguments, viewKey: 'shared'},
+      ),
+    ]);
   }
 
   /// Moves [tab] to the end of [shell]'s strip. The last tab of its shell
@@ -822,6 +867,10 @@ class _ToolbarState extends State<Toolbar> {
                 value: () => app.openInSplit(),
                 child: const Text('Open in split'),
               ),
+              PopupMenuItem(
+                value: app.mirrorSplit,
+                child: const Text('Mirror split'),
+              ),
               for (final (label, open) in [
                 ('Picture in picture', app.pictureInPicture),
                 ('Find in page', app.findInPage),
@@ -955,8 +1004,47 @@ class _BrowserPageState extends State<BrowserPage> {
     super.dispose();
   }
 
+  /// A mirror (`view: shared`) draws its original's webview texture; only
+  /// the original takes input. Both carry the Mirror badge.
   @override
-  Widget build(BuildContext context) => ColoredBox(
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: Listenable.merge([app.controller.doc, app.webViewsChanged]),
+    child: _own(),
+    builder: (_, own) {
+      final doc = app.controller.doc.value;
+      final source = mirrorSourceOf(doc, window);
+      final mirrored =
+          source != null ||
+          doc.windows.keys.any((w) => mirrorSourceOf(doc, w) == window);
+      final web = app.webViews[source];
+      return RepaintBoundary(
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (source == null || route is! WebPage)
+              own!
+            else if (web != null)
+              ColoredBox(
+                color: T.page,
+                child: IgnorePointer(
+                  child: Texture(textureId: web.getViewId() as int),
+                ),
+              )
+            else
+              const ColoredBox(color: T.page),
+            if (mirrored)
+              const Positioned(
+                top: T.space8,
+                right: T.space8,
+                child: MirrorBadge(),
+              ),
+          ],
+        ),
+      );
+    },
+  );
+
+  Widget _own() => ColoredBox(
     color: T.page,
     child: switch (route) {
       final WebPage page => InAppWebView(
@@ -973,6 +1061,7 @@ class _BrowserPageState extends State<BrowserPage> {
         ]),
         onWebViewCreated: (c) {
           web = app.webViews[window] = c;
+          app.webViewsChanged.value++;
           c.addJavaScriptHandler(
             handlerName: 'reefOpen',
             callback: (args) =>
@@ -1050,6 +1139,27 @@ class _BrowserPageState extends State<BrowserPage> {
       SettingsRoute() => const _Settings(),
       _ => const _Notice('New tab', null),
     },
+  );
+}
+
+/// Marks a mirror split: shown on the mirror and on its original.
+class MirrorBadge extends StatelessWidget {
+  const MirrorBadge({super.key});
+
+  @override
+  Widget build(BuildContext context) => const DecoratedBox(
+    decoration: ShapeDecoration(color: T.selected, shape: StadiumBorder()),
+    child: Padding(
+      padding: EdgeInsets.symmetric(horizontal: T.space8, vertical: 2),
+      child: Text(
+        'Mirror',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: T.accent,
+        ),
+      ),
+    ),
   );
 }
 

@@ -1,9 +1,11 @@
 // The browser's acceptance flows (docs/integration-apps.md), against an
 // in-test localhost server: no test touches the internet.
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:browser/main.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -20,6 +22,13 @@ const fixtures = {
   '/blank.html':
       '<!doctype html><title>Blank fixture</title>'
       '<a target="_blank" href="/two.html">Open page two in a new tab</a>',
+  // Red on top, blue below the fold; typing turns the top green.
+  '/mirror.html':
+      '<!doctype html><title>Mirror fixture</title>'
+      '<body style="margin:0">'
+      '<input oninput="this.nextSibling.style.background=\'#00ff00\'">'
+      '<div style="height:3000px;background:#ff0000"></div>'
+      '<div style="height:3000px;background:#0000ff"></div>',
 };
 
 final addressBar = find.descendant(
@@ -652,5 +661,72 @@ void main() {
       app.controller.closeWindow(b);
       await tester.pumpAndSettle();
     }
+  });
+
+  testWidgets('flow 4: scrolling or typing in a mirror split updates both '
+      'views live, through one webview', (tester) async {
+    final app = await boot(tester);
+    await type(tester, 'http://127.0.0.1:${server.port}/mirror.html');
+    final original = app.controller.doc.value.activeWindowId!;
+    await evaluate(
+      tester,
+      app,
+      "document.readyState == 'complete' ? document.title : null",
+    );
+
+    await tester.tap(find.byTooltip('Menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mirror split'));
+    await tester.pumpAndSettle();
+    final mirror = app.controller.doc.value.activeWindowId!;
+    expect(mirror, isNot(original));
+    expect(find.byType(MirrorBadge), findsNWidgets(2));
+    expect(app.webViews.keys, [original], reason: 'no second webview');
+
+    /// The RGBA of [window]'s page at its left edge, half way down.
+    Future<List<int>> pixel(WindowId window) async {
+      final page = find.descendant(
+        of: find.byWidgetPredicate(
+          (w) => w is WindowHost && w.windowId == window,
+        ),
+        matching: find.byType(BrowserPage),
+      );
+      final boundary = tester.renderObject<RenderRepaintBoundary>(
+        find.descendant(of: page, matching: find.byType(RepaintBoundary)).first,
+      );
+      final bytes = await tester.runAsync(() async {
+        final image = await boundary.toImage();
+        final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+        final at = (image.height ~/ 2 * image.width + 4) * 4;
+        return data!.buffer.asUint8List().sublist(at, at + 4);
+      });
+      return bytes!;
+    }
+
+    Future<void> both(List<int> rgba) async {
+      for (var i = 0; i < 50; i++) {
+        if ('${await pixel(original)}' == '$rgba' &&
+            '${await pixel(mirror)}' == '$rgba') {
+          return;
+        }
+        await tester.runAsync(
+          () => Future.delayed(const Duration(milliseconds: 100)),
+        );
+        await tester.pump();
+      }
+      expect([await pixel(original), await pixel(mirror)], [rgba, rgba]);
+    }
+
+    final web = app.webViews[original]!;
+    await both([255, 0, 0, 255]);
+    await web.evaluateJavascript(source: 'window.scrollTo(0, 4000); 1');
+    await both([0, 0, 255, 255]);
+    await web.evaluateJavascript(
+      source:
+          "const i = document.querySelector('input'); i.value = 'hi';"
+          "i.dispatchEvent(new Event('input')); window.scrollTo(0, 0); 1",
+    );
+    await both([0, 255, 0, 255]);
+    await tester.pump(const Duration(seconds: 1));
   });
 }

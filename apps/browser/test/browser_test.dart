@@ -688,6 +688,78 @@ void main() {
     });
   });
 
+  group('mirror split (#85)', () {
+    Future<BrowserAppState> boot(
+      WidgetTester tester,
+      HibernationStore store,
+    ) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(BrowserApp(key: UniqueKey(), store: store));
+      await tester.pumpAndSettle();
+      return tester.state<BrowserAppState>(find.byType(BrowserApp));
+    }
+
+    Future<void> menu(WidgetTester tester, String item) async {
+      await tester.tap(find.byTooltip('Menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(item).last);
+      await tester.pumpAndSettle();
+    }
+
+    final badge = find.byType(MirrorBadge);
+
+    /// History open, then mirrored: (original, mirror).
+    Future<(WindowId, WindowId)> mirror(
+      WidgetTester tester,
+      BrowserAppState app,
+    ) async {
+      await menu(tester, 'History');
+      final original = app.controller.doc.value.activeWindowId!;
+      await menu(tester, 'Mirror split');
+      return (original, app.controller.doc.value.activeWindowId!);
+    }
+
+    testWidgets('Mirror split shares the original view; both show the badge', (
+      tester,
+    ) async {
+      final app = await boot(tester, InMemoryHibernationStore());
+      final (original, split) = await mirror(tester, app);
+
+      final doc = app.controller.doc.value;
+      expect(split, isNot(original));
+      final entry = doc.windows[split]!.history.current;
+      expect(entry.buffer, doc.windows[original]!.history.current.buffer);
+      expect(entry.arguments[viewKey], 'shared');
+      expect(app.routeOf(split), const HistoryRoute());
+      expect(mirrorSourceOf(doc, split), original);
+      expect(mirrorSourceOf(doc, original), isNull);
+      expect(badge, findsNWidgets(2));
+    });
+
+    testWidgets('shared survives a restart; without its original a mirror '
+        'falls back to its own view', (tester) async {
+      final store = InMemoryHibernationStore();
+      final (original, split) = await mirror(tester, await boot(tester, store));
+      await tester.pumpWidget(const SizedBox());
+
+      var app = await boot(tester, store);
+      expect(mirrorSourceOf(app.controller.doc.value, split), original);
+      expect(badge, findsNWidgets(2));
+
+      app.controller.closeWindow(original);
+      await tester.pumpAndSettle();
+      await tester.pumpWidget(const SizedBox());
+      app = await boot(tester, store);
+
+      final doc = app.controller.doc.value;
+      expect(doc.windows[split]!.history.current.arguments[viewKey], 'shared');
+      expect(mirrorSourceOf(doc, split), isNull);
+      expect(badge, findsNothing);
+    });
+  });
+
   group('pop-out (#83)', () {
     late FakeShellPlatform platform;
     // The second tab on screen: the /nope tab before and after pop-out.
