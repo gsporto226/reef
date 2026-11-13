@@ -52,7 +52,7 @@ void main() {
   ) async {
     final first = controller();
     final ids = ReefRestorableValue(const <int>[], codec: _intList);
-    first.claimBucket('app').register('ids', ids);
+    first.restoration.claimChild('app').register('ids', ids);
     expect(ids.value, isEmpty);
     ids.value = [1];
     ids.value = [1, 2];
@@ -61,7 +61,7 @@ void main() {
     expect(store.load(_key), isNotNull);
 
     final again = ReefRestorableValue(const <int>[], codec: _intList);
-    controller().claimBucket('app').register('ids', again);
+    controller().restoration.claimChild('app').register('ids', again);
     expect(again.value, [1, 2]);
   });
 
@@ -69,29 +69,31 @@ void main() {
     tester,
   ) async {
     final first = controller();
-    final bucket = first.claimBucket('app');
+    final bucket = first.restoration.claimChild('app');
     bucket.register('name', ReefRestorableValue('x')..value = 'kept');
     bucket.register('bad', ReefRestorableValue<Object?>(null)..value = 'oops');
-    first.claimBucket('other').register('n', ReefRestorableValue(0)..value = 7);
+    first.restoration
+        .claimChild('other')
+        .register('n', ReefRestorableValue(0)..value = 7);
     await tester.pump();
 
     final c = controller();
     final name = ReefRestorableValue('x');
-    final b = c.claimBucket('app')..register('name', name);
+    final b = c.restoration.claimChild('app')..register('name', name);
     expect(name.value, 'kept');
     final bad = ReefRestorableValue(const <int>[], codec: _intList);
     b.register('bad', bad);
     expect(bad.value, isEmpty);
     expect(name.value, 'x', reason: 'the whole bucket is dropped');
     final n = ReefRestorableValue(0);
-    c.claimBucket('other').register('n', n);
+    c.restoration.claimChild('other').register('n', n);
     expect(n.value, 7, reason: 'other buckets are kept');
   });
 
   testWidgets('a malformed record restores defaults', (tester) async {
     store.save(_key, {'values': 'nope'});
     final n = ReefRestorableValue(3);
-    controller().claimBucket('app').register('n', n);
+    controller().restoration.claimChild('app').register('n', n);
     expect(n.value, 3);
   });
 
@@ -111,12 +113,21 @@ void main() {
     expect(find.text('5'), findsOneWidget);
   });
 
-  testWidgets('extra is a value in a reserved bucket', (tester) async {
-    final first = controller();
-    // ignore: deprecated_member_use_from_same_package
-    first.extra = {'projection': 'tabbed'};
+  testWidgets('peek decodes a saved value before anyone registers it', (
+    tester,
+  ) async {
+    final app = controller().restoration.claimChild('app');
+    app.register(
+      'ids',
+      ReefRestorableValue(<int>[], codec: _intList)..value = [3],
+    );
+    app.register('bad', ReefRestorableValue(0)..value = 1);
     await tester.pump();
-    // ignore: deprecated_member_use_from_same_package
-    expect(controller().extra, {'projection': 'tabbed'});
+    final saved = ReefRootRestorationBucket(store).claimChild('app');
+    expect(saved.peek('ids', ReefRestorableValue(<int>[], codec: _intList)), [
+      3,
+    ]);
+    expect(saved.peek('missing', ReefRestorableValue(9)), 9);
+    expect(saved.peek('bad', ReefRestorableValue('x')), 'x');
   });
 }

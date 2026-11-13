@@ -6,10 +6,14 @@ import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 /// The reserved store id the windowing layout hibernates under.
 const windowingHibernationKey = BufferId.manual('windowing:');
 
+/// The reserved store id the root restoration bucket is saved under
+/// (ADR 0010).
+const restorationHibernationKey = BufferId.manual('restoration:');
+
 bool _notReserved(BufferId bufferId) {
   assert(
     bufferId != windowingHibernationKey &&
-        bufferId != const BufferId.manual('restoration:'),
+        bufferId != restorationHibernationKey,
     '$bufferId is reserved for the layout record or the restoration buckets',
   );
   return true;

@@ -198,13 +198,9 @@ void main() {
         store.save(_key, record);
         const buffer = BufferId.manual('a');
         store.save(buffer, {'title': 'kept'});
-        record['extra'] = 'stale';
-        store.save(_key, record);
         final initial = WindowingDoc.initial();
         final c = controller(initial: initial);
         expect(c.doc.value, initial);
-        // ignore: deprecated_member_use_from_same_package
-        expect(c.extra, isNull, reason: 'a discarded record yields no extra');
         expect(store.load(_key), isNull);
         expect(store.load(buffer), {'title': 'kept'});
       });
