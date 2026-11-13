@@ -21,7 +21,8 @@ const fixtures = {
   '/three.html': '<!doctype html><title>Page three</title><h1>SPA</h1>',
   '/blank.html':
       '<!doctype html><title>Blank fixture</title>'
-      '<a target="_blank" href="/two.html">Open page two in a new tab</a>',
+      '<a target="_blank" href="/two.html">Open page two in a new tab</a>'
+      '<a target="named" href="/links.html">Open links in a named target</a>',
   // Red on top, blue below the fold; typing turns the top green.
   '/mirror.html':
       '<!doctype html><title>Mirror fixture</title>'
@@ -66,6 +67,11 @@ void main() {
   }
 
   Future<void> type(WidgetTester tester, String text) async {
+    // enterText re-focuses a field only when it differs from the binding's
+    // last focusedEditable. A submitted address unfocuses its field and a
+    // new webview autofocuses, so the same field must ask again.
+    tester.state<EditableTextState>(addressBar).requestKeyboard();
+    await tester.pump();
     await tester.enterText(addressBar, text);
     await tester.testTextInput.receiveAction(TextInputAction.go);
     await tester.pumpAndSettle();
@@ -213,9 +219,6 @@ void main() {
     // Typing a URL that is already open focuses its window.
     await evaluateIn(left, ctrlClick);
     await until(() => doc().windows.length == 2);
-    // The split rebuilt the toolbar, so the field needs focus again.
-    await tester.tap(addressBar);
-    await tester.pumpAndSettle();
     await type(tester, at('/links.html'));
     expect(
       doc().activeWindowId,
@@ -348,6 +351,38 @@ void main() {
     expect(history().$3, isEmpty);
   });
 
+  testWidgets('back loads the entry when the webview history drifted', (
+    tester,
+  ) async {
+    final app = await boot(tester);
+    String at(String path) => 'http://127.0.0.1:${server.port}$path';
+    WebPage page(String path) => WebPage.of(Uri.parse(at(path)));
+    Future<void> showing(String title) async => expect(
+      await evaluate(
+        tester,
+        app,
+        "document.readyState == 'complete' && document.title == '$title'"
+        ' ? location.href : null',
+      ),
+      isA<String>(),
+    );
+
+    await type(tester, at('/links.html'));
+    await showing('Links fixture');
+    await evaluate(tester, app, "document.querySelector('a').click(); 1");
+    await showing('Page two');
+    // A replace loads /three.html as a new webview entry: the webview has
+    // links, two, three; the window has links, three.
+    app.nav.replace(page('/three.html'));
+    await tester.pumpAndSettle();
+    await showing('Page three');
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+    expect(app.focusedRoute, page('/links.html'));
+    await showing('Links fixture');
+  });
+
   group('tabs', () {
     String at(String path) => 'http://127.0.0.1:${server.port}$path';
     WebPage page(String path) => WebPage.of(Uri.parse(at(path)));
@@ -382,7 +417,8 @@ void main() {
       isA<String>(),
     );
 
-    testWidgets('target=_blank and window.open open a new tab', (tester) async {
+    testWidgets('target=_blank, a named target and window.open open a new '
+        'tab', (tester) async {
       final app = await boot(tester);
       await type(tester, at('/blank.html'));
       await showing(tester, app, 'Blank fixture');
@@ -404,6 +440,21 @@ void main() {
       await routeIs(tester, app, page('/three.html'));
       await showing(tester, app, 'Page three');
       expect(tabs(app), hasLength(3));
+
+      // A named target goes through reef too, not in place.
+      app.controller.activateTab(opener);
+      await tester.pumpAndSettle();
+      await evaluate(
+        tester,
+        app,
+        "document.querySelectorAll('a')[1].click(); 1",
+      );
+      await routeIs(tester, app, page('/links.html'));
+      expect(tabs(app), hasLength(4));
+      expect(
+        app.routeOf(app.controller.doc.value.tabs[opener]!.activeWindowId),
+        page('/blank.html'),
+      );
     });
 
     testWidgets('flow 6: Ctrl+Shift+T reopens a closed tab with its history', (
@@ -441,11 +492,8 @@ void main() {
       expect(tabs(app), isNot(contains(closed)));
       expect(app.focusedRoute, isA<NewTabRoute>());
 
-      // Browse in the other tab before reopening (ADR 0009). Closing the tab
-      // rebuilt the chrome, so focus its address bar first.
+      // Browse in the other tab before reopening (ADR 0009).
       final other = tabs(app).single;
-      await tester.tap(addressBar);
-      await tester.pumpAndSettle();
       await type(tester, at('/three.html'));
       await routeIs(tester, app, page('/three.html'));
       await showing(tester, app, 'Page three');

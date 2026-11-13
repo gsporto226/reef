@@ -531,8 +531,9 @@ assert on it.
   that is saved (default: the whole doc).
 - App state is not in this record: apps restore it through restoration
   buckets (ADR 0010, `docs/adr/0010-apps-restore-state-through-restoration-buckets.md`),
-  saved under the reserved id `restoration:`. `controller.extra` is now a
-  value in the reserved `reef:` bucket and is deprecated.
+  saved under the reserved id `restoration:`. State not tied to a widget
+  claims a child of `controller.restoration` by id. `controller.extra` is
+  removed.
 - With a `store`, the controller saves on every published doc change.
 - At construction, the controller loads the record. A record with another
   version, a malformed record and a record whose doc breaks an invariant

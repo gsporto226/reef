@@ -131,6 +131,22 @@ void main() {
     });
   });
 
+  testWidgets('a tab title follows its page; a second address navigates', (
+    tester,
+  ) async {
+    await tester.pumpWidget(BrowserApp(store: InMemoryHibernationStore()));
+    await tester.pumpAndSettle();
+    Finder tabTitle(String t) =>
+        find.descendant(of: find.byType(TabStrip), matching: find.text(t));
+    expect(tabTitle('New tab'), findsOneWidget);
+    for (final path in ['/history', '/bookmarks']) {
+      await tester.enterText(addressBar, path);
+      await tester.testTextInput.receiveAction(TextInputAction.go);
+      await tester.pumpAndSettle();
+      expect(tabTitle(path), findsOneWidget);
+    }
+  });
+
   testWidgets('boots on a new tab; an unknown internal path shows not-found', (
     tester,
   ) async {
