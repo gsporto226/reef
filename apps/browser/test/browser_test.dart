@@ -317,4 +317,122 @@ void main() {
       expect(history(app).current.arguments, isNot(contains(bookmarkKey)));
     });
   });
+
+  group('floats', () {
+    Future<BrowserAppState> boot(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(BrowserApp(store: InMemoryHibernationStore()));
+      await tester.pumpAndSettle();
+      return tester.state<BrowserAppState>(find.byType(BrowserApp));
+    }
+
+    Future<void> tap(WidgetTester tester, String tooltip) async {
+      await tester.tap(find.byTooltip(tooltip).last);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> menu(WidgetTester tester, String item) async {
+      await tap(tester, 'Menu');
+      await tester.tap(find.text(item).last);
+      await tester.pumpAndSettle();
+    }
+
+    WindowingDoc doc(BrowserAppState app) => app.controller.doc.value;
+
+    /// The floats of [scope], bottom to top.
+    List<WindowId> floatsOf(BrowserAppState app, FloatScope scope) =>
+        (doc(app).floating.entries.where((e) => e.value.scope == scope).toList()
+              ..sort((a, b) => a.value.zIndex.compareTo(b.value.zIndex)))
+            .map((e) => e.key)
+            .toList();
+
+    /// Taps float [id] on its title bar's left end.
+    Future<void> focus(WidgetTester tester, WindowId id) async {
+      final panel = find.byWidgetPredicate(
+        (w) => w is FloatPanel && w.windowId == id,
+      );
+      await tester.tapAt(tester.getTopLeft(panel) + const Offset(6, 6));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('PiP floats the focused page over the shell', (tester) async {
+      final app = await boot(tester);
+      await tester.enterText(addressBar, '/history');
+      await tester.testTextInput.receiveAction(TextInputAction.go);
+      await tester.pumpAndSettle();
+      final page = doc(app).activeWindowId!;
+
+      await menu(tester, 'Picture in picture');
+
+      final [pip] = floatsOf(app, ShellScope(doc(app).focusedShellId));
+      expect(app.routeOf(pip), const HistoryRoute());
+      expect(find.byType(FloatPanel), findsOneWidget);
+      expect(doc(app).activeWindowId, page, reason: 'the tree keeps focus');
+    });
+
+    testWidgets('find floats over the window, downloads over the tab', (
+      tester,
+    ) async {
+      final app = await boot(tester);
+      final window = doc(app).activeWindowId!;
+      final tab = doc(app).shells[doc(app).focusedShellId]!.activeTabId;
+
+      await menu(tester, 'Find in page');
+      await menu(tester, 'Downloads');
+
+      final [find_] = floatsOf(app, WindowScope(window));
+      expect(app.routeOf(find_), const FindRoute());
+      final [downloads] = floatsOf(app, TabScope(tab));
+      expect(app.routeOf(downloads), const DownloadsRoute());
+      for (final name in fakeDownloads) {
+        expect(find.text(name), findsOneWidget);
+      }
+    });
+
+    for (final (side, tooltip) in [(0, 'Dock left'), (1, 'Dock right')]) {
+      testWidgets('flow 9: $tooltip docks PiP beside the focused window', (
+        tester,
+      ) async {
+        final app = await boot(tester);
+        final target = doc(app).activeWindowId!;
+        final pip = app.pictureInPicture()!;
+        await tester.pumpAndSettle();
+
+        await tap(tester, tooltip);
+
+        expect(doc(app).floating, isEmpty);
+        final root = doc(app).activeTab.root! as WindowBranch;
+        expect(root.children[side], WindowLeaf(pip));
+        expect(root.children[1 - side], WindowLeaf(target));
+        expect(doc(app).activeWindowId, pip);
+      });
+    }
+
+    for (final scope in ['shell', 'window', 'tab']) {
+      testWidgets('flow 9: focusing a $scope float raises it', (tester) async {
+        final app = await boot(tester);
+        final d = doc(app);
+        final (open, floatScope) = switch (scope) {
+          'shell' => (app.pictureInPicture, ShellScope(d.focusedShellId)),
+          'window' => (app.findInPage, WindowScope(d.activeWindowId!)),
+          _ => (
+            app.downloads,
+            TabScope(d.shells[d.focusedShellId]!.activeTabId),
+          ),
+        };
+        // Opening a float leaves the tree window focused, so the second
+        // one lands on the same scope, on top.
+        final a = open()!;
+        final b = open()!;
+        await tester.pumpAndSettle();
+        expect(floatsOf(app, floatScope), [a, b]);
+
+        await focus(tester, a);
+
+        expect(floatsOf(app, floatScope), [b, a]);
+      });
+    }
+  });
 }

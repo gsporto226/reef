@@ -373,4 +373,78 @@ void main() {
       expect(find.text('Settings'), findsWidgets);
     });
   });
+
+  testWidgets('flow 9: PiP docks left and right; focus raises every scope', (
+    tester,
+  ) async {
+    final app = await boot(tester);
+    final url = 'http://127.0.0.1:${server.port}/links.html';
+    await type(tester, url);
+    WindowingDoc doc() => app.controller.doc.value;
+    final page = doc().activeWindowId!;
+    final shell = doc().focusedShellId;
+    final tab = doc().shells[shell]!.activeTabId;
+
+    List<WindowId> floatsOf(FloatScope scope) =>
+        (doc().floating.entries.where((e) => e.value.scope == scope).toList()
+              ..sort((a, b) => a.value.zIndex.compareTo(b.value.zIndex)))
+            .map((e) => e.key)
+            .toList();
+
+    Future<void> focus(WindowId id) async {
+      final panel = find.byWidgetPredicate(
+        (w) => w is FloatPanel && w.windowId == id,
+      );
+      await tester.tapAt(tester.getTopLeft(panel) + const Offset(6, 6));
+      await tester.pumpAndSettle();
+    }
+
+    // PiP floats a live copy of the page over the shell.
+    await tester.tap(find.byTooltip('Menu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Picture in picture'));
+    await tester.pumpAndSettle();
+    final [pip] = floatsOf(ShellScope(shell));
+    expect(app.routeOf(pip), WebPage.of(Uri.parse(url)));
+    for (var i = 0; i < 100 && app.webViews[pip] == null; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(
+      await app.webViews[pip]!.evaluateJavascript(source: 'location.href'),
+      url,
+    );
+
+    // Dock left, float again, dock right.
+    await tester.tap(find.byTooltip('Dock left'));
+    await tester.pumpAndSettle();
+    var root = doc().activeTab.root! as WindowBranch;
+    expect(root.children, [WindowLeaf(pip), WindowLeaf(page)]);
+    app.controller.floatWindow(pip, scope: ShellScope(shell));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Dock right'));
+    await tester.pumpAndSettle();
+    root = doc().activeTab.root! as WindowBranch;
+    expect(root.children, [WindowLeaf(page), WindowLeaf(pip)]);
+    app.controller.closeWindow(pip);
+    app.controller.activateWindow(page);
+    await tester.pumpAndSettle();
+
+    // At each scope, the float focused last is on top.
+    for (final (open, scope) in <(WindowId? Function(), FloatScope)>[
+      (app.downloads, TabScope(tab)),
+      (app.findInPage, WindowScope(page)),
+      (app.pictureInPicture, ShellScope(shell)),
+    ]) {
+      final a = open()!;
+      final b = open()!;
+      await tester.pumpAndSettle();
+      expect(floatsOf(scope), [a, b]);
+      await focus(a);
+      expect(floatsOf(scope), [b, a], reason: '$scope');
+      // Out of the way of the next scope's floats.
+      app.controller.closeWindow(a);
+      app.controller.closeWindow(b);
+      await tester.pumpAndSettle();
+    }
+  });
 }
