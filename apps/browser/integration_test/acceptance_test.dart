@@ -432,7 +432,23 @@ void main() {
       expect(tabs(app), isNot(contains(closed)));
       expect(app.focusedRoute, isA<NewTabRoute>());
 
+      // Browse in the other tab before reopening (ADR 0009). Closing the tab
+      // rebuilt the chrome, so focus its address bar first.
+      final other = tabs(app).single;
+      await tester.tap(addressBar);
+      await tester.pumpAndSettle();
+      await type(tester, at('/three.html'));
+      await routeIs(tester, app, page('/three.html'));
+      await showing(tester, app, 'Page three');
+
       await ctrlT(shift: true);
+
+      // The other tab keeps its navigation.
+      final kept = app.controller.doc.value;
+      expect(
+        app.routeOf(kept.tabs[other]!.activeWindowId),
+        page('/three.html'),
+      );
 
       expect(tabs(app), contains(closed));
       await routeIs(tester, app, page('/two.html'));

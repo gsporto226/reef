@@ -71,6 +71,27 @@ void main() {
     expect(c.doc.value, before);
   });
 
+  test('undo of a close keeps navigation done since in another tab '
+      '(ADR 0009)', () {
+    final first = c.newTab(buffer: const BufferId.manual('a'));
+    final w1 = c.doc.value.tabs[first]!.activeWindowId!;
+    c.pushBuffer(w1, const BufferId.manual('a2'));
+    final second = c.newTab(buffer: const BufferId.manual('b'));
+    final w2 = c.doc.value.tabs[second]!.activeWindowId!;
+    final history = c.doc.value.windows[w1]!.history;
+
+    c.closeTab(first);
+    c.pushBuffer(w2, const BufferId.manual('b2'));
+    undo.undo();
+
+    final doc = c.doc.value;
+    expect(doc.windows[w1]!.history, history);
+    expect(doc.shells[shell()]!.tabIds, contains(first));
+    expect(doc.windows[w2]!.history.current.buffer,
+        const BufferId.manual('b2'));
+    expect(doc.isValid, isTrue);
+  });
+
   test('unchanged batches record nothing', () {
     c.dispatch(CloseTab(TabId.manual('unknown')));
     expect(undo.$canUndo.value, isFalse);

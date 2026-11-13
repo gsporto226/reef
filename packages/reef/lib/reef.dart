@@ -21,6 +21,7 @@ export 'package:reef/features/windowing/_implementations/windowing_controller.da
 export 'package:reef/features/windowing/_implementations/windowing_delegate.dart';
 export 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 export 'package:reef/features/windowing/_implementations/windowing_ids.dart';
+export 'package:reef/features/windowing/_implementations/windowing_patch.dart';
 export 'package:reef/features/windowing/_implementations/windowing_projection.dart';
 export 'package:reef/features/windowing/_implementations/windowing_root.dart';
 export 'package:reef/features/windowing/_implementations/windowing_shortcuts.dart';

@@ -12,9 +12,9 @@ class _Label implements ILocalizable {
 class _Host<S> implements UndoHost<S> {
   final calls = <String>[];
   @override
-  void undo(S snapshotBefore) => calls.add('undo $snapshotBefore');
+  void undo(UndoEntry<S> e) => calls.add('undo ${e.snapshotBefore}');
   @override
-  void redo(S snapshotAfter) => calls.add('redo $snapshotAfter');
+  void redo(UndoEntry<S> e) => calls.add('redo ${e.snapshotAfter}');
 }
 
 UndoEntry<S> _e<S>(S before, S after, {Object? key}) => UndoEntry<S>(
