@@ -285,6 +285,8 @@ class WindowHost extends StatelessWidget {
       builder: (context, selected) {
         final (buffer, depth, active) = selected;
         if (buffer == null) return const SizedBox.shrink();
+        // Entries with one identity share the page (ADR 0008).
+        final pageKey = _PageKey(windowId, delegate.pageIdentity(buffer));
         final window = Listener(
           behavior: HitTestBehavior.translucent,
           onPointerDown: activateOnPointer
@@ -297,13 +299,13 @@ class WindowHost extends StatelessWidget {
               windowId,
               active,
               _PageStack(
-                pageKey: _PageKey(windowId, buffer),
+                pageKey: pageKey,
                 depth: depth,
                 transition: delegate.pageTransition(buffer),
                 // Global so a layout change around the window reparents its
                 // page instead of remounting it.
                 page: KeyedSubtree(
-                  key: _PageKey(windowId, buffer),
+                  key: pageKey,
                   child: Builder(
                     builder: (context) =>
                         scope.bufferBuilder(context, buffer) ??
@@ -374,7 +376,12 @@ class _PageStackState extends State<_PageStack> with TickerProviderStateMixin {
       duration: transition?.duration ?? Duration.zero,
       value: value,
     );
-    final entry = _PageEntry(widget.pageKey, transition, widget.page, controller);
+    final entry = _PageEntry(
+      widget.pageKey,
+      transition,
+      widget.page,
+      controller,
+    );
     controller.addStatusListener((status) {
       if (!mounted) return;
       if (status.isCompleted && entry.key == widget.pageKey) {
@@ -405,9 +412,7 @@ class _PageStackState extends State<_PageStack> with TickerProviderStateMixin {
     final existing = _entries.where((e) => e.key == widget.pageKey);
     if (back) {
       // The leaving page reverses over the returning one.
-      final returning = existing.isNotEmpty
-          ? existing.first
-          : _entry(1);
+      final returning = existing.isNotEmpty ? existing.first : _entry(1);
       returning.page = widget.page;
       _entries
         ..remove(returning)
@@ -566,17 +571,19 @@ class _WindowIdScope extends InheritedWidget {
 }
 
 class _PageKey extends GlobalKey {
-  const _PageKey(this.windowId, this.buffer) : super.constructor();
+  const _PageKey(this.windowId, this.identity) : super.constructor();
 
   final WindowId windowId;
-  final BufferId buffer;
+  final Object? identity;
 
   @override
   bool operator ==(Object other) =>
-      other is _PageKey && other.windowId == windowId && other.buffer == buffer;
+      other is _PageKey &&
+      other.windowId == windowId &&
+      other.identity == identity;
 
   @override
-  int get hashCode => Object.hash(windowId, buffer);
+  int get hashCode => Object.hash(windowId, identity);
 }
 
 /// Rebuilds [builder] only when [selector]'s value over the doc changes by

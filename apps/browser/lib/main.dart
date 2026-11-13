@@ -40,7 +40,8 @@ abstract final class T {
 extension type const Host(String value) {}
 
 /// A web page: `/web/{scheme}/{host}/**`. The site's whole query string is
-/// one opaque argument; its keys never enter reef's query bag.
+/// one opaque argument; its keys never enter reef's query bag. One origin
+/// is one page (ADR 0008): its webview survives a path-changing pushState.
 final class WebPage {
   const WebPage(this.scheme, this.host, this.path, this.query);
 
@@ -65,7 +66,8 @@ final class WebPage {
       .field((r) => r.host, codec: LinkCodec.of((h) => h.value, Host.new))
       .rest((r) => r.path)
       .query('q', (r) => r.query, fallback: '')
-      .build(WebPage.new);
+      .build(WebPage.new)
+      .identity((r) => (r.scheme, r.host));
 
   @override
   bool operator ==(Object other) =>
@@ -213,6 +215,20 @@ Object routeOfInput(String text) {
 LinkVerb? verbOfNavigation(Object? current, Uri url, {required bool redirect}) {
   if (WebPage.of(url) == current) return null;
   return redirect ? LinkVerb.replace : LinkVerb.push;
+}
+
+/// -1 when [after] is [before] gone back one entry, 1 when gone forward one,
+/// else null (a push, a replace or anything else).
+int? historyStep(BufferHistory before, BufferHistory after) {
+  if (after.current.id == before.back.lastOrNull?.id &&
+      after.forward.lastOrNull?.id == before.current.id) {
+    return -1;
+  }
+  if (after.current.id == before.forward.lastOrNull?.id &&
+      after.back.lastOrNull?.id == before.current.id) {
+    return 1;
+  }
+  return null;
 }
 
 /// Reports the page's pushState/replaceState to reef, after they ran.
@@ -434,6 +450,7 @@ class BrowserAppState extends State<BrowserApp> {
               controller: controller,
               bufferBuilder: (_, buffer) => BrowserPage(buffer),
               delegate: WindowingDelegate(
+                pageIdentity: links.pageIdentityOf,
                 windowChrome: (_, id, _, page) =>
                     controller.doc.value.floating.containsKey(id)
                     ? FloatPanel(id, page)
@@ -672,7 +689,8 @@ class _ToolbarState extends State<Toolbar> {
   );
 }
 
-/// The page [buffer] shows in its window.
+/// The page [buffer] shows in its window. It stays mounted across the
+/// entries of one origin (ADR 0008), so it reads its entry from the window.
 class BrowserPage extends StatefulWidget {
   const BrowserPage(this.buffer, {super.key});
 
@@ -686,7 +704,11 @@ class _BrowserPageState extends State<BrowserPage> {
   late final app = BrowserApp.of(context);
   late final window = WindowHost.of(context);
   late Object route = _entryRoute();
+  late BufferHistory? _history = _windowHistory;
   InAppWebViewController? web;
+
+  BufferHistory? get _windowHistory =>
+      app.controller.doc.value.windows[window]?.history;
 
   // flutter_inappwebview_windows 0.6.0 never sets isRedirect (it reads
   // Fetch.requestPaused's redirectedRequestId from inside `request`, where
@@ -697,13 +719,15 @@ class _BrowserPageState extends State<BrowserPage> {
   bool _loading = false;
 
   /// This window's current entry as a route, read from the doc: the builder
-  /// only gets the buffer.
+  /// only gets the buffer. While another page's entry is current (this page
+  /// animating out), it stays on [BrowserPage.buffer].
   Object _entryRoute() {
-    final entry = app.controller.doc.value.windows[window]?.history.current;
-    return links.routeOfBuffer(
-      widget.buffer,
-      entry?.buffer == widget.buffer ? entry!.arguments : const {},
-    );
+    final entry = _windowHistory?.current;
+    return entry != null &&
+            links.pageIdentityOf(entry.buffer) ==
+                links.pageIdentityOf(widget.buffer)
+        ? links.routeOfBuffer(entry.buffer, entry.arguments)
+        : links.routeOfBuffer(widget.buffer);
   }
 
   @override
@@ -712,15 +736,26 @@ class _BrowserPageState extends State<BrowserPage> {
     app.controller.doc.addListener(_follow);
   }
 
-  /// The entry changed on this buffer (back/forward, pushState, a replace):
-  /// render it, loading it unless the webview already shows it (pushState).
+  /// The entry changed within this page (back/forward, pushState, a
+  /// replace): render it. Back and forward step the webview's own history,
+  /// same-document for pushState entries; anything else loads the entry
+  /// unless the webview already shows it (pushState).
   Future<void> _follow() async {
-    if (app.controller.doc.value.windows[window] == null) return;
+    final before = _history, after = _history = _windowHistory;
+    if (before == null || after == null) return;
     final next = _entryRoute();
     if (next == route) return;
     setState(() => route = next);
     final w = web;
     if (next is! WebPage || w == null || next == _shown) return;
+    // ponytail: assumes the webview's history mirrors this window's since
+    // the page mounted; a step it can't take falls back to a load.
+    final step = historyStep(before, after);
+    if (step != null && await w.canGoBackOrForward(steps: step)) {
+      _shown = next;
+      await w.goBackOrForward(steps: step);
+      return;
+    }
     await w.loadUrl(urlRequest: URLRequest(url: WebUri.uri(next.uri)));
   }
 
@@ -797,6 +832,13 @@ class _BrowserPageState extends State<BrowserPage> {
           if (verb == null) {
             _loading = true;
             _shown = WebPage.of(url);
+            return NavigationActionPolicy.ALLOW;
+          }
+          if (verb == LinkVerb.replace) {
+            // Let the redirect finish here: a load issued now would be
+            // aborted with the cancelled request.
+            _shown = WebPage.of(url);
+            _go(verb, url);
             return NavigationActionPolicy.ALLOW;
           }
           _go(verb, url);
