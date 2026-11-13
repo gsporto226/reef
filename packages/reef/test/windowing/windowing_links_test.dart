@@ -10,6 +10,7 @@ const w1 = WindowId.manual('w1');
 const w2 = WindowId.manual('w2');
 const w3 = WindowId.manual('w3');
 const list = BufferId.manual('tasks:');
+const edit41 = BufferId.manual('task-edit:41');
 const edit42 = BufferId.manual('task-edit:42');
 const edit43 = BufferId.manual('task-edit:43');
 
@@ -174,6 +175,20 @@ void main() {
         await c.openLink(edit43, verb: LinkVerb.replace);
         expect(c.doc.value.windows[w1]!.history.current, HistoryEntry(edit43));
         expect(c.doc.value.windows, hasLength(3));
+      });
+
+      test('push and replace target a given window, focus unchanged',
+          () async {
+        final c = controller(twoShells());
+        await c.openLink(edit43, verb: LinkVerb.push, window: w2);
+        await c.openLink(edit41, verb: LinkVerb.replace, window: w3);
+        final d = c.doc.value;
+        expect(active(d), w1);
+        expect(d.windows[w1]!.history.back, isEmpty);
+        expect(d.windows[w2]!.history.current, HistoryEntry(edit43));
+        expect(d.windows[w2]!.history.back, [HistoryEntry(edit42)]);
+        expect(d.windows[w3]!.history.current, HistoryEntry(edit41));
+        expect(d.windows[w3]!.history.back, isEmpty);
       });
 
       test('push with no focused window falls back to go', () async {

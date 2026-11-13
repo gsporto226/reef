@@ -97,6 +97,57 @@ void main() {
     expect(await evaluate(tester, app, 'location.href'), url);
   });
 
+  testWidgets("a page's history actions target its own window, not the "
+      'focused one', (tester) async {
+    final app = await boot(tester);
+    String at(String path) => 'http://127.0.0.1:${server.port}$path';
+    WebPage page(String path) => WebPage.of(Uri.parse(at(path)));
+
+    /// [js] in [window]'s page, once it gives a non-null result.
+    Future<Object?> evaluateIn(WindowId window, String js) async {
+      for (var i = 0; i < 100; i++) {
+        final result = await app.webViews[window]?.evaluateJavascript(
+          source: js,
+        );
+        if (result != null) return result;
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      fail('No result for $js');
+    }
+
+    Future<void> routeIs(WindowId window, Object route) async {
+      for (var i = 0; i < 100 && app.routeOf(window) != route; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(app.routeOf(window), route);
+    }
+
+    await type(tester, at('/links.html'));
+    final left = app.controller.doc.value.activeWindowId!;
+    await evaluateIn(
+      left,
+      "document.readyState == 'complete' ? document.title : null",
+    );
+    app.nav.openInSplit(page('/three.html'));
+    await tester.pumpAndSettle();
+    final right = app.controller.doc.value.activeWindowId!;
+    expect(right, isNot(left));
+    final rightHistory = app.controller.doc.value.windows[right]!.history;
+
+    // pushState and a link click in the unfocused page navigate its window.
+    await evaluateIn(left, "history.pushState({}, '', '?step=2'); 1");
+    await routeIs(left, page('/links.html?step=2'));
+    await evaluateIn(left, "document.querySelector('a').click(); 1");
+    await routeIs(left, page('/two.html'));
+
+    expect(app.controller.doc.value.activeWindowId, right);
+    expect(app.routeOf(right), page('/three.html'));
+    expect(app.controller.doc.value.windows[right]!.history, rightHistory);
+    // Let the plugin's async position reports land before teardown
+    // detaches the webviews.
+    await tester.pump(const Duration(seconds: 1));
+  });
+
   testWidgets('an unknown internal path shows not-found', (tester) async {
     final app = await boot(tester);
 

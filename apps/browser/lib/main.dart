@@ -702,13 +702,10 @@ class _BrowserPageState extends State<BrowserPage> {
   /// The page the webview's document is at, as pushState left it.
   WebPage? _shown;
 
-  // ponytail: verbs act on the focused window. Only the active tab's pages
-  // are mounted and a tab has one window, so that is this one. Splits need
-  // LinkNavigator verbs that take a window (reef API gap); a raw
-  // PushBuffer would skip the link policy.
+  /// Navigates this page's own window, focused or not.
   void _go(LinkVerb verb, Uri url) => verb == LinkVerb.replace
-      ? app.nav.replace(WebPage.of(url))
-      : app.nav.push(WebPage.of(url));
+      ? app.nav.replace(WebPage.of(url), window: window)
+      : app.nav.push(WebPage.of(url), window: window);
 
   @override
   void dispose() {
