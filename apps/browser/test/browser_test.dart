@@ -203,4 +203,118 @@ void main() {
       expect(find.text('Page not found'), findsOneWidget);
     });
   });
+
+  group('history and bookmarks', () {
+    final w = WindowId.generate();
+    const a = WebPage('http', Host('h'), ['a'], '');
+    const b = WebPage('http', Host('h'), ['b'], '');
+
+    WindowingDoc docOf(List<(Object, bool)> visits) {
+      final d = WindowingDoc.initial();
+      var doc = NewTab(
+        shellId: d.focusedShellId,
+        tabId: TabId.generate(),
+        buffer: (w, links.linkOf(const NewTabRoute()).buffer),
+      ).apply(d);
+      for (final (route, marked) in visits) {
+        final (:buffer, :arguments) = links.linkOf(route);
+        doc = PushBuffer(
+          w,
+          buffer,
+          arguments: {...arguments, if (marked) bookmarkKey: ''},
+        ).apply(doc);
+      }
+      return doc;
+    }
+
+    test('history is every web page in the doc, once each', () {
+      final doc = docOf([
+        (a, false),
+        (const NotFoundRoute(['x']), false),
+        (b, false),
+        (a, false),
+      ]);
+      expect(historyOf(doc), unorderedEquals([a, b]));
+    });
+
+    test('bookmarks are the pages whose entry is marked', () {
+      expect(bookmarksOf(docOf([(a, true), (b, false)])), [a]);
+    });
+  });
+
+  group('settings guard', () {
+    Future<BrowserAppState> boot(WidgetTester tester) async {
+      await tester.pumpWidget(BrowserApp(store: InMemoryHibernationStore()));
+      await tester.pumpAndSettle();
+      return tester.state<BrowserAppState>(find.byType(BrowserApp));
+    }
+
+    Future<void> menu(WidgetTester tester, String item) async {
+      await tester.tap(find.byTooltip('Menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(item).last);
+      await tester.pumpAndSettle();
+    }
+
+    BufferHistory history(BrowserAppState app) {
+      final doc = app.controller.doc.value;
+      return doc.windows[doc.activeWindowId]!.history;
+    }
+
+    testWidgets('the menu opens history, bookmarks and settings', (
+      tester,
+    ) async {
+      final app = await boot(tester);
+      await menu(tester, 'History');
+      expect(app.focusedRoute, const HistoryRoute());
+      await menu(tester, 'Bookmarks');
+      expect(app.focusedRoute, const BookmarksRoute());
+      await menu(tester, 'Settings');
+      expect(app.focusedRoute, const SettingsRoute());
+    });
+
+    testWidgets('flow 7: locking on settings redirects with no navigation', (
+      tester,
+    ) async {
+      final app = await boot(tester);
+      await menu(tester, 'Settings');
+      final back = history(app).back;
+
+      await menu(tester, 'Lock settings');
+
+      expect(app.settingsLocked.value, isTrue);
+      expect(app.focusedRoute, isA<NewTabRoute>());
+      expect(history(app).back, back, reason: 'the entry is replaced');
+    });
+
+    testWidgets('locked settings redirects; back skips it; unlock opens it', (
+      tester,
+    ) async {
+      final app = await boot(tester);
+      await menu(tester, 'Lock settings');
+      await menu(tester, 'History');
+
+      await menu(tester, 'Settings');
+      expect(app.focusedRoute, isA<NewTabRoute>());
+
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(app.focusedRoute, const HistoryRoute());
+
+      await menu(tester, 'Lock settings');
+      await menu(tester, 'Settings');
+      expect(app.focusedRoute, const SettingsRoute());
+    });
+
+    testWidgets('Bookmark marks the current entry', (tester) async {
+      final app = await boot(tester);
+      await menu(tester, 'History');
+      await tester.tap(find.byTooltip('Bookmark'));
+      await tester.pumpAndSettle();
+      expect(history(app).current.arguments, contains(bookmarkKey));
+      await tester.tap(find.byTooltip('Bookmark'));
+      await tester.pumpAndSettle();
+      expect(history(app).current.arguments, isNot(contains(bookmarkKey)));
+    });
+  });
 }

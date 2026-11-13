@@ -108,11 +108,74 @@ final class NotFoundRoute {
   String toString() => 'NotFoundRoute($path)';
 }
 
+/// `/history`: every web page in the doc's histories.
+final class HistoryRoute {
+  const HistoryRoute();
+
+  static final link = Link<HistoryRoute>('history')
+      .build(() => const HistoryRoute());
+}
+
+/// `/bookmarks`: the web pages whose entry is bookmarked.
+final class BookmarksRoute {
+  const BookmarksRoute();
+
+  static final link = Link<BookmarksRoute>('bookmarks')
+      .build(() => const BookmarksRoute());
+}
+
+/// `/settings`, guarded: while the lock is set it redirects to a new tab,
+/// replacing the entry (D7), and re-checks when the lock changes (D8).
+final class SettingsRoute {
+  const SettingsRoute();
+
+  static final link = Link<SettingsRoute>('settings')
+      .build(() => const SettingsRoute())
+      .guard<Object, ValueListenable<bool>>(
+        (_, _, locked) => locked.value
+            ? const GuardDecision.redirect(NewTabRoute())
+            : const GuardDecision.allow(),
+        name: 'settings lock',
+      );
+}
+
 final links = LinkTree<Object>([
   WebPage.link,
   NewTabRoute.link,
+  HistoryRoute.link,
+  BookmarksRoute.link,
+  SettingsRoute.link,
   NotFoundRoute.link,
 ]);
+
+/// The entry argument that bookmarks an entry. The doc is the only store,
+/// so a bookmark is a mark on a history entry.
+// ponytail: a bookmark lives and dies with its entry (closing the tab drops
+// it); a doc-level app-data slot in reef would fix that.
+const bookmarkKey = 'bookmark';
+
+/// Every history entry in [doc], back, current and forward, as routes.
+Iterable<(Object, HistoryEntry)> _entries(WindowingDoc doc) => [
+  for (final w in doc.windows.values)
+    for (final e in [
+      ...w.history.back,
+      w.history.current,
+      ...w.history.forward,
+    ])
+      (links.routeOfBuffer(e.buffer, e.arguments), e),
+];
+
+/// Every web page in [doc]'s histories, once each.
+List<WebPage> historyOf(WindowingDoc doc) => {
+  for (final (r, _) in _entries(doc))
+    if (r is WebPage) r,
+}.toList();
+
+/// The web pages with a bookmarked entry in [doc], once each.
+List<WebPage> bookmarksOf(WindowingDoc doc) => {
+  for (final (r, e) in _entries(doc))
+    if (r is WebPage && e.arguments.containsKey(bookmarkKey)) r,
+}.toList();
 
 /// What typing [text] into the address bar opens: a path is an internal
 /// page, anything else a web URL (https when it names no scheme).
@@ -187,13 +250,48 @@ class BrowserApp extends StatefulWidget {
 class BrowserAppState extends State<BrowserApp> {
   /// The global undo timeline: Ctrl+Shift+T reopens a closed tab on it.
   final undo = UndoController();
+
+  /// The settings lock: the guard's environment (D8).
+  final settingsLocked = ValueNotifier(false);
+  late final _bound = links.bind(settingsLocked);
   late final controller = WindowingController(
     undo: undo,
     initial: () =>
         WindowingDoc.initial(buffer: links.linkOf(const NewTabRoute()).buffer),
     store: widget.store,
+    interceptor: _bound.interceptor,
   );
   late final nav = LinkNavigator(links, controller);
+  late final void Function() _unwatch;
+
+  @override
+  void initState() {
+    super.initState();
+    _unwatch = _bound.watch(controller, refresh: settingsLocked);
+  }
+
+  /// Bookmarks the focused window's entry, or clears its bookmark.
+  void toggleBookmark() {
+    final doc = controller.doc.value;
+    final id = doc.activeWindowId;
+    final entry = doc.windows[id]?.history.current;
+    if (id == null || entry == null) return;
+    final arguments = {...entry.arguments};
+    if (arguments.remove(bookmarkKey) == null) arguments[bookmarkKey] = '';
+    controller.dispatch(ReplaceBuffer(id, entry.buffer, arguments: arguments));
+  }
+
+  /// Whether the focused window's entry is bookmarked.
+  bool get bookmarked =>
+      controller
+          .doc
+          .value
+          .windows[controller.doc.value.activeWindowId]
+          ?.history
+          .current
+          .arguments
+          .containsKey(bookmarkKey) ??
+      false;
 
   /// Each web page window's webview, for tests to read the page through.
   final webViews = <WindowId, InAppWebViewController>{};
@@ -211,7 +309,9 @@ class BrowserAppState extends State<BrowserApp> {
 
   @override
   void dispose() {
+    _unwatch();
     controller.dispose();
+    settingsLocked.dispose();
     super.dispose();
   }
 
@@ -372,10 +472,12 @@ class _ToolbarState extends State<Toolbar> {
   void initState() {
     super.initState();
     app.controller.doc.addListener(_follow);
-    _follow();
+    _address();
   }
 
-  void _follow() => text.text = switch (app.focusedRoute) {
+  void _follow() => setState(_address);
+
+  void _address() => text.text = switch (app.focusedRoute) {
     final r? => addressOf(r),
     null => '',
   };
@@ -432,6 +534,33 @@ class _ToolbarState extends State<Toolbar> {
                 },
               ),
             ),
+          ),
+          IconButton(
+            tooltip: 'Bookmark',
+            icon: Icon(app.bookmarked ? Icons.star : Icons.star_border),
+            onPressed: app.toggleBookmark,
+          ),
+          PopupMenuButton<VoidCallback>(
+            tooltip: 'Menu',
+            icon: const Icon(Icons.more_vert),
+            onSelected: (action) => action(),
+            itemBuilder: (_) => [
+              for (final (label, route) in const [
+                ('History', HistoryRoute()),
+                ('Bookmarks', BookmarksRoute()),
+                ('Settings', SettingsRoute()),
+              ])
+                PopupMenuItem(
+                  value: () => app.nav.go(route),
+                  child: Text(label),
+                ),
+              CheckedPopupMenuItem(
+                checked: app.settingsLocked.value,
+                value: () =>
+                    app.settingsLocked.value = !app.settingsLocked.value,
+                child: const Text('Lock settings'),
+              ),
+            ],
           ),
         ],
       ),
@@ -568,9 +697,56 @@ class _BrowserPageState extends State<BrowserPage> {
         'Page not found',
         '/${path.join('/')}',
       ),
+      HistoryRoute() => _PageList('History', historyOf),
+      BookmarksRoute() => _PageList('Bookmarks', bookmarksOf),
+      SettingsRoute() => const _Notice(
+        'Settings',
+        'Settings is guarded: while it is locked from the menu, opening it '
+            'redirects to the new tab page.',
+      ),
       _ => const _Notice('New tab', null),
     },
   );
+}
+
+/// An internal page listing the web pages [pagesOf] reads from the doc.
+class _PageList extends StatelessWidget {
+  const _PageList(this.heading, this.pagesOf);
+
+  final String heading;
+  final List<WebPage> Function(WindowingDoc) pagesOf;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = BrowserApp.of(context);
+    return ValueListenableBuilder(
+      valueListenable: app.controller.doc,
+      builder: (_, doc, _) => Material(
+        color: T.page,
+        child: ListView(
+          padding: const EdgeInsets.all(T.space40),
+          children: [
+            Text(
+              heading,
+              style: const TextStyle(
+                fontSize: 28,
+                fontWeight: FontWeight.w600,
+                color: T.textPrimary,
+              ),
+            ),
+            const SizedBox(height: T.space16),
+            for (final page in pagesOf(doc))
+              ListTile(
+                leading: const Icon(Icons.public, color: T.textMuted),
+                title: Text(titleOf(page)),
+                subtitle: Text(addressOf(page)),
+                onTap: () => app.nav.go(page),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _Notice extends StatelessWidget {
