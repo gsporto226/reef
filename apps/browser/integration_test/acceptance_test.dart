@@ -310,4 +310,67 @@ void main() {
       await showing(tester, app, 'Links fixture');
     });
   });
+
+  group('internal pages', () {
+    Future<void> menu(WidgetTester tester, String item) async {
+      await tester.tap(find.byTooltip('Menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(item).last);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a bookmarked page shows in history and bookmarks', (
+      tester,
+    ) async {
+      final app = await boot(tester);
+      final url = 'http://127.0.0.1:${server.port}/links.html';
+      await type(tester, url);
+      await evaluate(tester, app, "document.readyState == 'complete' || null");
+      await tester.tap(find.byTooltip('Bookmark'));
+      await tester.pumpAndSettle();
+
+      await menu(tester, 'Bookmarks');
+      expect(find.text(url), findsOneWidget);
+      await menu(tester, 'History');
+      expect(find.text(url), findsOneWidget);
+
+      await tester.tap(find.text(url));
+      await tester.pumpAndSettle();
+      expect(app.focusedRoute, WebPage.of(Uri.parse(url)));
+      // Let the webview finish starting before teardown (plugin throws).
+      await evaluate(tester, app, "document.readyState == 'complete' || null");
+    });
+
+    testWidgets('flow 7: the settings guard redirects and re-checks', (
+      tester,
+    ) async {
+      final app = await boot(tester);
+      BufferHistory history() {
+        final doc = app.controller.doc.value;
+        return doc.windows[doc.activeWindowId]!.history;
+      }
+
+      // Locking while on settings redirects, with no navigation (D8).
+      await menu(tester, 'Settings');
+      expect(app.focusedRoute, const SettingsRoute());
+      final back = history().back;
+      await menu(tester, 'Lock settings');
+      expect(app.focusedRoute, isA<NewTabRoute>());
+      expect(history().back, back);
+
+      // Opening it while locked redirects; back skips it (D7).
+      await menu(tester, 'History');
+      await menu(tester, 'Settings');
+      expect(app.focusedRoute, isA<NewTabRoute>());
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(app.focusedRoute, const HistoryRoute());
+
+      // Unlocked, it opens.
+      await menu(tester, 'Lock settings');
+      await menu(tester, 'Settings');
+      expect(app.focusedRoute, const SettingsRoute());
+      expect(find.text('Settings'), findsWidgets);
+    });
+  });
 }
