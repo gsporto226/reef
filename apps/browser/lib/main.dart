@@ -1,8 +1,9 @@
-// The browser integration app (docs/integration-apps.md): real web pages in
+﻿// The browser integration app (docs/integration-apps.md): real web pages in
 // reef windows. reef owns every navigation; the webview only renders the
 // current history entry. This is the tracer: one shell, an address bar, the
 // link tree, and tabs.
 import 'dart:collection';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -139,12 +140,32 @@ final class SettingsRoute {
       );
 }
 
+/// `/find`: the find panel, floating over the window it searches.
+final class FindRoute {
+  const FindRoute();
+
+  static final link = Link<FindRoute>('find').build(() => const FindRoute());
+}
+
+/// `/downloads`: the downloads popup, floating over its tab. The entries are
+/// fake (real downloads are out of scope).
+final class DownloadsRoute {
+  const DownloadsRoute();
+
+  static final link = Link<DownloadsRoute>('downloads')
+      .build(() => const DownloadsRoute());
+}
+
+const fakeDownloads = ['report.pdf', 'photos.zip', 'setup.exe'];
+
 final links = LinkTree<Object>([
   WebPage.link,
   NewTabRoute.link,
   HistoryRoute.link,
   BookmarksRoute.link,
   SettingsRoute.link,
+  FindRoute.link,
+  DownloadsRoute.link,
   NotFoundRoute.link,
 ]);
 
@@ -232,6 +253,8 @@ String addressOf(Object route) => switch (route) {
 String titleOf(Object route) => switch (route) {
   WebPage(:final host, :final path) => [host.value, ...path].join('/'),
   NewTabRoute() => 'New tab',
+  FindRoute() => 'Find in page',
+  DownloadsRoute() => 'Downloads',
   _ => links.uriOf(route).toString(),
 };
 
@@ -315,6 +338,53 @@ class BrowserAppState extends State<BrowserApp> {
     super.dispose();
   }
 
+  /// Opens [route] (a copy of the focused page when null) in a new window
+  /// floating over the scope [scopeOf] picks, on top of its floats.
+  WindowId? _float(
+    FloatScope Function(WindowingDoc doc, WindowId focused) scopeOf, [
+    Object? route,
+  ]) {
+    final doc = controller.doc.value;
+    final focused = doc.activeWindowId;
+    if (focused == null) return null;
+    final id = WindowId.generate();
+    final link = route == null ? null : links.linkOf(route);
+    controller.dispatchAll([
+      SplitWindow(
+        focused,
+        newWindowId: id,
+        axis: Axis.horizontal,
+        buffer: link?.buffer,
+        arguments: link?.arguments ?? const {},
+      ),
+      FloatWindow(id, scope: scopeOf(doc, focused)),
+    ]);
+    return id;
+  }
+
+  /// Picture in picture: the focused page floats over the whole shell.
+  WindowId? pictureInPicture() =>
+      _float((doc, _) => ShellScope(doc.focusedShellId));
+
+  /// The find panel floats over the focused window.
+  WindowId? findInPage() => _float((_, w) => WindowScope(w), const FindRoute());
+
+  /// The downloads popup floats over the focused tab.
+  WindowId? downloads() => _float(
+    (doc, _) => TabScope(doc.shells[doc.focusedShellId]!.activeTabId),
+    const DownloadsRoute(),
+  );
+
+  /// Docks floating [window] on [side] of the focused tab's active window.
+  void dock(WindowId window, DockSide side) {
+    final doc = controller.doc.value;
+    controller.dockWindow(
+      window,
+      tabId: doc.shells[doc.focusedShellId]!.activeTabId,
+      side: side,
+    );
+  }
+
   /// Opens a fresh new tab page in a new tab.
   void newTab() => nav.openInNewTab(const NewTabRoute());
 
@@ -343,7 +413,10 @@ class BrowserAppState extends State<BrowserApp> {
               controller: controller,
               bufferBuilder: (_, buffer) => BrowserPage(buffer),
               delegate: WindowingDelegate(
-                windowChrome: (_, _, _, page) => page,
+                windowChrome: (_, id, _, page) =>
+                    controller.doc.value.floating.containsKey(id)
+                    ? FloatPanel(id, page)
+                    : page,
                 // The chrome: tab strip over the toolbar.
                 tabStrip: (_, shellId) => Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -360,7 +433,7 @@ class BrowserAppState extends State<BrowserApp> {
   );
 }
 
-/// Shell [shellId]'s tabs: a tap activates, × closes, + opens a new tab.
+/// Shell [shellId]'s tabs: a tap activates, Ã— closes, + opens a new tab.
 class TabStrip extends StatelessWidget {
   const TabStrip(this.shellId, {super.key});
 
@@ -554,6 +627,12 @@ class _ToolbarState extends State<Toolbar> {
                   value: () => app.nav.go(route),
                   child: Text(label),
                 ),
+              for (final (label, open) in [
+                ('Picture in picture', app.pictureInPicture),
+                ('Find in page', app.findInPage),
+                ('Downloads', app.downloads),
+              ])
+                PopupMenuItem(value: () => open(), child: Text(label)),
               CheckedPopupMenuItem(
                 checked: app.settingsLocked.value,
                 value: () =>
@@ -697,6 +776,17 @@ class _BrowserPageState extends State<BrowserPage> {
         'Page not found',
         '/${path.join('/')}',
       ),
+      FindRoute() => const _FindPanel(),
+      DownloadsRoute() => ListView(
+        children: [
+          for (final name in fakeDownloads)
+            ListTile(
+              dense: true,
+              leading: const Icon(Icons.insert_drive_file, color: T.textMuted),
+              title: Text(name),
+            ),
+        ],
+      ),
       HistoryRoute() => _PageList('History', historyOf),
       BookmarksRoute() => _PageList('Bookmarks', bookmarksOf),
       SettingsRoute() => const _Notice(
@@ -778,4 +868,105 @@ class _Notice extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// A floating window's frame: a title bar with dock and close over [page].
+class FloatPanel extends StatelessWidget {
+  const FloatPanel(this.windowId, this.page, {super.key});
+
+  final WindowId windowId;
+  final Widget page;
+
+  static const barHeight = 28.0;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = BrowserApp.of(context);
+    Widget action(String tooltip, IconData icon, VoidCallback onPressed) =>
+        IconButton(
+          tooltip: tooltip,
+          iconSize: 16,
+          padding: EdgeInsets.zero,
+          constraints: const BoxConstraints.tightFor(
+            width: barHeight,
+            height: barHeight,
+          ),
+          icon: Icon(icon),
+          onPressed: onPressed,
+        );
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: T.page,
+        border: Border.all(color: T.border),
+        borderRadius: BorderRadius.circular(T.radiusSm),
+        boxShadow: const [BoxShadow(blurRadius: 12, color: Color(0x33000000))],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Container(
+            height: barHeight,
+            color: T.chrome,
+            padding: const EdgeInsets.only(left: T.space8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    titleOf(app.routeOf(windowId) ?? const NewTabRoute()),
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 12, color: T.textPrimary),
+                  ),
+                ),
+                action(
+                  'Dock left',
+                  Icons.align_horizontal_left,
+                  () => app.dock(windowId, DockSide.before),
+                ),
+                action(
+                  'Dock right',
+                  Icons.align_horizontal_right,
+                  () => app.dock(windowId, DockSide.after),
+                ),
+                action(
+                  'Close',
+                  Icons.close,
+                  () => app.controller.closeWindow(windowId),
+                ),
+              ],
+            ),
+          ),
+          Expanded(child: page),
+        ],
+      ),
+    );
+  }
+}
+
+/// Finds text in the page of the window the panel floats over.
+class _FindPanel extends StatelessWidget {
+  const _FindPanel();
+
+  @override
+  Widget build(BuildContext context) {
+    final app = BrowserApp.of(context);
+    final self = WindowHost.of(context);
+    return Padding(
+      padding: const EdgeInsets.all(T.space8),
+      child: Semantics(
+        label: 'Find',
+        child: TextField(
+          decoration: const InputDecoration(hintText: 'Find in page'),
+          onSubmitted: (text) {
+            if (app.controller.doc.value.floating[self]?.scope case WindowScope(
+              :final id,
+            )) {
+              app.webViews[id]?.evaluateJavascript(
+                source: 'window.find(${jsonEncode(text)})',
+              );
+            }
+          },
+        ),
+      ),
+    );
+  }
 }
