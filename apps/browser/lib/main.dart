@@ -1,11 +1,12 @@
 // The browser integration app (docs/integration-apps.md): real web pages in
 // reef windows. reef owns every navigation; the webview only renders the
 // current history entry. This is the tracer: one shell, an address bar, the
-// link tree.
+// link tree, and tabs.
 import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_router/reef_router.dart';
@@ -18,11 +19,17 @@ abstract final class T {
   static const border = Color(0xFFE8E1D6);
   static const chrome = Color(0xFFF3EEE6);
   static const field = Color(0xFFFFFFFF);
+  static const tabActive = Color(0xFFFFFDF9);
   static const page = Color(0xFFFFFFFF);
   static const textPrimary = Color(0xFF1F1B16);
   static const textMuted = Color(0xFF7A7064);
   static const toolbarHeight = 56.0;
   static const addressBarHeight = 44.0;
+  static const tabbarHeight = 44.0;
+  static const tabWidth = 220.0;
+  static const radiusSm = 8.0;
+  static const space4 = 4.0;
+  static const space8 = 8.0;
   static const space12 = 12.0;
   static const space16 = 16.0;
   static const space40 = 40.0;
@@ -135,10 +142,33 @@ for (const kind of ['pushState', 'replaceState']) {
 }
 ''';
 
+/// Sends `target=_blank` links and `window.open` to reef as new tabs. The
+/// plugin's onCreateWindow hangs the page when the app opens the tab itself
+/// (its WebView2 deferral is never completed), so the page asks instead.
+// ponytail: _blank only; named targets still load in place.
+const newTabScript = '''
+const reefOpen = (url) =>
+  window.flutter_inappwebview.callHandler('reefOpen', new URL(url, location.href).href);
+window.open = (url) => { if (url) reefOpen(String(url)); return null; };
+document.addEventListener('click', (e) => {
+  const a = e.target.closest && e.target.closest('a[target="_blank"][href]');
+  if (!a) return;
+  e.preventDefault();
+  reefOpen(a.href);
+}, true);
+''';
+
 /// The address bar text for [route].
 String addressOf(Object route) => switch (route) {
   WebPage() => route.uri.toString(),
   NewTabRoute() => '',
+  _ => links.uriOf(route).toString(),
+};
+
+/// A tab's title for [route].
+String titleOf(Object route) => switch (route) {
+  WebPage(:final host, :final path) => [host.value, ...path].join('/'),
+  NewTabRoute() => 'New tab',
   _ => links.uriOf(route).toString(),
 };
 
@@ -155,7 +185,10 @@ class BrowserApp extends StatefulWidget {
 }
 
 class BrowserAppState extends State<BrowserApp> {
+  /// The global undo timeline: Ctrl+Shift+T reopens a closed tab on it.
+  final undo = UndoController();
   late final controller = WindowingController(
+    undo: undo,
     initial: () =>
         WindowingDoc.initial(buffer: links.linkOf(const NewTabRoute()).buffer),
     store: widget.store,
@@ -166,9 +199,11 @@ class BrowserAppState extends State<BrowserApp> {
   final webViews = <WindowId, InAppWebViewController>{};
 
   /// The route the focused window shows; null without one.
-  Object? get focusedRoute {
-    final doc = controller.doc.value;
-    final entry = doc.windows[doc.activeWindowId]?.history.current;
+  Object? get focusedRoute => routeOf(controller.doc.value.activeWindowId);
+
+  /// Route [window]'s current entry; null once the window is gone.
+  Object? routeOf(WindowId? window) {
+    final entry = controller.doc.value.windows[window]?.history.current;
     return entry == null
         ? null
         : links.routeOfBuffer(entry.buffer, entry.arguments);
@@ -180,6 +215,9 @@ class BrowserAppState extends State<BrowserApp> {
     super.dispose();
   }
 
+  /// Opens a fresh new tab page in a new tab.
+  void newTab() => nav.openInNewTab(const NewTabRoute());
+
   @override
   Widget build(BuildContext context) => MaterialApp(
     title: 'Browser',
@@ -189,23 +227,129 @@ class BrowserAppState extends State<BrowserApp> {
       color: T.chrome,
       child: LinkScope(
         navigator: nav,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Toolbar(),
-            Expanded(
-              child: WindowingRoot(
-                controller: controller,
-                bufferBuilder: (_, buffer) => BrowserPage(buffer),
-                delegate: WindowingDelegate(
-                  windowChrome: (_, _, _, page) => page,
-                  projectionPolicy: (_, _, _) =>
-                      (_, _, shellId) =>
-                          DesktopProjection(shellId, showTabStrip: false),
+        child: CallbackShortcuts(
+          bindings: {
+            const SingleActivator(LogicalKeyboardKey.keyT, control: true):
+                newTab,
+            const SingleActivator(
+              LogicalKeyboardKey.keyT,
+              control: true,
+              shift: true,
+            ): undo.undo,
+          },
+          child: FocusScope(
+            autofocus: true,
+            child: WindowingRoot(
+              controller: controller,
+              bufferBuilder: (_, buffer) => BrowserPage(buffer),
+              delegate: WindowingDelegate(
+                windowChrome: (_, _, _, page) => page,
+                // The chrome: tab strip over the toolbar.
+                tabStrip: (_, shellId) => Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [TabStrip(shellId), const Toolbar()],
                 ),
+                projectionPolicy: (_, _, _) =>
+                    (_, _, shellId) => DesktopProjection(shellId),
               ),
             ),
-          ],
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
+/// Shell [shellId]'s tabs: a tap activates, × closes, + opens a new tab.
+class TabStrip extends StatelessWidget {
+  const TabStrip(this.shellId, {super.key});
+
+  final ShellId shellId;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = BrowserApp.of(context);
+    return SizedBox(
+      height: T.tabbarHeight,
+      child: TabStripSlot(
+        shellId,
+        builder: (context, strip) => Padding(
+          padding: const EdgeInsets.symmetric(horizontal: T.space8),
+          child: Row(
+            children: [
+              for (final id in strip.tabIds) ...[
+                _Tab(
+                  title: titleOf(
+                    app.routeOf(
+                          app.controller.doc.value.tabs[id]?.activeWindowId,
+                        ) ??
+                        const NewTabRoute(),
+                  ),
+                  active: id == strip.activeTabId,
+                  onTap: () => strip.activate(id),
+                  onClose: () => strip.close(id),
+                ),
+                const SizedBox(width: T.space4),
+              ],
+              IconButton(
+                tooltip: 'New tab',
+                icon: const Icon(Icons.add),
+                onPressed: app.newTab,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _Tab extends StatelessWidget {
+  const _Tab({
+    required this.title,
+    required this.active,
+    required this.onTap,
+    required this.onClose,
+  });
+
+  final String title;
+  final bool active;
+  final VoidCallback onTap;
+  final VoidCallback onClose;
+
+  @override
+  Widget build(BuildContext context) => Flexible(
+    child: Material(
+      color: active ? T.tabActive : Colors.transparent,
+      borderRadius: BorderRadius.circular(T.radiusSm),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(T.radiusSm),
+        onTap: onTap,
+        child: SizedBox(
+          width: T.tabWidth,
+          height: T.tabbarHeight,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(T.space12, 0, T.space4, 0),
+            child: Row(
+              children: [
+                const Icon(Icons.public, size: 18, color: T.textMuted),
+                const SizedBox(width: T.space8),
+                Expanded(
+                  child: Text(
+                    title,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontSize: 14, color: T.textPrimary),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Close tab',
+                  iconSize: 18,
+                  icon: const Icon(Icons.close),
+                  onPressed: onClose,
+                ),
+              ],
+            ),
+          ),
         ),
       ),
     ),
@@ -350,8 +494,10 @@ class _BrowserPageState extends State<BrowserPage> {
   /// The page the webview's document is at, as pushState left it.
   WebPage? _shown;
 
-  // ponytail: verbs act on the focused window, which is this one while the
-  // app has a single window; target this window once splits land.
+  // ponytail: verbs act on the focused window. Only the active tab's pages
+  // are mounted and a tab has one window, so that is this one. Splits need
+  // LinkNavigator verbs that take a window (reef API gap); a raw
+  // PushBuffer would skip the link policy.
   void _go(LinkVerb verb, Uri url) => verb == LinkVerb.replace
       ? app.nav.replace(WebPage.of(url))
       : app.nav.push(WebPage.of(url));
@@ -373,13 +519,19 @@ class _BrowserPageState extends State<BrowserPage> {
           useShouldOverrideUrlLoading: true,
         ),
         initialUserScripts: UnmodifiableListView([
-          UserScript(
-            source: historyScript,
-            injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
-          ),
+          for (final source in [historyScript, newTabScript])
+            UserScript(
+              source: source,
+              injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
+            ),
         ]),
         onWebViewCreated: (c) {
           web = app.webViews[window] = c;
+          c.addJavaScriptHandler(
+            handlerName: 'reefOpen',
+            callback: (args) =>
+                app.nav.openInNewTab(WebPage.of(Uri.parse(args[0] as String))),
+          );
           c.addJavaScriptHandler(
             handlerName: 'reefHistory',
             callback: (args) {

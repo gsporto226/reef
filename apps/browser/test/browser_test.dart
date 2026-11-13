@@ -1,5 +1,6 @@
 import 'package:browser/main.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reef/reef.dart';
 
@@ -103,7 +104,7 @@ void main() {
   ) async {
     await tester.pumpWidget(BrowserApp(store: InMemoryHibernationStore()));
     await tester.pumpAndSettle();
-    expect(find.text('New tab'), findsOneWidget);
+    expect(find.text('New tab'), findsWidgets);
 
     await tester.enterText(addressBar, '/nope');
     await tester.testTextInput.receiveAction(TextInputAction.go);
@@ -118,5 +119,88 @@ void main() {
       ),
       const NotFoundRoute(['nope']),
     );
+  });
+  group('tabs', () {
+    Future<BrowserAppState> boot(WidgetTester tester) async {
+      await tester.pumpWidget(BrowserApp(store: InMemoryHibernationStore()));
+      await tester.pumpAndSettle();
+      return tester.state<BrowserAppState>(find.byType(BrowserApp));
+    }
+
+    Future<void> ctrl(WidgetTester tester, {bool shift = false}) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+      if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+    }
+
+    List<TabId> tabs(BrowserAppState app) {
+      final doc = app.controller.doc.value;
+      return doc.shells[doc.focusedShellId]!.tabIds;
+    }
+
+    BufferHistory historyOf(BrowserAppState app, TabId tab) {
+      final doc = app.controller.doc.value;
+      return doc.windows[doc.tabs[tab]!.activeWindowId]!.history;
+    }
+
+    testWidgets('two Ctrl+T give two distinct new tab pages', (tester) async {
+      final app = await boot(tester);
+
+      await ctrl(tester);
+      await ctrl(tester);
+
+      expect(tabs(app), hasLength(3));
+      final buffers = {
+        for (final t in tabs(app)) historyOf(app, t).current.buffer,
+      };
+      expect(buffers, hasLength(3));
+      expect(app.focusedRoute, isA<NewTabRoute>());
+      expect(find.byTooltip('Close tab'), findsNWidgets(3));
+    });
+
+    testWidgets('the + button opens a new tab; a tab tap activates it', (
+      tester,
+    ) async {
+      final app = await boot(tester);
+      final first = tabs(app).single;
+
+      await tester.tap(find.byTooltip('New tab'));
+      await tester.pumpAndSettle();
+      expect(tabs(app), hasLength(2));
+
+      await tester.tap(find.text('New tab').first);
+      await tester.pumpAndSettle();
+      expect(
+        app.controller.doc.value.activeTab,
+        app.controller.doc.value.tabs[first],
+      );
+    });
+
+    testWidgets('Ctrl+Shift+T reopens a closed tab with its history', (
+      tester,
+    ) async {
+      final app = await boot(tester);
+      await ctrl(tester);
+      await tester.enterText(addressBar, '/nope');
+      await tester.testTextInput.receiveAction(TextInputAction.go);
+      await tester.pumpAndSettle();
+      final closed = tabs(app).last;
+      final history = historyOf(app, closed);
+      expect(history.back, hasLength(1));
+
+      await tester.tap(find.byTooltip('Close tab').last);
+      await tester.pumpAndSettle();
+      expect(tabs(app), isNot(contains(closed)));
+
+      expect(app.undo.$canUndo.value, isTrue);
+      await ctrl(tester, shift: true);
+
+      expect(tabs(app), contains(closed));
+      expect(historyOf(app, closed), history);
+      expect(find.text('Page not found'), findsOneWidget);
+    });
   });
 }
