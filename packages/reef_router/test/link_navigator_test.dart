@@ -94,6 +94,30 @@ void main() {
     expect(current(), entryOf(task));
   });
 
+  test('the history verbs target a given window, focus unchanged', () {
+    const w = WindowId.manual('w');
+    const w2 = WindowId.manual('w2');
+    controller.dispatch(SplitWindow(w,
+        newWindowId: w2,
+        axis: Axis.horizontal,
+        buffer: const BufferId.manual('home:')));
+    controller.dispatch(const ActivateWindow(w));
+    HistoryEntry at(WindowId id) => doc().windows[id]!.history.current;
+
+    nav.push(task, window: w2);
+    expect(at(w2), entryOf(task));
+    expect(nav.up(window: w2), isTrue);
+    expect(at(w2), entryOf(project));
+    nav.replace(task, window: w2);
+    expect(nav.back(window: w2), isTrue);
+    expect(at(w2), entryOf(task));
+    expect(nav.forward(window: w2), isTrue);
+    expect(nav.forward(window: w2), isFalse);
+    expect(doc().activeWindowId, w);
+    expect(at(w).buffer, const BufferId.manual('home:'));
+    expect(doc().windows[w]!.history.back, isEmpty);
+  });
+
   test('openInNewWindow opens a new shell where supported', () async {
     final platform = FakeShellPlatform();
     final multi = WindowingController(platform: platform);

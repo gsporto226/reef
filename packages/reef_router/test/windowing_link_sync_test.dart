@@ -100,6 +100,7 @@ class SlowController extends WindowingController {
     Map<String, String> arguments = const {},
     bool newShell = false,
     LinkVerb verb = LinkVerb.go,
+    WindowId? window,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 10));
     return super.openLink(
@@ -107,6 +108,7 @@ class SlowController extends WindowingController {
       arguments: arguments,
       newShell: newShell,
       verb: verb,
+      window: window,
     );
   }
 }

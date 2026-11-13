@@ -880,10 +880,10 @@ enum LinkVerb {
   /// As the link and open policies decide.
   go,
 
-  /// Pushes onto the focused window.
+  /// Pushes onto the target window, the focused one by default.
   push,
 
-  /// Replaces the focused window's current entry.
+  /// Replaces the target window's current entry.
   replace,
 }
 
@@ -1083,12 +1083,14 @@ class WindowingController {
   /// Opens [buffer], a resolved link, with [arguments]. With [newShell]
   /// and pop-out support it opens in a new shell; otherwise, or when that
   /// shell fails to open, [linkPolicy] decides, then [verb]. Push and
-  /// replace with no focused window fall back to go.
+  /// replace act on [window], or the focused window when null, leaving
+  /// focus as it is; with neither window open they fall back to go.
   Future<void> openLink(
     BufferId buffer, {
     Map<String, String> arguments = const {},
     bool newShell = false,
     LinkVerb verb = LinkVerb.go,
+    WindowId? window,
   }) async {
     if (newShell &&
         capabilities.canPopOut &&
@@ -1096,14 +1098,14 @@ class WindowingController {
       return;
     }
     final doc = _doc.value;
-    final window = doc.activeTab.activeWindowId;
-    if (window == null) verb = LinkVerb.go;
+    final target = window ?? doc.activeTab.activeWindowId;
+    if (target == null || doc.windows[target] == null) verb = LinkVerb.go;
     dispatchAll(linkPolicy(doc, buffer, arguments, verb: verb) ??
         switch (verb) {
           LinkVerb.go => openPolicy(doc, buffer, arguments: arguments),
-          LinkVerb.push => [PushBuffer(window!, buffer, arguments: arguments)],
+          LinkVerb.push => [PushBuffer(target!, buffer, arguments: arguments)],
           LinkVerb.replace => [
-              ReplaceBuffer(window!, buffer, arguments: arguments),
+              ReplaceBuffer(target!, buffer, arguments: arguments),
             ],
         });
   }
