@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:browser/main.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:reef/reef.dart';
@@ -16,6 +17,9 @@ const fixtures = {
       '<!doctype html><title>Page two</title>'
       '<a href="/redirect">Redirect to page three</a>',
   '/three.html': '<!doctype html><title>Page three</title><h1>SPA</h1>',
+  '/blank.html':
+      '<!doctype html><title>Blank fixture</title>'
+      '<a target="_blank" href="/two.html">Open page two in a new tab</a>',
 };
 
 final addressBar = find.descendant(
@@ -196,5 +200,114 @@ void main() {
     await press('Forward', '/three.html', 'Page three');
     await press('Forward', '/three.html?step=3', 'Page three');
     expect(history().$3, isEmpty);
+  });
+
+  group('tabs', () {
+    String at(String path) => 'http://127.0.0.1:${server.port}$path';
+    WebPage page(String path) => WebPage.of(Uri.parse(at(path)));
+
+    List<TabId> tabs(BrowserAppState app) {
+      final doc = app.controller.doc.value;
+      return doc.shells[doc.focusedShellId]!.tabIds;
+    }
+
+    Future<void> routeIs(
+      WidgetTester tester,
+      BrowserAppState app,
+      Object route,
+    ) async {
+      for (var i = 0; i < 100 && app.focusedRoute != route; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+      expect(app.focusedRoute, route);
+    }
+
+    Future<void> showing(
+      WidgetTester tester,
+      BrowserAppState app,
+      String title,
+    ) async => expect(
+      await evaluate(
+        tester,
+        app,
+        "document.readyState == 'complete' && document.title == '$title'"
+        ' ? location.href : null',
+      ),
+      isA<String>(),
+    );
+
+    testWidgets('target=_blank and window.open open a new tab', (tester) async {
+      final app = await boot(tester);
+      await type(tester, at('/blank.html'));
+      await showing(tester, app, 'Blank fixture');
+      final opener = tabs(app).single;
+
+      await evaluate(tester, app, "document.querySelector('a').click(); 1");
+      await routeIs(tester, app, page('/two.html'));
+      await showing(tester, app, 'Page two');
+      expect(tabs(app), hasLength(2));
+      expect(tabs(app).first, opener);
+      // The opener keeps its page.
+      final doc = app.controller.doc.value;
+      expect(
+        app.routeOf(doc.tabs[opener]!.activeWindowId),
+        page('/blank.html'),
+      );
+
+      await evaluate(tester, app, "window.open('/three.html'); 1");
+      await routeIs(tester, app, page('/three.html'));
+      await showing(tester, app, 'Page three');
+      expect(tabs(app), hasLength(3));
+    });
+
+    testWidgets('flow 6: Ctrl+Shift+T reopens a closed tab with its history', (
+      tester,
+    ) async {
+      final app = await boot(tester);
+      Future<void> ctrlT({bool shift = false}) async {
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+        if (shift) await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+        if (shift) await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+        await tester.pumpAndSettle();
+      }
+
+      await type(tester, at('/links.html'));
+      await showing(tester, app, 'Links fixture');
+      await evaluate(tester, app, "document.querySelector('a').click(); 1");
+      await routeIs(tester, app, page('/two.html'));
+      await showing(tester, app, 'Page two');
+      final closed = tabs(app).single;
+      final doc = app.controller.doc.value;
+      final history = doc.windows[doc.activeWindowId]!.history;
+
+      await ctrlT();
+      expect(tabs(app), hasLength(2));
+      expect(app.focusedRoute, isA<NewTabRoute>());
+
+      // Back to the page's tab, then close it.
+      await tester.tap(find.text('127.0.0.1:${server.port}/two.html'));
+      await tester.pumpAndSettle();
+      await routeIs(tester, app, page('/two.html'));
+      await tester.tap(find.byTooltip('Close tab').first);
+      await tester.pumpAndSettle();
+      expect(tabs(app), isNot(contains(closed)));
+      expect(app.focusedRoute, isA<NewTabRoute>());
+
+      await ctrlT(shift: true);
+
+      expect(tabs(app), contains(closed));
+      await routeIs(tester, app, page('/two.html'));
+      final reopened = app.controller.doc.value;
+      expect(reopened.windows[reopened.activeWindowId]!.history, history);
+      await showing(tester, app, 'Page two');
+
+      // Its history came back with it.
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      await routeIs(tester, app, page('/links.html'));
+      await showing(tester, app, 'Links fixture');
+    });
   });
 }
