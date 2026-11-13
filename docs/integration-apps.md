@@ -22,7 +22,7 @@ Rules for every app:
 | Mail client | `apps/mail_client` | W3, W5 | layout switch by screen class over one doc, back = window back, notification deep links |
 | Design inspector | `apps/design_inspector` | W1–W3 | floating windows at all three scopes, dock with target and side, z-order |
 | Terminal multiplexer | `apps/multiplexer` | W1, W4, W5 | moving windows and tabs across shells, pop-out, layout restore after restart |
-| Web wiki | `apps/web_wiki` | W5 | URL ↔ doc, push vs replace history rules, addressable drafts, cold-start links |
+| Browser | `apps/browser` | W1–W5 | all windowing features against real web pages: typed links, guards, history, splits, floats, pop-out, undo, restore |
 
 ## Vim editor
 
@@ -111,21 +111,38 @@ Acceptance flows:
 3. Closing a shell keeps buffers that are also shown in another shell alive.
 4. Quitting and relaunching restores shells, tabs, trees, ratios, and focus.
 
-## Web wiki
+## Browser
 
-Linked wiki pages on Flutter web.
+A web browser on Windows: real pages rendered by `flutter_inappwebview`
+(WebView2) inside reef windows. reef owns every navigation and all history;
+the webview only renders the current history entry. Each browser tab is a
+reef tab, and each shell's address bar is that shell's
+`RouteInformationProvider` (per-shell `WindowingLinkSync`).
 
-In scope: page view, page edit, new-page draft at `/pages/new`, links with
-"open in new window" as a link property.
+In scope: `WebPage` at `/web/{scheme}/{host}/**` with the site's whole query
+as one opaque argument; internal pages `/` (new tab, fresh), `/history`,
+`/bookmarks`, `/settings` (guarded) and a root `/**` not-found; link click,
+redirect, `pushState`/`replaceState` and `target=_blank` mapped onto reef's
+verbs; tabs, splits, independent and mirror views, PiP, find and downloads
+floats, dock, pop-out, undo and session restore.
 
-Out of scope: auth, collaboration, markdown beyond links and headings.
+Out of scope: cookies and profiles, incognito, real downloads, devtools,
+extensions, password autofill, scroll and form state across back/forward,
+Linux, macOS, mobile, Flutter web, a separate history or bookmarks store.
 
-Acceptance flows:
+Acceptance flows (against an in-test localhost server, never the internet):
 
-1. Following a link pushes a browser history entry; switching focus between
-   windows replaces the current entry.
-2. Browser back and forward resolve through `linkPolicy` and focus the right
-   buffer.
-3. `/pages/new` opens a fresh draft; a draft with no template leaves the URL
-   unchanged.
-4. A cold-start URL is applied on top of the restored doc.
+1. A link click pushes, a 302 replaces and `pushState` pushes. Back and
+   forward land on the right entry in each case.
+2. Each shell's address bar follows its focused window, and typing into one
+   shell's bar leaves the other's unchanged.
+3. Opening an already-open URL focuses it, and Ctrl+click makes an
+   independent view.
+4. In a mirror split, scrolling or typing in one view updates the other live.
+5. Dragging a tab out makes a new shell with its own bar and history, and
+   dragging it back restores it.
+6. Ctrl+Shift+T reopens a closed tab through the global undo.
+7. The `/settings` guard redirects while locked and re-checks when the lock
+   clears.
+8. Restart restores the session, and a cold-start URL opens on top.
+9. A PiP float docks left or right, and z-order holds at all three scopes.
