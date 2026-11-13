@@ -435,4 +435,66 @@ void main() {
       });
     }
   });
+
+  group('splits', () {
+    Future<BrowserAppState> boot(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(BrowserApp(store: InMemoryHibernationStore()));
+      await tester.pumpAndSettle();
+      return tester.state<BrowserAppState>(find.byType(BrowserApp));
+    }
+
+    Future<void> menu(WidgetTester tester, String item) async {
+      await tester.tap(find.byTooltip('Menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(item).last);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> ctrlShiftT(WidgetTester tester) async {
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyT);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('open in split is an independent view of the page; '
+        'Ctrl+Shift+T undoes it', (tester) async {
+      final app = await boot(tester);
+      await menu(tester, 'History');
+      final first = app.controller.doc.value.activeWindowId!;
+
+      await menu(tester, 'Open in split');
+
+      final split = app.controller.doc.value.activeWindowId!;
+      expect(split, isNot(first));
+      expect(app.routeOf(split), const HistoryRoute());
+      expect(app.routeOf(first), const HistoryRoute());
+      expect(find.byType(BrowserPage), findsNWidgets(2));
+
+      await ctrlShiftT(tester);
+
+      expect(app.controller.doc.value.windows.keys, [first]);
+      expect(app.focusedRoute, const HistoryRoute());
+    });
+
+    testWidgets('flow 3: going to an open page focuses its window', (
+      tester,
+    ) async {
+      final app = await boot(tester);
+      await menu(tester, 'History');
+      final history = app.controller.doc.value.activeWindowId!;
+      app.nav.openInSplit(const BookmarksRoute());
+      await tester.pumpAndSettle();
+
+      await menu(tester, 'History');
+
+      expect(app.controller.doc.value.activeWindowId, history);
+      expect(app.controller.doc.value.windows, hasLength(2));
+    });
+  });
 }
