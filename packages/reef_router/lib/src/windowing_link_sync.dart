@@ -4,13 +4,15 @@ import 'package:reef/reef.dart';
 import 'package:reef_router/src/links.dart';
 
 /// How a change from [before] to [after] enters the browser history (spec
-/// §9): a push when the focused window's history grew by the buffer it
-/// showed before, else a replace of the current entry.
+/// §9): a push when the active window of [shell] (default: the focused
+/// shell) grew its history by the buffer it showed before, else a replace of
+/// the current entry.
 RouteInformationReportingType reportType(
   WindowingDoc before,
-  WindowingDoc after,
-) {
-  final window = _focusedWindow(after);
+  WindowingDoc after, {
+  ShellId? shell,
+}) {
+  final window = _activeWindow(after, shell);
   final was = before.windows[window]?.history;
   final now = after.windows[window]?.history;
   final pushed =
@@ -22,19 +24,25 @@ RouteInformationReportingType reportType(
       : RouteInformationReportingType.neglect;
 }
 
-WindowId? _focusedWindow(WindowingDoc doc) =>
-    doc.tabs[doc.shells[doc.focusedShellId]?.activeTabId]?.activeWindowId;
+WindowId? _activeWindow(WindowingDoc doc, ShellId? shell) =>
+    doc.tabs[doc.shells[shell ?? doc.focusedShellId]?.activeTabId]
+        ?.activeWindowId;
 
 /// Keeps the route information (the browser URL on web) equal to the URL
 /// [tree] gives the focused shell's focused buffer, and resolves the
 /// initial route and every later route notification (browser back,
 /// forward, a typed URL) through [tree] into
 /// [WindowingController.openLink]. Place it under a [WindowingRoot].
+///
+/// With a [shell], it follows that shell's active window instead, opens
+/// route notifications in that shell, and reports the shell's current URL
+/// in place of opening the initial route (ADR 0011).
 class WindowingLinkSync extends StatefulWidget {
   const WindowingLinkSync({
     super.key,
     required this.tree,
     this.routeInformationProvider,
+    this.shell,
     this.entryState = kIsWeb,
     required this.child,
   });
@@ -42,8 +50,14 @@ class WindowingLinkSync extends StatefulWidget {
   /// Whether the route information state carries the current history entry's
   /// id, so a route notification naming a live entry moves the owning
   /// window's history to it instead of opening the URL (ADR 0004 D2).
-  /// Default: on web only; other platforms use the URL only.
+  /// Default: on web only; other platforms use the URL only. Never with a
+  /// [shell].
   final bool entryState;
+
+  /// The shell this sync follows; null follows the focused shell. Place a
+  /// shell's sync inside that shell's subtree so it goes when the shell
+  /// closes.
+  final ShellId? shell;
 
   /// Maps URLs to buffers and back.
   final LinkTree<Object?> tree;
@@ -80,7 +94,7 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     _before = _controller.doc.value;
     _controller.doc.addListener(_report);
     _provider.addListener(_open);
-    _open();
+    widget.shell == null ? _open() : _report();
   }
 
   @override
@@ -99,7 +113,13 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
           widget.routeInformationProvider),
       'WindowingLinkSync cannot switch route information providers',
     );
+    assert(
+      oldWidget.shell == widget.shell,
+      'WindowingLinkSync cannot switch shells',
+    );
   }
+
+  bool get _entryState => widget.entryState && widget.shell == null;
 
   /// Echoes are muted until the move or openLink completes, however late;
   /// then one report puts the URL on the final entry, which a guard
@@ -111,11 +131,14 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     }
 
     _incoming++;
-    if (widget.entryState && _travel(_provider.value.state)) {
+    if (_entryState && _travel(_provider.value.state)) {
       done();
       return Future.value();
     }
     final (:buffer, :arguments) = widget.tree.resolve(_provider.value.uri);
+    if (widget.shell case final shell?) {
+      _controller.dispatch(ActivateShell(shell));
+    }
     return _controller
         .openLink(
           buffer,
@@ -152,18 +175,18 @@ class _WindowingLinkSyncState extends State<WindowingLinkSync> {
     final before = _before;
     final after = _before = _controller.doc.value;
     if (_incoming > 0) return;
-    final window = after.windows[_focusedWindow(after)];
+    final window = after.windows[_activeWindow(after, widget.shell)];
     if (window == null) return;
     final entry = window.history.current;
     final path = widget.tree.uriOfBuffer(entry.buffer, entry.arguments);
-    final state = widget.entryState ? entry.id.id : null;
+    final state = _entryState ? entry.id.id : null;
     if (path == null ||
         (path == _provider.value.uri && state == _provider.value.state)) {
       return;
     }
     _provider.routerReportsNewRouteInformation(
       RouteInformation(uri: path, state: state),
-      type: reportType(before, after),
+      type: reportType(before, after, shell: widget.shell),
     );
   }
 
