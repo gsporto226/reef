@@ -146,3 +146,17 @@ Acceptance flows (against an in-test localhost server, never the internet):
    clears.
 8. Restart restores the session, and a cold-start URL opens on top.
 9. A PiP float docks left or right, and z-order holds at all three scopes.
+
+Flows 2 and 5 need real platform windows, so they live in
+`apps/browser/integration_test/multi_window_test.dart` and run only with
+`FLUTTER_WINDOWING=true` for that invocation (ADR 0001); without it they
+skip. Two limits apply under windowing, so these tests do not use the
+keyboard or drag across windows:
+
+- The engine's text input can't find a shell's view ("view with view_id=1
+  cannot be found"), so the tests submit an address through the field's
+  submit handler instead of typing.
+- Flutter's `Draggable` can't cross platform views, so dragging a tab back
+  into another window is not possible. The test moves it back through the
+  drop's handler (`moveTabTo`). The widget tests over `FakeShellPlatform`
+  cover the drag itself in one view.
