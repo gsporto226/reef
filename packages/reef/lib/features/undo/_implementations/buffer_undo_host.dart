@@ -53,10 +53,12 @@ class BufferUndoHost implements UndoHost<BufferSnapshot> {
       ));
 
   @override
-  void undo(BufferSnapshot snapshotBefore) => _publish(snapshotBefore);
+  void undo(UndoEntry<BufferSnapshot> entry) =>
+      _publish(entry.snapshotBefore);
 
   @override
-  void redo(BufferSnapshot snapshotAfter) => _publish(snapshotAfter);
+  void redo(UndoEntry<BufferSnapshot> entry) =>
+      _publish(entry.snapshotAfter);
 
   void _publish(BufferSnapshot s) => switch (_restorers[s.bufferId]) {
         final restore? => restore(s.model),

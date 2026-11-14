@@ -18,8 +18,8 @@ class UndoEntry<S> {
   /// Consecutive entries with an equal non-null key merge into one.
   final Object? coalesceKey;
 
-  void _undo(Object host) => (host as UndoHost<S>).undo(snapshotBefore);
-  void _redo(Object host) => (host as UndoHost<S>).redo(snapshotAfter);
+  void _undo(Object host) => (host as UndoHost<S>).undo(this);
+  void _redo(Object host) => (host as UndoHost<S>).redo(this);
 }
 
 /// A fixed, untranslated [UndoEntry.label].
@@ -32,10 +32,11 @@ class UndoLabel implements ILocalizable {
   String localize() => _text;
 }
 
-/// Publishes a snapshot back into the state its subsystem owns.
+/// Publishes an entry back into the state its subsystem owns: [undo]
+/// reverses it, [redo] replays it.
 abstract interface class UndoHost<S> {
-  void undo(S snapshotBefore);
-  void redo(S snapshotAfter);
+  void undo(UndoEntry<S> entry);
+  void redo(UndoEntry<S> entry);
 }
 
 /// The app's one undo timeline. Routes entries to hosts by snapshot type.

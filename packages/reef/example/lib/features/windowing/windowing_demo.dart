@@ -54,7 +54,7 @@ class _WindowingPlaygroundState extends ConsumerState<WindowingPlayground> {
   int _buffers = 0;
 
   /// The projection switch by the name it is saved under in the
-  /// controller's `extra`.
+  /// `playground` restoration bucket.
   static const _projections = {
     'auto': defaultWindowingProjection,
     'desktop': _desktop,
@@ -63,7 +63,22 @@ class _WindowingPlaygroundState extends ConsumerState<WindowingPlayground> {
 
   /// The projection switch: by screen class, or forced.
   late WindowingProjectionPolicy _policy =
-      _projections[_c.extra] ?? defaultWindowingProjection;
+      _projections[_projection.value] ?? defaultWindowingProjection;
+
+  final _projection = ReefRestorableValue('auto');
+
+  @override
+  void initState() {
+    super.initState();
+    _c.restoration.claimChild('playground').register('projection', _projection);
+  }
+
+  @override
+  void dispose() {
+    _c.restoration.claimChild('playground').unregister('projection');
+    _projection.dispose();
+    super.dispose();
+  }
 
   BufferId _nextBuffer() => BufferId.manual('buffer ${++_buffers}');
 
@@ -145,7 +160,7 @@ class _WindowingPlaygroundState extends ConsumerState<WindowingPlayground> {
             initialValue: WindowingDelegateScope.of(context).projectionPolicy,
             onSelected: (policy) {
               setState(() => _policy = policy);
-              _c.extra = _projections.entries
+              _projection.value = _projections.entries
                   .firstWhere((e) => e.value == policy)
                   .key;
             },

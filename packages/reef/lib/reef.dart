@@ -13,6 +13,7 @@ export 'package:reef/features/page/_implementations/reef_window.dart';
 export 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 export 'package:reef/features/page_identity/_implementations/reef_scope.dart';
 export 'package:reef/features/page_identity/_providers/reef_scope_provider.dart';
+export 'package:reef/features/restoration/_implementations/restoration.dart';
 export 'package:reef/features/responsive/_implementations/screen_type_layout.dart';
 export 'package:reef/features/view_model/_implementations/view_model.dart';
 export 'package:reef/features/windowing/_implementations/shell_platform.dart';
@@ -21,6 +22,7 @@ export 'package:reef/features/windowing/_implementations/windowing_controller.da
 export 'package:reef/features/windowing/_implementations/windowing_delegate.dart';
 export 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 export 'package:reef/features/windowing/_implementations/windowing_ids.dart';
+export 'package:reef/features/windowing/_implementations/windowing_patch.dart';
 export 'package:reef/features/windowing/_implementations/windowing_projection.dart';
 export 'package:reef/features/windowing/_implementations/windowing_root.dart';
 export 'package:reef/features/windowing/_implementations/windowing_shortcuts.dart';

@@ -4,11 +4,13 @@ import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef_fp/result.dart';
 import 'package:reef/features/hibernation/_interfaces/hibernation_store.dart';
 import 'package:reef/features/hibernation/_implementations/lifecycle.dart';
+import 'package:reef/features/restoration/_implementations/restoration.dart';
 import 'package:reef/features/undo/_implementations/undo_controller.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/shell_platform.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
+import 'package:reef/features/windowing/_implementations/windowing_patch.dart';
 
 /// A windowing mutation (spec §3). Commands carry pre-generated ids for what
 /// they create, so the reducer stays pure. A command invalid in the current
@@ -880,10 +882,10 @@ enum LinkVerb {
   /// As the link and open policies decide.
   go,
 
-  /// Pushes onto the focused window.
+  /// Pushes onto the target window, the focused one by default.
   push,
 
-  /// Replaces the focused window's current entry.
+  /// Replaces the target window's current entry.
   replace,
 }
 
@@ -998,8 +1000,7 @@ class WindowingController {
   /// With [platform], [openShell] opens real shells.
   /// With [store], it starts from the doc saved there and
   /// saves every published doc under [hibernationKey] (spec §11). A bad
-  /// record is deleted and ignored. [persistence] shapes each saved doc
-  /// and [extra] is saved next to it. [initial] runs only when nothing was
+  /// record is deleted and ignored. [persistence] shapes each saved doc. [initial] runs only when nothing was
   /// restored; null, or a null result, starts from [WindowingDoc.initial].
   WindowingController({
     WindowingDoc? Function()? initial,
@@ -1017,8 +1018,7 @@ class WindowingController {
        _undo = undo,
        _store = store {
     undo?.registerHost<WindowingDoc>(WindowingUndoHost(_doc));
-    // A discarded record was deleted by _restore, so it yields no extra.
-    _extra = store?.load(hibernationKey)?['extra'];
+    restoration = ReefRootRestorationBucket(store);
     if (store != null) _doc.addListener(_save);
   }
 
@@ -1027,20 +1027,14 @@ class WindowingController {
   /// Turns the live doc into the doc that is saved; the live doc is kept.
   final WindowingPersistence persistence;
 
-  Object? _extra;
+  /// The root of the app's restoration buckets (ADR 0010), loaded from the
+  /// store before the first frame and saved there once per frame. State
+  /// not tied to a widget claims a child with `restoration.claimChild(id)`;
+  /// ids are saved data, so renaming one drops its state.
+  late final ReefRootRestorationBucket restoration;
 
-  /// An app-owned JSON value saved next to the doc; restored from the
-  /// record, null without one.
-  Object? get extra => _extra;
-  set extra(Object? value) {
-    _extra = value;
-    _save();
-  }
-
-  void _save() => _store?.save(hibernationKey, {
-    ...persistence(_doc.value).toRecord(),
-    'extra': _extra,
-  });
+  void _save() =>
+      _store?.save(hibernationKey, persistence(_doc.value).toRecord());
 
   /// The reserved store id the doc hibernates under.
   static const hibernationKey = windowingHibernationKey;
@@ -1083,12 +1077,14 @@ class WindowingController {
   /// Opens [buffer], a resolved link, with [arguments]. With [newShell]
   /// and pop-out support it opens in a new shell; otherwise, or when that
   /// shell fails to open, [linkPolicy] decides, then [verb]. Push and
-  /// replace with no focused window fall back to go.
+  /// replace act on [window], or the focused window when null, leaving
+  /// focus as it is; with neither window open they fall back to go.
   Future<void> openLink(
     BufferId buffer, {
     Map<String, String> arguments = const {},
     bool newShell = false,
     LinkVerb verb = LinkVerb.go,
+    WindowId? window,
   }) async {
     if (newShell &&
         capabilities.canPopOut &&
@@ -1096,14 +1092,14 @@ class WindowingController {
       return;
     }
     final doc = _doc.value;
-    final window = doc.activeTab.activeWindowId;
-    if (window == null) verb = LinkVerb.go;
+    final target = window ?? doc.activeTab.activeWindowId;
+    if (target == null || doc.windows[target] == null) verb = LinkVerb.go;
     dispatchAll(linkPolicy(doc, buffer, arguments, verb: verb) ??
         switch (verb) {
           LinkVerb.go => openPolicy(doc, buffer, arguments: arguments),
-          LinkVerb.push => [PushBuffer(window!, buffer, arguments: arguments)],
+          LinkVerb.push => [PushBuffer(target!, buffer, arguments: arguments)],
           LinkVerb.replace => [
-              ReplaceBuffer(window!, buffer, arguments: arguments),
+              ReplaceBuffer(target!, buffer, arguments: arguments),
             ],
         });
   }
@@ -1395,16 +1391,25 @@ WindowingDoc _withNavigationFrom(WindowingDoc doc,
       windows: doc.windows.map((id, w) => MapEntry(id, source.windows[id] ?? w)),
     );
 
-/// Publishes [WindowingDoc] snapshots into a controller's doc without
-/// recording them.
+/// Publishes entries into a controller's doc without recording them. Undo
+/// applies the reverse [WindowingPatch] of the entry to the current doc and
+/// redo the forward one, so units the entry did not touch keep their state;
+/// on conflict it publishes the entry's whole snapshot (ADR 0009).
 class WindowingUndoHost implements UndoHost<WindowingDoc> {
   WindowingUndoHost(this._doc);
 
   final ValueNotifier<WindowingDoc> _doc;
 
   @override
-  void undo(WindowingDoc snapshotBefore) => _doc.value = snapshotBefore;
+  void undo(UndoEntry<WindowingDoc> entry) =>
+      _publish(entry.snapshotAfter, entry.snapshotBefore);
 
   @override
-  void redo(WindowingDoc snapshotAfter) => _doc.value = snapshotAfter;
+  void redo(UndoEntry<WindowingDoc> entry) =>
+      _publish(entry.snapshotBefore, entry.snapshotAfter);
+
+  /// Applies the patch [from] -> [to] to the live doc; on conflict
+  /// publishes [to] whole (ADR 0009).
+  void _publish(WindowingDoc from, WindowingDoc to) =>
+      _doc.value = WindowingPatch.diff(from, to).apply(_doc.value) ?? to;
 }

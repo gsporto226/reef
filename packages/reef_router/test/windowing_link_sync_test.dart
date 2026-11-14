@@ -100,6 +100,7 @@ class SlowController extends WindowingController {
     Map<String, String> arguments = const {},
     bool newShell = false,
     LinkVerb verb = LinkVerb.go,
+    WindowId? window,
   }) async {
     await Future<void>.delayed(const Duration(milliseconds: 10));
     return super.openLink(
@@ -107,6 +108,7 @@ class SlowController extends WindowingController {
       arguments: arguments,
       newShell: newShell,
       verb: verb,
+      window: window,
     );
   }
 }
@@ -401,6 +403,91 @@ void main() {
         expect(controller.doc.value.windows[left]!.history.forward, isEmpty,
             reason: 'opened as a link, history not moved back');
       });
+    });
+  });
+
+  group('per-shell WindowingLinkSync (ADR 0011)', () {
+    late WindowingController controller;
+    late FakeRouteInformationProvider one, two;
+
+    /// One sync per shell, each with its own fake provider; s1 is focused.
+    Future<void> mount(WidgetTester tester, {bool entryState = false}) async {
+      controller = WindowingController(initial: () => doc(second: true));
+      one = FakeRouteInformationProvider('/ignored');
+      two = FakeRouteInformationProvider('/ignored');
+      await tester.pumpWidget(
+        WindowingRoot(
+          controller: controller,
+          bufferBuilder: (_, _) => const SizedBox(),
+          child: Column(
+            children: [
+              WindowingLinkSync(
+                tree: links,
+                shell: s1,
+                routeInformationProvider: one,
+                entryState: entryState,
+                child: const SizedBox(),
+              ),
+              WindowingLinkSync(
+                tree: links,
+                shell: s2,
+                routeInformationProvider: two,
+                entryState: entryState,
+                child: const SizedBox(),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    testWidgets('each sync starts on its own shell\'s URL instead of opening '
+        'its initial route', (tester) async {
+      await mount(tester);
+      expect(one.value.uri.toString(), '/tasks');
+      expect(two.value.uri.toString(), '/tasks/43/edit');
+      expect(controller.doc.value.windows, hasLength(3));
+    });
+
+    testWidgets('each sync reports only its own shell\'s active window',
+        (tester) async {
+      await mount(tester);
+      final before = (one.reports.length, two.reports.length);
+
+      controller.dispatch(PushBuffer(other, edit42));
+      expect(two.reports.last, ('/tasks/42/edit', push));
+      expect(one.reports.length, before.$1, reason: 'unfocused s2 moved');
+
+      controller.dispatch(const ActivateWindow(right));
+      expect(one.reports.last, ('/tasks/42/edit', replace));
+      expect(two.reports.length, before.$2 + 1);
+    });
+
+    testWidgets('a notification on one shell\'s provider opens the link in '
+        'that shell', (tester) async {
+      await mount(tester);
+      two.browse('/tasks/42/edit/x');
+      expect(controller.doc.value.focusedShellId, s2);
+      final d = controller.doc.value;
+      final tab = d.tabs[d.shells[s2]!.activeTabId]!;
+      final shown = d.windows[tab.activeWindowId]!.history.current;
+      expect(links.uriOfBuffer(shown.buffer, shown.arguments).toString(),
+          '/tasks/42/edit/x');
+      expect(d.windows[left]!.history.current.buffer, list);
+      expect(d.windows[right]!.history.current.buffer, edit42);
+    });
+
+    testWidgets('a shell\'s sync never carries entry state', (tester) async {
+      await mount(tester, entryState: true);
+      controller.dispatch(PushBuffer(left, edit43));
+      expect(one.value.state, isNull);
+    });
+
+    test('reportType reads the given shell\'s active window', () {
+      final before = doc(second: true);
+      final after = PushBuffer(other, edit42).apply(before);
+      expect(reportType(before, after), replace);
+      expect(reportType(before, after, shell: s2), push);
     });
   });
 }

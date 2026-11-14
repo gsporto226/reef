@@ -15,7 +15,11 @@ void main() {
     WindowingDoc? initial,
     UndoController? undo,
   }) {
-    final c = WindowingController(store: store, initial: () => initial, undo: undo);
+    final c = WindowingController(
+      store: store,
+      initial: () => initial,
+      undo: undo,
+    );
     addTearDown(c.dispose);
     return c;
   }
@@ -74,13 +78,6 @@ void main() {
     final second = controller();
     expect(second.doc.value.floating, isEmpty);
     expect(second.doc.value.windows.keys, [a]);
-  });
-
-  test('extra round-trips through a second controller', () {
-    final first = controller();
-    expect(first.extra, isNull);
-    first.extra = {'projection': 'tabbed'};
-    expect(controller().extra, {'projection': 'tabbed'});
   });
 
   test('the record is plain JSON with a version', () {
@@ -201,12 +198,9 @@ void main() {
         store.save(_key, record);
         const buffer = BufferId.manual('a');
         store.save(buffer, {'title': 'kept'});
-        record['extra'] = 'stale';
-        store.save(_key, record);
         final initial = WindowingDoc.initial();
         final c = controller(initial: initial);
         expect(c.doc.value, initial);
-        expect(c.extra, isNull, reason: 'a discarded record yields no extra');
         expect(store.load(_key), isNull);
         expect(store.load(buffer), {'title': 'kept'});
       });
@@ -257,7 +251,9 @@ void main() {
       windows: {
         for (final w in [w1, w2])
           w: WindowState(
-            history: BufferHistory(current: HistoryEntry(const BufferId.manual('b'))),
+            history: BufferHistory(
+              current: HistoryEntry(const BufferId.manual('b')),
+            ),
           ),
       },
       focusedShellId: shell,
