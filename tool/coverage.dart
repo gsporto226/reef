@@ -32,6 +32,14 @@ Future<void> main(List<String> args) async {
 
   final hits = <String, Map<int, int>>{};
   for (final dir in _projects(root)) {
+    // Real-window code is experimental (ADR 0013): its tests run to track
+    // Flutter's windowing API, but a failure only warns.
+    if (!isGated('$dir/lib/x.dart')) {
+      if (Directory('$dir/test').existsSync()) {
+        await _run(dir, ['test'], gate: false);
+      }
+      continue;
+    }
     final unit = Directory('$dir/test').existsSync();
     final integration = Directory('$dir/integration_test').existsSync();
     if (unit) {
@@ -140,7 +148,7 @@ Iterable<String> _projects(String root) sync* {
   }
 }
 
-Future<void> _run(String dir, List<String> args) async {
+Future<void> _run(String dir, List<String> args, {bool gate = true}) async {
   stdout.writeln('> ${[..._flutter, ...args].join(' ')}  ($dir)');
   final process = await Process.start(
     _flutter.first,
@@ -150,6 +158,7 @@ Future<void> _run(String dir, List<String> args) async {
     mode: ProcessStartMode.inheritStdio,
   );
   if (await process.exitCode != 0) {
+    if (!gate) return stderr.writeln('experimental tests failed in $dir');
     stderr.writeln('tests failed in $dir');
     exit(1);
   }
