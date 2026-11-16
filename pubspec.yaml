@@ -13,6 +13,8 @@ dev_dependencies:
   melos: ^7.0.0
 
 dependency_overrides:
+  formularium:
+    path: ../formularium/packages/formularium
   listenable_plus:
     path: ../listenable_plus
   formularium_localization:
