@@ -28,6 +28,13 @@ void main() {
   NewTab newTab() => NewTab(shellId: shell(), tabId: TabId.generate());
   int tabCount() => c.doc.value.shells[shell()]!.tabIds.length;
 
+  test('only approve approves', () {
+    // ignore: prefer_const_constructors
+    expect(CommandDecision.approve().approves, isTrue);
+    expect(const CommandDecision.veto(reason).approves, isFalse);
+    expect(CommandDecision.replace(newTab()).approves, isFalse);
+  });
+
   test('approve applies the command', () {
     c.dispatch(newTab());
     expect(tabCount(), 2);

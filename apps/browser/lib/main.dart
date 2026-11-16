@@ -2,6 +2,7 @@
 // reef windows. reef owns every navigation; the webview only renders the
 // current history entry. This file wires the store, the controller and the
 // shells; routes.dart, chrome.dart and page.dart hold the rest.
+// ignore_for_file: experimental_member_use
 import 'package:flutter/material.dart';
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
 import 'package:reef/reef.dart';
@@ -12,6 +13,7 @@ import 'chrome.dart';
 import 'file_store.dart';
 import 'page.dart';
 import 'routes.dart';
+import 'src/tokens.g.dart';
 
 export 'chrome.dart';
 export 'page.dart';
@@ -69,9 +71,116 @@ class BrowserAppState extends State<BrowserApp> {
             buffer: links.linkOf(const NewTabRoute()).buffer,
           ),
     store: _forgetSessionUnlessRestored(),
-    interceptor: _bound.interceptor,
+    interceptor: _intercept,
     platform: widget.platform,
+    persistence: persistedSession,
+    focusPolicy: WindowingFocusPolicy(
+      closeEmptyTab: true,
+      // Like Chrome: back with nothing left closes a page-opened pane.
+      emptyBack: (doc) => _openedByPage.contains(doc.activeWindowId)
+          ? emptyBackCloseWindow(doc)
+          : emptyBackNothing(doc),
+    ),
   );
+
+  /// The most tabs one window (shell) holds; more are vetoed.
+  static const maxTabs = 10;
+
+  /// Below this width a side-by-side split stacks instead.
+  static const narrowShell = 600.0;
+
+  /// Each shell's last laid-out width, for the narrow-split check.
+  final shellWidths = <ShellId, double>{};
+
+  /// Windows a page opened (`target=_blank`, `window.open`).
+  // ponytail: not restored; after a restart their back does nothing.
+  final _openedByPage = <WindowId>{};
+
+  /// Opens [route] in a new tab for a page; back on it with nothing left
+  /// closes it.
+  void openFromPage(Object route) {
+    final before = controller.doc.value;
+    nav.openInNewTab(route);
+    final after = controller.doc.value;
+    if (after != before) _openedByPage.add(after.activeWindowId!);
+  }
+
+  /// Vetoes closing a shell of more than one tab unless the user confirmed
+  /// it ([confirmClose]); the settings guard sees every other command.
+  CommandDecision _intercept(WindowingDoc doc, WindowingCommand command) =>
+      switch (command) {
+        CloseShell(:final shellId)
+            when shellId != _confirmedClose &&
+                (doc.shells[shellId]?.tabIds.length ?? 0) > 1 =>
+          const CommandDecision.veto(UndoLabel('Close its tabs?')),
+        NewTab(:final shellId) when _full(doc, shellId) => _tooManyTabs,
+        MoveTab(:final tabId, :final shellId)
+            when _full(doc, shellId) &&
+                !doc.shells[shellId]!.tabIds.contains(tabId) =>
+          _tooManyTabs,
+        // A narrow window stacks a split rather than squeezing two pages.
+        final SplitWindow s
+            when s.axis == Axis.horizontal &&
+                (shellWidths[_shellOf(doc, s.windowId)] ?? double.infinity) <
+                    narrowShell =>
+          _stacked(doc, s),
+        _ => _bound.interceptor(doc, command),
+      };
+
+  /// The shell whose tab holds tree window [window].
+  ShellId? _shellOf(WindowingDoc doc, WindowId window) {
+    final tab = doc.tabOf(window);
+    return doc.shells.keys
+        .where((s) => doc.shells[s]!.tabIds.contains(tab))
+        .firstOrNull;
+  }
+
+  bool _full(WindowingDoc doc, ShellId shell) =>
+      (doc.shells[shell]?.tabIds.length ?? 0) >= maxTabs;
+
+  static const _tooManyTabs = CommandDecision.veto(
+    UndoLabel('A window holds at most $maxTabs tabs'),
+  );
+
+  /// [s] split vertically, past the settings guard too.
+  CommandDecision _stacked(WindowingDoc doc, SplitWindow s) {
+    final stacked = SplitWindow(
+      s.windowId,
+      newWindowId: s.newWindowId,
+      axis: Axis.vertical,
+      buffer: s.buffer,
+      arguments: s.arguments,
+      entryId: s.entryId,
+    );
+    final guarded = _bound.interceptor(doc, stacked);
+    return guarded.approves ? CommandDecision.replace(stacked) : guarded;
+  }
+
+  /// The shell whose close the user confirmed, during that close only.
+  ShellId? _confirmedClose;
+
+  /// The shell whose vetoed close awaits the user's answer.
+  final closePrompt = ValueNotifier<ShellId?>(null);
+
+  void _vetoed() => switch (controller.vetoes.value) {
+    CommandVeto(command: CloseShell(:final shellId)) =>
+      closePrompt.value = shellId,
+    final veto? => vetoNotice.value = veto.reason.localize(),
+    null => null,
+  };
+
+  /// Another veto's reason, shown until dismissed.
+  final vetoNotice = ValueNotifier<String?>(null);
+
+  /// Answers the close prompt: [confirmed] closes its shell past the check.
+  void answerClose({required bool confirmed}) {
+    final shell = closePrompt.value;
+    closePrompt.value = null;
+    if (!confirmed || shell == null) return;
+    _confirmedClose = shell;
+    controller.closeShell(shell);
+    _confirmedClose = null;
+  }
 
   /// Deletes the saved layout before the controller reads it when
   /// "Restore session on start" is off. Peeked from the saved buckets: the
@@ -93,15 +202,60 @@ class BrowserAppState extends State<BrowserApp> {
   /// The "Restore session on start" setting; off starts fresh.
   final restoreSession = ReefRestorableValue(true);
   late final nav = LinkNavigator(links, controller);
+
+  /// The "Open links in" setting: [pane], [split] or [tab]. It sets how a
+  /// go link (address bar, history, bookmarks) opens a page not yet open;
+  /// an open one is still focused (the link policy).
+  final openIn = ReefRestorableValue(pane);
+  static const pane = 'pane', split = 'split', tab = 'tab';
+
+  void _applyOpenIn() => controller.openPolicy = switch (openIn.value) {
+    split => splitBesideOpenPolicy,
+    tab => newTabOpenPolicy,
+    _ => defaultOpenPolicy,
+  };
   late final void Function() _unwatch;
+
+  /// The "Memory saver" setting: on, a background tab releases its pages
+  /// (webviews) and reloads them when activated; off, every tab stays
+  /// loaded.
+  final memorySaver = ReefRestorableValue(true);
+
+  /// Tabs that stay loaded in the background even with [memorySaver] on.
+  // ponytail: not restored; restore it with a codec if pins must survive a
+  // restart.
+  final pinnedTabs = ValueNotifier<Set<TabId>>(const {});
+
+  /// Pins the focused tab, or unpins it.
+  void togglePin() {
+    final tab = focusedTab;
+    final now = pinnedTabs.value;
+    pinnedTabs.value = now.contains(tab)
+        ? ({...now}..remove(tab))
+        : {...now, tab};
+  }
+
+  /// The focused shell's active tab.
+  TabId get focusedTab {
+    final doc = controller.doc.value;
+    return doc.shells[doc.focusedShellId]!.activeTabId;
+  }
+
+  bool _keepTabAlive(TabId tab) =>
+      !memorySaver.value || pinnedTabs.value.contains(tab);
 
   @override
   void initState() {
     super.initState();
     _unwatch = _bound.watch(controller, refresh: settingsLocked);
+    controller.vetoes.addListener(_vetoed);
     controller.restoration.claimChild(_bucket)
       ..register('bookmarks', bookmarks)
-      ..register(_restoreKey, restoreSession);
+      ..register(_restoreKey, restoreSession)
+      ..register('openIn', openIn)
+      ..register('memorySaver', memorySaver);
+    openIn.addListener(_applyOpenIn);
+    _applyOpenIn();
     if (widget.launchArg case final arg?) {
       final route = routeOfInput(arg);
       _fresh ? nav.go(route) : nav.openInNewTab(route);
@@ -150,6 +304,11 @@ class BrowserAppState extends State<BrowserApp> {
     _unwatch();
     controller.dispose();
     settingsLocked.dispose();
+    closePrompt.dispose();
+    vetoNotice.dispose();
+    openIn.dispose();
+    memorySaver.dispose();
+    pinnedTabs.dispose();
     bookmarks.dispose();
     restoreSession.dispose();
     webViewsChanged.dispose();
@@ -212,6 +371,12 @@ class BrowserAppState extends State<BrowserApp> {
     if (route ?? focusedRoute case final r?) nav.openInSplit(r);
   }
 
+  /// Opens [route], the focused page when null, in a new platform window;
+  /// without pop-out, in a new tab.
+  void openInNewWindow([Object? route]) {
+    if (route ?? focusedRoute case final r?) nav.openInNewWindow(r);
+  }
+
   /// Mirrors the focused window beside it: the same entry with
   /// `view: shared`, drawing the original's webview (no second one).
   void mirrorSplit() {
@@ -230,25 +395,27 @@ class BrowserAppState extends State<BrowserApp> {
     ]);
   }
 
-  /// Moves [tab] to the end of [shell]'s strip. The last tab of its shell
-  /// takes the shell with it (the doc refuses to empty a shell).
-  // ponytail: always appends; drop at the pointer's index if order matters.
-  void moveTabTo(TabId tab, ShellId shell) {
+  /// Moves the focused pane into a new tab of its shell: one undo step, and
+  /// the window keeps its history.
+  void moveToNewTab() {
     final doc = controller.doc.value;
-    final from = doc.shells.keys.firstWhere(
-      (s) => doc.shells[s]!.tabIds.contains(tab),
-    );
-    if (from == shell) return;
-    final index = doc.shells[shell]!.tabIds.length;
-    if (doc.shells[from]!.tabIds.length > 1) {
-      return controller.moveTab(tab, shellId: shell, index: index);
-    }
-    final placeholder = TabId.generate();
+    final window = doc.activeWindowId;
+    if (window == null) return;
+    final tab = TabId.generate();
     controller.dispatchAll([
-      NewTab(shellId: from, tabId: placeholder),
-      MoveTab(tab, shellId: shell, index: index),
-      CloseShell(from),
+      NewTab(shellId: doc.focusedShellId, tabId: tab),
+      MoveWindow(window, tabId: tab),
     ]);
+  }
+
+  /// Moves the focused pane beside [shell]'s active window, in its active
+  /// tab. The source tab may be left empty (spec §2).
+  void moveToShell(ShellId shell) {
+    final doc = controller.doc.value;
+    final window = doc.activeWindowId;
+    final tab = doc.shells[shell]?.activeTabId;
+    if (window == null || tab == null) return;
+    controller.moveWindow(window, tabId: tab);
   }
 
   /// Each shell's surface, built once so a doc change doesn't rebuild it.
@@ -259,40 +426,85 @@ class BrowserAppState extends State<BrowserApp> {
   @override
   Widget build(BuildContext context) => LinkScope(
     navigator: nav,
-    child: WindowingRoot(
-      controller: controller,
-      bufferBuilder: (_, buffer) => BrowserPage(buffer),
-      delegate: WindowingDelegate(
-        pageIdentity: links.pageIdentityOf,
-        windowChrome: (_, id, _, page) =>
-            controller.doc.value.floating.containsKey(id)
-            ? FloatPanel(id, page)
-            : page,
-        // The chrome: tab strip over the toolbar.
-        tabStrip: (_, shellId) => Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [TabStrip(shellId), Toolbar(shellId)],
-        ),
-        projectionPolicy: (_, _, _) =>
-            (_, _, shellId) => DesktopProjection(shellId),
-      ),
-      child: switch (widget.platform) {
-        final RealShellPlatform platform => ShellViews(
-          controller: controller,
-          platform: platform,
-          shellBuilder: (_, id) => _shell(id),
-        ),
-        _ => ValueListenableBuilder(
-          valueListenable: controller.doc,
-          builder: (_, doc, _) => Row(
-            textDirection: TextDirection.ltr,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              for (final id in doc.shells.keys) Expanded(child: _shell(id)),
-            ],
-          ),
-        ),
-      },
+    // A new delegate re-reads which background tabs stay loaded.
+    child: ListenableBuilder(
+      listenable: Listenable.merge([memorySaver, pinnedTabs]),
+      builder: (_, _) => _root(),
     ),
   );
+
+  Widget _root() => WindowingRoot(
+    controller: controller,
+    bufferBuilder: (_, buffer) => BrowserPage(buffer),
+    delegate: WindowingDelegate(
+      pageIdentity: links.pageIdentityOf,
+      windowChrome: (_, id, _, page) =>
+          controller.doc.value.floating.containsKey(id)
+          ? FloatPanel(id, page)
+          : Pane(id, page),
+      // The chrome: tab strip over the toolbar.
+      tabStrip: (_, shellId) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [TabStrip(shellId), Toolbar(shellId)],
+      ),
+      projectionPolicy: (_, _, _) =>
+          (_, _, shellId) => DesktopProjection(shellId),
+      keepTabAlive: _keepTabAlive,
+      labels: WindowingLabels(
+        tab: (id) => UndoLabel(
+          titleOf(
+            routeOf(controller.doc.value.tabs[id]?.activeWindowId) ??
+                const NewTabRoute(),
+          ),
+        ),
+        window: (id) => UndoLabel(titleOf(routeOf(id) ?? const NewTabRoute())),
+      ),
+      emptyBuilder: (_, _) => const EmptyTab(),
+      splitter: (_, axis) => SizedBox(
+        width: axis == Axis.horizontal ? T.space4 : null,
+        height: axis == Axis.horizontal ? null : T.space4,
+        child: const ColoredBox(color: T.borderHairline),
+      ),
+    ),
+    child: switch (widget.platform) {
+      final RealShellPlatform platform => ShellViews(
+        controller: controller,
+        platform: platform,
+        shellBuilder: (_, id) => _shell(id),
+      ),
+      _ => ValueListenableBuilder(
+        valueListenable: controller.doc,
+        builder: (_, doc, _) => Row(
+          textDirection: TextDirection.ltr,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final id in doc.shells.keys) Expanded(child: _shell(id)),
+          ],
+        ),
+      ),
+    },
+  );
 }
+
+/// The doc the session saves: no picture-in-picture floats, and no tab
+/// showing only a fresh New Tab page, except a shell's last tab: closing
+/// that would close the shell or empty the tab (ADR 0012).
+WindowingDoc persistedSession(WindowingDoc doc) => doc.applyAll([
+  for (final MapEntry(:key, :value) in doc.floating.entries)
+    if (value.scope is ShellScope) CloseWindow(key),
+  for (final shell in doc.shells.values)
+    for (final tab in [
+      for (final tab in shell.tabIds)
+        if (doc.tabs[tab]?.root case WindowLeaf(:final id)
+            when _freshNewTab(doc.windows[id]?.history))
+          tab,
+    ].take(shell.tabIds.length - 1))
+      CloseTab(tab),
+]);
+
+bool _freshNewTab(BufferHistory? history) =>
+    history != null &&
+    history.back.isEmpty &&
+    history.forward.isEmpty &&
+    links.routeOfBuffer(history.current.buffer, history.current.arguments)
+        is NewTabRoute;

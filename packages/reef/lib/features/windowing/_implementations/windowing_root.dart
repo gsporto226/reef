@@ -4,6 +4,7 @@ import 'package:listenable_plus/listenable_plus.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/responsive/_implementations/screen_type_layout.dart';
 import 'package:reef/features/windowing/_implementations/window_resize_handle.dart';
+import 'package:reef/features/windowing/_implementations/windowing_dock.dart';
 import 'package:reef/features/windowing/_implementations/windowing_controller.dart';
 import 'package:reef/features/windowing/_implementations/windowing_delegate.dart';
 import 'package:reef/features/windowing/_implementations/windowing_doc.dart';
@@ -162,11 +163,34 @@ class ShellHost extends StatelessWidget {
   final ShellSurfaceBuilder? surfaceBuilder;
 
   @override
-  Widget build(BuildContext context) => _Select<TabId?>(
+  Widget build(BuildContext context) => _Select<(TabId?, List<TabId>)>(
     id: shellId.value,
-    selector: (doc) => doc.shells[shellId]?.activeTabId,
-    builder: (context, tabId) {
-      final canvas = tabId == null ? const SizedBox.expand() : TabCanvas(tabId);
+    selector: (doc) => (
+      doc.shells[shellId]?.activeTabId,
+      doc.shells[shellId]?.tabIds ?? const [],
+    ),
+    equals: (a, b) => a.$1 == b.$1 && listEquals(a.$2, b.$2),
+    builder: (context, selected) {
+      final (tabId, tabIds) = selected;
+      final keep = WindowingDelegateScope.of(context).keepTabAlive;
+      // Background tabs the delegate keeps alive stay mounted, offstage.
+      final canvas = tabId == null
+          ? const SizedBox.expand()
+          : Stack(
+              fit: StackFit.expand,
+              children: [
+                for (final t in tabIds)
+                  if (t == tabId || keep(t))
+                    Offstage(
+                      key: ValueKey(t),
+                      offstage: t != tabId,
+                      child: TickerMode(
+                        enabled: t == tabId,
+                        child: TabCanvas(t),
+                      ),
+                    ),
+              ],
+            );
       // The shell's floats cover the whole surface, chrome included.
       return Stack(
         fit: StackFit.expand,
@@ -200,7 +224,10 @@ class TabCanvas extends StatelessWidget {
         fit: StackFit.expand,
         children: [
           if (root == null)
-            delegate.emptyBuilder(context, tabId)
+            DockArea(
+              target: (_, _) => EmptyTabTarget(tabId),
+              child: delegate.emptyBuilder(context, tabId),
+            )
           else
             _arranged(context, root),
           FloatingLayer(TabScope(tabId)),
@@ -318,7 +345,10 @@ class WindowHost extends StatelessWidget {
         );
         return Stack(
           fit: StackFit.expand,
-          children: [window, FloatingLayer(WindowScope(windowId))],
+          children: [
+            DockArea(target: DockArea.window(windowId), child: window),
+            FloatingLayer(WindowScope(windowId)),
+          ],
         );
       },
     );

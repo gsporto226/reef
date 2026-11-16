@@ -182,6 +182,38 @@ void main() {
     expect(find.text('A:1'), findsOneWidget);
   });
 
+  testWidgets('a background tab loses its pages unless the delegate keeps '
+      'it alive', (tester) async {
+    for (final keep in [false, true]) {
+      final c = WindowingController(initial: _mixed);
+      addTearDown(c.dispose);
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: WindowingRoot(
+            controller: c,
+            bufferBuilder: (_, buffer) => _Page(buffer),
+            delegate: WindowingDelegate(keepTabAlive: (_) => keep),
+          ),
+        ),
+      );
+      await tester.tap(find.text('A:0'));
+      await tester.pump();
+      c.newTab();
+      await tester.pump();
+      // Offstage when kept: not found by default finders, still mounted.
+      expect(find.text('A:1'), findsNothing);
+      expect(
+        find.text('A:1', skipOffstage: false),
+        keep ? findsOneWidget : findsNothing,
+      );
+      c.activateTab(_tab);
+      await tester.pump();
+      expect(find.text(keep ? 'A:1' : 'A:0'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox());
+    }
+  });
+
   testWidgets('a new buffer builder on the root redraws the pages', (
     tester,
   ) async {

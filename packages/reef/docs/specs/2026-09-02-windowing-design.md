@@ -72,7 +72,9 @@ Rules:
   `WindowState` serves both.
 - A window is never empty: `BufferHistory.current` is required. A tab can
   be empty: closing or floating its last tree window leaves the tab with
-  no tree. The reducer never cascades upward. A `focusPolicy` that wants
+  no tree. The reducer never cascades from a window up to its tab; a
+  tab does cascade to its shell: losing a shell's last tab closes the
+  shell, unless it is the last shell (ADR 0012). A `focusPolicy` that wants
   the tab gone appends a `CloseTab` to the triggering batch (§6). Appended
   commands pass through the interceptor like any other.
 - Invariants, enforced in the reducer: every tab belongs to exactly one
@@ -100,8 +102,8 @@ ids.
 
 Dispatch semantics:
 
-- A command invalid in the current state (moving the last tab out of a
-  shell, closing a nonexistent window) returns the doc unchanged. Callers
+- A command invalid in the current state (moving a tab to the place it
+  already holds, closing a nonexistent window) returns the doc unchanged. Callers
   that care can diff or ask first; nothing throws across the API.
 - `dispatchAll` applies a batch atomically with one publish. A move is
   remove + insert in one batch. A batch is one undo unit (§4).
@@ -272,6 +274,7 @@ Visual hooks (each with a framework default):
 | `floating` | plain entry wrapper | draggable panels with snap and minimize |
 | `labels` | none | entity to `ILocalizable` ("Task: Buy milk") |
 | `emptyBuilder`, `hibernatingBuilder` | blank / spinner | branded states |
+| `keepTabAlive` | never: only the active tab is mounted | pinned tabs, memory saver off (kept tabs mount offstage) |
 
 Behavioral hooks:
 
@@ -296,7 +299,8 @@ sealed class CommandDecision {
   runs it after each command of a batch and appends the commands it
   returns to that batch, so they reach the interceptor and land in the
   same undo step. Options: `splitTakesFocus` (default true),
-  `closeEmptyTab` (default false; a shell's last tab never closes),
+  `closeEmptyTab` (default false; closing a shell's last tab closes the
+  shell, unless it is the last shell, ADR 0012),
   `focusAfterClose` (default none: the reducer's neighbour) and
   `emptyBack` (§8).
 - `linkPolicy`: what a resolved link does (§9).
@@ -320,6 +324,10 @@ smarter, never corrupt it.
 
 ## 7. Multi-window
 
+Real platform windows (`reef_multi_window`, `ShellPlatform.viewOrigin`) are
+experimental: see ADR 0013. The multi-shell doc model and `FakeShellPlatform`
+are stable.
+
 The spike's `WindowHost` seam became `ShellPlatform` in reef core, and the
 `reef_multi_window` adapter package implements it. `RealShellPlatform`
 quarantines the unstable Flutter-master API (`@internal` imports;
@@ -332,6 +340,7 @@ abstract interface class ShellPlatform {
   bool get isSupported;                                // false on single-shell platforms
   Future<Result<ShellError, Unit>> open(ShellId id);   // create a real shell for that doc shell
   void close(ShellId id);                              // best-effort destroy
+  Offset? viewOrigin(FlutterView view);                // screen position, physical px; null if unknown
 }
 ```
 
@@ -356,6 +365,19 @@ optional cause. An app hands its platform to
   shares providers. Buffers stay plain shared state. Without multi-shell
   support `ShellViews` draws the focused shell inline in the implicit view,
   so one entry point serves every platform.
+- Docking (ADR 0012) is a reef drag session. `DockSource` follows the
+  pointer of the view it was pressed in and hit-tests the `DockArea`s of
+  every shell; a point outside that view maps into another view through
+  both views' `viewOrigin`. `RealShellPlatform` reads it on Windows only
+  (`ClientToScreen` on the window handle); Windows captures the mouse for
+  the pressed window, so its view keeps getting the moves. Elsewhere, and
+  for touch, a drag stays in its own view. `FakeShellPlatform` puts every
+  view at zero, so shells drawn side by side in one test view dock into
+  each other. A drop dispatches one batch of existing commands through
+  `dispatchAll` (`dockCommands`); while hovering, `wouldApply` dry-runs it
+  through the interceptor so the area paints allowed or vetoed. A drop
+  outside the view on no area pops the tab or window out where
+  `canPopOut`, else it is cancelled.
 - `controller.capabilities.canPopOut` gates pop-out UI. On mobile and
   tablet the platform reports unsupported and pop-out UI hides; the
   doc still holds the one shell entity.
@@ -497,8 +519,8 @@ then buffer-side (detachment triggers the existing last-window rule).
 
 | Entity | Born | Dies | Children |
 |---|---|---|---|
-| shell | platform-first on pop-out; the first shell materializes at boot; mobile's is implicit and undying | `CloseShell`; last one unclosable | its tabs, their windows, buffer detachments |
-| tab | `NewTab`, empty or with an initial buffer (one command, one undo unit) | `CloseTab` (interceptor veto point) or parent shell death | windows, detachments |
+| shell | platform-first on pop-out; the first shell materializes at boot; mobile's is implicit and undying | `CloseShell`, or losing its last tab by `CloseTab` or `MoveTab` (ADR 0012); last one unclosable | its tabs, their windows, buffer detachments |
+| tab | `NewTab`, empty or with an initial buffer (one command, one undo unit) | `CloseTab` (interceptor veto point) or parent shell death; the last shell's last tab never dies, `CloseTab` empties it | windows, detachments |
 | window | `SplitWindow`, a tab's first window, or `FloatWindow` (reparenting, not birth) | `CloseWindow` or parent death | buffer detach; window history vanishes with it |
 | buffer | first window binds it (fresh or `hibernatedSeed`) | last window detaches → auto-hibernate; pinned stays materialized until explicit close; discard wipes the store record | — |
 

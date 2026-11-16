@@ -13,6 +13,10 @@ Rules for every app:
 - Keep scope to what the app's column validates. Features listed as out of
   scope stay out.
 - An app is done when its acceptance flows run green as integration tests.
+- Flows that need real platform windows are experimental flows (ADR 0013):
+  they still run, with `FLUTTER_WINDOWING=true`, but do not decide whether an
+  app is done. Each multi-shell flow is proven by a widget test over
+  `FakeShellPlatform`.
 - The apps are planned for phase W6. Start an app when the phases it
   depends on have landed.
 
@@ -124,7 +128,14 @@ as one opaque argument; internal pages `/` (new tab, fresh), `/history`,
 `/bookmarks`, `/settings` (guarded) and a root `/**` not-found; link click,
 redirect, `pushState`/`replaceState` and `target=_blank` mapped onto reef's
 verbs; tabs, splits, independent and mirror views, PiP, find and downloads
-floats, dock, pop-out, undo and session restore.
+floats, dock, pop-out, open in new window, dragging tabs and panes (reef's
+dock drag: a tab onto any window's strip, a pane by its header's grip onto
+a pane's edge or centre or a strip, either out of its window to pop out),
+moving a pane to a new tab or another window from the menu, closing panes,
+tabs and windows from their own buttons, confirm before closing a window of several tabs, undo and
+session restore; memory saver and pinned tabs (`keepTabAlive`), a saved
+session shaped by `persistence` and cleared by `discardSavedLayout`, and the
+`labels`, `emptyBuilder` and `splitter` delegate hooks.
 
 Out of scope: cookies and profiles, incognito, real downloads, devtools,
 extensions, password autofill, scroll and form state across back/forward,
@@ -132,31 +143,77 @@ Linux, macOS, mobile, Flutter web, a separate history or bookmarks store.
 
 Acceptance flows (against an in-test localhost server, never the internet):
 
-1. A link click pushes, a 302 replaces and `pushState` pushes. Back and
-   forward land on the right entry in each case.
-2. Each shell's address bar follows its focused window, and typing into one
-   shell's bar leaves the other's unchanged.
-3. Opening an already-open URL focuses it, and Ctrl+click makes an
-   independent view.
-4. In a mirror split, scrolling or typing in one view updates the other live.
-5. Dragging a tab out makes a new shell with its own bar and history, and
-   dragging it back restores it.
-6. Ctrl+Shift+T reopens a closed tab through the global undo.
-7. The `/settings` guard redirects while locked and re-checks when the lock
-   clears.
-8. Restart restores the session, and a cold-start URL opens on top.
-9. A PiP float docks left or right, and z-order holds at all three scopes.
+- **1.** A link click pushes, a 302 replaces and `pushState` pushes. Back and
+  forward land on the right entry in each case.
+- **3.** Opening an already-open URL focuses it, and Ctrl+click makes an
+  independent view.
+- **4.** In a mirror split, scrolling or typing in one view updates the other live.
+- **6.** Ctrl+Shift+T reopens a closed tab through the global undo.
+- **7.** The `/settings` guard redirects while locked and re-checks when the lock
+  clears.
+- **8.** Restart restores the session, and a cold-start URL opens on top.
+- **9.** A PiP float docks left or right, and z-order holds at all three scopes.
+- **14.** Closing the last pane of a tab closes the tab. Closing a window's last
+  tab closes the window, without the "Close N tabs?" prompt; in the last
+  window the tab empties instead (ADR 0012). Back with no history closes a tab a page opened (`target=_blank`,
+  `window.open`) and does nothing elsewhere (`WindowingFocusPolicy`).
+- **15.** The interceptor vetoes a new or moved tab past 10 in one window and
+  shows its reason; the doc and undo timeline stay. In a window narrower
+  than 600 px it replaces a side-by-side split with a stacked one.
+- **16.** The "Open links in" setting (same pane, split, new tab) sets how the
+  address bar, history and bookmarks open a page that is not open yet; an
+  open page is still focused. It survives a restart.
+- **17.** With "Memory saver" on (the default; a restorable setting), a background
+  tab releases its webview and reloads its page when activated. "Pin tab"
+  keeps a tab's webview loaded in the background; with memory saver off
+  every tab stays loaded.
+- **18.** The saved session leaves out PiP floats and tabs showing only a fresh
+  new tab page (a window's last tab stays). "Clear session" on
+  `/settings` deletes the saved layout, so the next launch starts fresh
+  unless the layout changes first.
+- **19.** Tab and float titles come from the delegate's `labels`, a tab whose last
+  pane closed shows the empty-tab state, and splits use the app's
+  splitter.
 
-Flows 2 and 5 need real platform windows, so they live in
+### Experimental flows
+
+These need real platform windows (ADR 0013). Each also has a widget test
+over `FakeShellPlatform` in `apps/browser/test/browser_test.dart`, which is
+what proves it.
+
+- **2.** Each shell's address bar follows its focused window, and typing into one
+  shell's bar leaves the other's unchanged.
+- **5.** Dragging a tab out makes a new shell with its own bar and history, and
+  dragging it back onto the first window's strip restores it and closes
+  the new window. A drag over a drop the interceptor vetoes shows red,
+  and dropping it changes nothing.
+- **10.** Closing a window that holds several tabs asks "Close N tabs?" first. The
+  interceptor's veto leaves the doc untouched; confirming closes the shell.
+- **11.** Shift+click on a link or "Open in new window" opens the page in a new
+  shell, and in a new tab where pop-out is unsupported.
+- **12.** "Move to new tab" and "Move to window N" on a split pane move it, with
+  its history, into a new tab or beside another shell's active window.
+  One undo puts it back.
+- **13.** A mirror moved into another shell keeps drawing its original's webview
+  there (the engine's textures are shared by all its views). Closing the
+  mirror's shell keeps the page in the original; closing the original's
+  shell leaves the mirror on its own webview.
+
+The experimental flows live in
 `apps/browser/integration_test/multi_window_test.dart` and run only with
 `FLUTTER_WINDOWING=true` for that invocation (ADR 0001); without it they
-skip. Two limits apply under windowing, so these tests do not use the
-keyboard or drag across windows:
+skip. Limits apply under windowing, so these tests do not use the
+keyboard:
 
 - The engine's text input can't find a shell's view ("view with view_id=1
   cannot be found"), so the tests submit an address through the field's
   submit handler instead of typing.
-- Flutter's `Draggable` can't cross platform views, so dragging a tab back
-  into another window is not possible. The test moves it back through the
-  drop's handler (`moveTabTo`). The widget tests over `FakeShellPlatform`
-  cover the drag itself in one view.
+- The tests answer the close prompt through its handler (`answerClose`)
+  instead of tapping it in another view.
+- Under flutter_test's binding a shell's platform window is a test double
+  with no native handle, so the Win32 lookup of a view's screen origin
+  (`viewOrigin`) can't run there. Flow 5 drags a tab back across windows
+  with a synthetic mouse gesture that keeps sending moves to the window it
+  pressed in, as Windows' mouse capture does, over a platform that places
+  the views side by side. The real lookup and OS mouse capture are checked
+  by hand only. The widget tests over `FakeShellPlatform` cover the drops.

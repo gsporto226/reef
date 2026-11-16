@@ -4,6 +4,7 @@
 // channel; never enable windowing through the global Flutter config):
 //   $env:FLUTTER_WINDOWING = "true"
 //   fvm flutter run -t lib/main_windowing.dart -d windows
+// ignore_for_file: experimental_member_use
 import 'package:flutter/widgets.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reef/reef.dart';
