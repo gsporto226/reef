@@ -159,14 +159,8 @@ class _PageState extends State<_Page> {
       });
 }
 
-const _transition = PageTransition(
-  duration: Duration(milliseconds: 100),
-  builder: _fade,
+final _transition = PageTransition(
+  duration: const Duration(milliseconds: 100),
+  builder: (_, animation, _, child) =>
+      FadeTransition(opacity: animation, child: child),
 );
-
-Widget _fade(
-  BuildContext context,
-  Animation<double> animation,
-  Animation<double> secondary,
-  Widget child,
-) => FadeTransition(opacity: animation, child: child);

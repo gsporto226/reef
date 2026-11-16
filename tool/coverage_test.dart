@@ -37,9 +37,14 @@ end_of_record
   assert(!isGated('packages/reef/test/x_test.dart'));
   assert(!isGated('tool/coverage.dart'));
   assert(!isGated('packages/reef_multi_window/lib/src/shell_views.dart'));
+  assert(!isGated('C:/reef/apps/browser/lib/entry.dart'));
+  assert(isGated('apps/browser/lib/main.dart'));
 
   assert(!hasCode("/// Barrel.\nlibrary;\n\nexport 'a.dart';\n"));
   assert(hasCode("export 'a.dart';\nint x = 1;\n"));
+
+  assert(coveragePackages('name: browser\nversion: 1.0.0\n').last ==
+      '--coverage-package=^browser');
 
   print('coverage_test: ok');
 }

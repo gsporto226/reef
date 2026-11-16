@@ -10,7 +10,6 @@ import 'package:reef_multi_window/reef_multi_window.dart';
 import 'package:reef_router/reef_router.dart';
 
 import 'chrome.dart';
-import 'file_store.dart';
 import 'page.dart';
 import 'routes.dart';
 import 'src/tokens.g.dart';
@@ -18,17 +17,6 @@ import 'src/tokens.g.dart';
 export 'chrome.dart';
 export 'page.dart';
 export 'routes.dart';
-
-/// Launched with a URL (the default browser), it opens on top of the
-/// restored session. A dragged-out tab is a real window with
-/// `FLUTTER_WINDOWING=true` (master channel); without it, one window.
-void main(List<String> args) => runWidget(
-  BrowserApp(
-    store: JsonFileHibernationStore(sessionFile()),
-    launchArg: args.firstOrNull,
-    platform: RealShellPlatform(title: 'Browser'),
-  ),
-);
 
 /// The browser over [store]. [launchArg], a URL or an internal path, opens
 /// in a new tab on top of the restored session (spec §9 cold start).
@@ -38,6 +26,7 @@ class BrowserApp extends StatefulWidget {
     required this.store,
     this.launchArg,
     this.platform,
+    this.views,
   });
 
   final HibernationStore store;
@@ -47,6 +36,10 @@ class BrowserApp extends StatefulWidget {
   /// draws each in its own platform window; any other (tests) draws every
   /// shell side by side in one view.
   final ShellPlatform? platform;
+
+  /// Draws the shells over a real [platform] (lib/entry.dart supplies
+  /// [ShellViews]); without it, every shell sits side by side in one view.
+  final Widget Function(WindowingController, ShellBuilder)? views;
 
   static BrowserAppState of(BuildContext context) =>
       context.findAncestorStateOfType<BrowserAppState>()!;
@@ -466,13 +459,9 @@ class BrowserAppState extends State<BrowserApp> {
         child: const ColoredBox(color: T.borderHairline),
       ),
     ),
-    child: switch (widget.platform) {
-      final RealShellPlatform platform => ShellViews(
-        controller: controller,
-        platform: platform,
-        shellBuilder: (_, id) => _shell(id),
-      ),
-      _ => ValueListenableBuilder(
+    child:
+        widget.views?.call(controller, (_, id) => _shell(id)) ??
+        ValueListenableBuilder(
         valueListenable: controller.doc,
         builder: (_, doc, _) => Row(
           textDirection: TextDirection.ltr,
@@ -482,7 +471,6 @@ class BrowserAppState extends State<BrowserApp> {
           ],
         ),
       ),
-    },
   );
 }
 

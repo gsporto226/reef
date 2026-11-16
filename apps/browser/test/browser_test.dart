@@ -598,6 +598,31 @@ void main() {
       }
     });
 
+    testWidgets('submitting find with no live webview is a no-op', (
+      tester,
+    ) async {
+      final app = await boot(tester);
+      await menu(tester, 'Find in page');
+      final field = find.byWidgetPredicate(
+        (w) => w is TextField && w.decoration?.hintText == 'Find in page',
+      );
+      await tester.enterText(field, 'needle');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(app.webViews, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the memory saver switch toggles the setting', (tester) async {
+      final app = await boot(tester);
+      app.nav.go(const SettingsRoute());
+      await tester.pumpAndSettle();
+      expect(app.memorySaver.value, isTrue);
+      await tester.tap(find.text('Memory saver'));
+      await tester.pumpAndSettle();
+      expect(app.memorySaver.value, isFalse);
+    });
+
     for (final (side, tooltip) in [(0, 'Dock left'), (1, 'Dock right')]) {
       testWidgets('flow 9: $tooltip docks PiP beside the focused window', (
         tester,
@@ -1310,7 +1335,10 @@ void main() {
     });
 
     Finder tabHandle(TabId id) => find.byWidgetPredicate(
-      (w) => w is DockSource && w.dockable == TabDockable(id),
+      (w) =>
+          w is DockSource &&
+          w.dockable is TabDockable &&
+          (w.dockable as TabDockable).tabId == id,
     );
     Finder grip(WindowId id) => find.descendant(
       of: find.byWidgetPredicate((w) => w is PaneBar && w.windowId == id),

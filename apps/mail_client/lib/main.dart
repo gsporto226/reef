@@ -9,8 +9,6 @@ import 'package:mail_client/src/components.dart';
 import 'package:reef/reef.dart';
 import 'package:reef_router/reef_router.dart';
 
-void main() => runApp(MailApp(store: InMemoryHibernationStore()));
-
 typedef Thread = ({
   String folder,
   String sender,

@@ -45,11 +45,17 @@ void main() {
   tearDownAll(() => server.close(force: true));
 
   Future<BrowserAppState> boot(WidgetTester tester) async {
+    final platform = _SideBySide(title: 'Browser');
     await tester.pumpWidget(
       wrapWithView: false,
       BrowserApp(
         store: InMemoryHibernationStore(),
-        platform: _SideBySide(title: 'Browser'),
+        platform: platform,
+        views: (controller, shells) => ShellViews(
+          controller: controller,
+          platform: platform,
+          shellBuilder: shells,
+        ),
       ),
     );
     await tester.pumpAndSettle();
@@ -72,7 +78,10 @@ void main() {
       tester.widget<EditableText>(bar).controller.text;
 
   Finder tabHandle(TabId id) => find.byWidgetPredicate(
-    (w) => w is DockSource && w.dockable == TabDockable(id),
+    (w) =>
+        w is DockSource &&
+        w.dockable is TabDockable &&
+        (w.dockable as TabDockable).tabId == id,
   );
 
   /// A second tab on /nope, popped out into its own platform window.
