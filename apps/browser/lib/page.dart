@@ -37,6 +37,9 @@ document.addEventListener('click', (e) => {
   if (e.ctrlKey) {
     e.preventDefault();
     window.flutter_inappwebview.callHandler('reefSplit', a.href);
+  } else if (e.shiftKey) {
+    e.preventDefault();
+    window.flutter_inappwebview.callHandler('reefWindow', a.href);
   } else if (a.target && !['_self', '_top', '_parent'].includes(a.target)) {
     e.preventDefault();
     reefOpen(a.href);
@@ -207,12 +210,17 @@ class _BrowserPageState extends State<BrowserPage> {
           c.addJavaScriptHandler(
             handlerName: 'reefOpen',
             callback: (args) =>
-                app.nav.openInNewTab(WebPage.of(Uri.parse(args[0] as String))),
+                app.openFromPage(WebPage.of(Uri.parse(args[0] as String))),
           );
           c.addJavaScriptHandler(
             handlerName: 'reefSplit',
             callback: (args) =>
                 app.openInSplit(WebPage.of(Uri.parse(args[0] as String))),
+          );
+          c.addJavaScriptHandler(
+            handlerName: 'reefWindow',
+            callback: (args) =>
+                app.openInNewWindow(WebPage.of(Uri.parse(args[0] as String))),
           );
           c.addJavaScriptHandler(
             handlerName: 'reefShortcut',
@@ -308,13 +316,22 @@ class MirrorBadge extends StatelessWidget {
   );
 }
 
+/// A tab with no pane left: its last one closed.
+class EmptyTab extends StatelessWidget {
+  const EmptyTab({super.key});
+
+  @override
+  Widget build(BuildContext context) =>
+      const _Notice('Empty tab', 'Open a page from the address bar');
+}
+
 /// `/settings`: the restore toggle and the guard's note.
 class _Settings extends StatelessWidget {
   const _Settings();
 
   @override
   Widget build(BuildContext context) {
-    final restore = BrowserApp.of(context).restoreSession;
+    final app = BrowserApp.of(context), restore = app.restoreSession;
     return Material(
       color: T.surfacePage,
       child: ListView(
@@ -336,6 +353,46 @@ class _Settings extends StatelessWidget {
               value: on,
               activeThumbColor: T.accentDefault,
               onChanged: (v) => restore.value = v,
+            ),
+          ),
+          TextButton(
+            onPressed: app.controller.discardSavedLayout,
+            child: const Text('Clear session'),
+          ),
+          ValueListenableBuilder(
+            valueListenable: app.memorySaver,
+            builder: (_, on, _) => SwitchListTile(
+              title: const Text('Memory saver'),
+              subtitle: const Text(
+                'Background tabs release their pages; pinned tabs stay loaded',
+              ),
+              value: on,
+              activeThumbColor: T.accentDefault,
+              onChanged: (v) => app.memorySaver.value = v,
+            ),
+          ),
+          ValueListenableBuilder(
+            valueListenable: app.openIn,
+            builder: (_, openIn, _) => ListTile(
+              title: const Text('Open links in'),
+              subtitle: SegmentedButton<String>(
+                segments: const [
+                  ButtonSegment(
+                    value: BrowserAppState.pane,
+                    label: Text('Same pane'),
+                  ),
+                  ButtonSegment(
+                    value: BrowserAppState.split,
+                    label: Text('Split'),
+                  ),
+                  ButtonSegment(
+                    value: BrowserAppState.tab,
+                    label: Text('New tab'),
+                  ),
+                ],
+                selected: {openIn},
+                onSelectionChanged: (s) => app.openIn.value = s.single,
+              ),
             ),
           ),
           const SizedBox(height: T.space16),

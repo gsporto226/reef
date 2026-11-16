@@ -42,9 +42,19 @@ history, and takes focus.
 _Avoid_: duplicate, clone
 
 **Dock**:
-Moving a floating window into a tab's tree beside a target window, on a given
-side. Into an empty tab, it becomes the whole tree.
+Dropping a dragged tab or window onto a dock area: a tab strip
+position, a window's edge or centre, an empty tab or a float layer. A
+floating window docked beside a target joins that tab's tree; into an empty
+tab, it becomes the whole tree.
 _Avoid_: attach, pin
+
+**Dockable**:
+A tab or window that the user can drag to dock it somewhere.
+_Avoid_: draggable, IDockable
+
+**Dock area**:
+A place that accepts a dock, in any shell.
+_Avoid_: drop zone, drop target
 
 **Attach (shell)**:
 Adding a new shell to the windowing state, holding one empty tab, and focusing

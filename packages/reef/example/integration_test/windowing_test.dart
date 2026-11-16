@@ -1,3 +1,6 @@
+// Uses experimental multi-window API (ADR 0013).
+// ignore_for_file: experimental_member_use
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';

@@ -1,21 +1,29 @@
-// The only import of Flutter's experimental windowing API in reef
-// (flutter/flutter#30701): `@internal`, master channel only, enabled per
-// invocation with `FLUTTER_WINDOWING=true`. None of its types leave this file.
+// With view_origin.dart, the only import of Flutter's experimental windowing
+// API in reef (flutter/flutter#30701): `@internal`, master channel only,
+// enabled per invocation with `FLUTTER_WINDOWING=true`. None of its types leave this file.
 // ignore_for_file: invalid_use_of_internal_member, implementation_imports
+
+import 'dart:ui' show FlutterView;
 
 import 'package:flutter/src/foundation/_features.dart' show isWindowingEnabled;
 import 'package:flutter/src/widgets/_window.dart' as windowing;
 import 'package:flutter/widgets.dart';
 import 'package:listenable_plus/listenable_plus.dart';
+import 'package:meta/meta.dart' show experimental;
 import 'package:reef/reef.dart';
 import 'package:reef_fp/result.dart';
 import 'package:reef_fp/unit.dart';
+import 'package:reef_multi_window/src/view_origin.dart'
+    if (dart.library.js_interop) 'package:reef_multi_window/src/view_origin_web.dart';
 
 /// Draws shell [shellId]'s surface: app widget, theme, chrome.
+@experimental
 typedef ShellBuilder = Widget Function(BuildContext context, ShellId shellId);
 
 /// A [ShellPlatform] over Flutter's windowing API: one platform window per
-/// open shell. Notifies when the set of open shells changes.
+/// open shell. Notifies when the set of open shells changes. Experimental
+/// (ADR 0013).
+@experimental
 class RealShellPlatform extends ChangeNotifier implements ShellPlatform {
   RealShellPlatform({this.title, this.size = const Size(1280, 800)});
 
@@ -62,6 +70,19 @@ class RealShellPlatform extends ChangeNotifier implements ShellPlatform {
     }
   }
 
+  /// Read from the platform window showing [view]: Windows only. A dock
+  /// drag reaches other shells because Windows captures the mouse for the
+  /// window it was pressed in, so that view keeps getting the moves.
+  @override
+  Offset? viewOrigin(FlutterView view) {
+    for (final window in _windows.values) {
+      if (!window.isDestroyed && window.rootView == view) {
+        return clientOrigin(window);
+      }
+    }
+    return null;
+  }
+
   @override
   void close(ShellId id) {
     final window = _windows.remove(id);
@@ -97,6 +118,8 @@ class _ShellDelegate with windowing.WindowControllerDelegate {
 /// it is the last shell. Without multi-shell support it draws the doc's
 /// focused shell inline in the implicit view. Place it under a single
 /// provider scope and [WindowingRoot] so every view shares them.
+/// Experimental (ADR 0013).
+@experimental
 class ShellViews extends StatefulWidget {
   const ShellViews({
     super.key,

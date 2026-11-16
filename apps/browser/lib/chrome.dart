@@ -17,6 +17,15 @@ class BrowserShell extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = BrowserApp.of(context);
+    return LayoutBuilder(
+      builder: (_, box) {
+        app.shellWidths[shellId] = box.maxWidth;
+        return _app(app);
+      },
+    );
+  }
+
+  Widget _app(BrowserAppState app) {
     return MaterialApp(
       title: 'Browser',
       debugShowCheckedModeBanner: false,
@@ -33,14 +42,84 @@ class BrowserShell extends StatelessWidget {
               shift: true,
             ): app.undo.undo,
           },
-          child: FocusScope(autofocus: true, child: ShellProjection(shellId)),
+          child: Column(
+            children: [
+              _ClosePrompt(shellId),
+              const _VetoNotice(),
+              Expanded(
+                child: FocusScope(
+                  autofocus: true,
+                  child: ShellProjection(shellId),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-/// Shell [shellId]'s tabs: a tap activates, the close button closes, + opens a new tab.
+/// Asks before shell [shellId] closes with its tabs, after the interceptor
+/// vetoed that close.
+class _ClosePrompt extends StatelessWidget {
+  const _ClosePrompt(this.shellId);
+
+  final ShellId shellId;
+
+  @override
+  Widget build(BuildContext context) {
+    final app = BrowserApp.of(context);
+    return ValueListenableBuilder(
+      valueListenable: app.closePrompt,
+      builder: (_, shell, _) => shell != shellId
+          ? const SizedBox.shrink()
+          : MaterialBanner(
+              content: Text(
+                'Close ${app.controller.doc.value.shells[shellId]!.tabIds.length} tabs?',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => app.answerClose(confirmed: false),
+                  child: const Text('Cancel'),
+                ),
+                TextButton(
+                  onPressed: () => app.answerClose(confirmed: true),
+                  child: const Text('Close'),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+/// Shows why the interceptor vetoed a command, until dismissed.
+class _VetoNotice extends StatelessWidget {
+  const _VetoNotice();
+
+  @override
+  Widget build(BuildContext context) {
+    final notice = BrowserApp.of(context).vetoNotice;
+    return ValueListenableBuilder(
+      valueListenable: notice,
+      builder: (_, reason, _) => reason == null
+          ? const SizedBox.shrink()
+          : MaterialBanner(
+              content: Text(reason),
+              actions: [
+                TextButton(
+                  onPressed: () => notice.value = null,
+                  child: const Text('OK'),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+/// Shell [shellId]'s tabs: a tap activates, the close button closes, + opens
+/// a new tab. A tab is a reef dock drag: dropped on a strip, this shell's or
+/// another's, it moves there; dropped outside its window, it pops out.
 class TabStrip extends StatelessWidget {
   const TabStrip(this.shellId, {super.key});
 
@@ -49,47 +128,40 @@ class TabStrip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final app = BrowserApp.of(context);
-    // A tab dropped here from another shell moves in; one dropped on no
-    // strip pops out into a new shell.
-    return DragTarget<(TabId,)>(
-      onAcceptWithDetails: (d) => app.moveTabTo(d.data.$1, shellId),
-      builder: (_, _, _) => _strip(app),
-    );
-  }
-
-  Widget _strip(BrowserAppState app) {
+    final labels = WindowingDelegateScope.of(context).labels;
     return SizedBox(
       height: T.tabbarHeight,
       child: TabStripSlot(
         shellId,
-        // Titles follow navigation, not only the strip's tab list.
-        builder: (context, strip) => ListenableBuilder(
-          listenable: app.controller.doc,
-          builder: (_, _) => Padding(
-            padding: const EdgeInsets.symmetric(horizontal: T.space8),
-            child: Row(
-              children: [
-                for (final id in strip.tabIds) ...[
-                  _Tab(
-                    id: id,
-                    title: titleOf(
-                      app.routeOf(
-                            app.controller.doc.value.tabs[id]?.activeWindowId,
-                          ) ??
-                          const NewTabRoute(),
+        // A drop past the last tab appends; on a tab, beside it.
+        builder: (context, strip) => DockArea(
+          target: (_, _) => TabStripTarget(shellId, strip.tabIds.length),
+          // Titles follow navigation, not only the strip's tab list.
+          child: ListenableBuilder(
+            listenable: Listenable.merge([app.controller.doc, app.pinnedTabs]),
+            builder: (_, _) => Padding(
+              padding: const EdgeInsets.symmetric(horizontal: T.space8),
+              child: Row(
+                children: [
+                  for (final (i, id) in strip.tabIds.indexed) ...[
+                    _Tab(
+                      id: id,
+                      target: DockArea.tab(shellId, i),
+                      title: labels.tab(id)!.localize(),
+                      pinned: app.pinnedTabs.value.contains(id),
+                      active: id == strip.activeTabId,
+                      onTap: () => strip.activate(id),
+                      onClose: () => strip.close(id),
                     ),
-                    active: id == strip.activeTabId,
-                    onTap: () => strip.activate(id),
-                    onClose: () => strip.close(id),
+                    const SizedBox(width: T.space4),
+                  ],
+                  IconButton(
+                    tooltip: 'New tab',
+                    icon: const Icon(Icons.add),
+                    onPressed: app.newTab,
                   ),
-                  const SizedBox(width: T.space4),
                 ],
-                IconButton(
-                  tooltip: 'New tab',
-                  icon: const Icon(Icons.add),
-                  onPressed: app.newTab,
-                ),
-              ],
+              ),
             ),
           ),
         ),
@@ -101,34 +173,27 @@ class TabStrip extends StatelessWidget {
 class _Tab extends StatelessWidget {
   const _Tab({
     required this.id,
+    required this.target,
     required this.title,
+    required this.pinned,
     required this.active,
     required this.onTap,
     required this.onClose,
   });
 
   final TabId id;
+  final DockTargetPicker target;
   final String title;
+  final bool pinned;
   final bool active;
   final VoidCallback onTap;
   final VoidCallback onClose;
 
   @override
   Widget build(BuildContext context) => Flexible(
-    child: Draggable<(TabId,)>(
-      data: (id,),
-      feedback: Material(
-        color: T.surfaceTabActive,
-        elevation: 4,
-        borderRadius: BorderRadius.circular(T.radiusSm),
-        child: Padding(
-          padding: const EdgeInsets.all(T.space12),
-          child: Text(title),
-        ),
-      ),
-      onDraggableCanceled: (_, _) =>
-          BrowserApp.of(context).controller.popOutTab(id),
-      child: _body(),
+    child: DockArea(
+      target: target,
+      child: DockSource(dockable: TabDockable(id), child: _body()),
     ),
   );
 
@@ -145,7 +210,11 @@ class _Tab extends StatelessWidget {
           padding: const EdgeInsets.fromLTRB(T.space12, 0, T.space4, 0),
           child: Row(
             children: [
-              const Icon(Icons.public, size: 18, color: T.textMuted),
+              Icon(
+                pinned ? Icons.push_pin : Icons.public,
+                size: 18,
+                color: T.textMuted,
+              ),
               const SizedBox(width: T.space8),
               Expanded(
                 child: Text(
@@ -229,7 +298,7 @@ class _ToolbarState extends State<Toolbar> {
           IconButton(
             tooltip: 'Back',
             icon: const Icon(Icons.arrow_back),
-            onPressed: app.nav.back,
+            onPressed: app.controller.back,
           ),
           IconButton(
             tooltip: 'Forward',
@@ -290,16 +359,27 @@ class _ToolbarState extends State<Toolbar> {
                 value: () => app.openInSplit(),
                 child: const Text('Open in split'),
               ),
+              if (app.controller.capabilities.canPopOut)
+                PopupMenuItem(
+                  value: () => app.openInNewWindow(),
+                  child: const Text('Open in new window'),
+                ),
               PopupMenuItem(
                 value: app.mirrorSplit,
                 child: const Text('Mirror split'),
               ),
+              ..._paneMoves(app),
               for (final (label, open) in [
                 ('Picture in picture', app.pictureInPicture),
                 ('Find in page', app.findInPage),
                 ('Downloads', app.downloads),
               ])
                 PopupMenuItem(value: () => open(), child: Text(label)),
+              CheckedPopupMenuItem(
+                checked: app.pinnedTabs.value.contains(app.focusedTab),
+                value: app.togglePin,
+                child: const Text('Pin tab'),
+              ),
               CheckedPopupMenuItem(
                 checked: app.settingsLocked.value,
                 value: () =>
@@ -312,6 +392,28 @@ class _ToolbarState extends State<Toolbar> {
       ),
     ),
   );
+}
+
+/// "Move to new tab" and "Move to window N" (each other shell) for the
+/// focused pane, when its tab is split.
+List<PopupMenuEntry<VoidCallback>> _paneMoves(BrowserAppState app) {
+  final doc = app.controller.doc.value;
+  final window = doc.activeWindowId;
+  final tab = window == null ? null : doc.tabs[doc.tabOf(window)];
+  if ((tab?.root?.windowIds.length ?? 0) < 2) return const [];
+  final shells = doc.shells.keys.toList();
+  return [
+    PopupMenuItem(
+      value: app.moveToNewTab,
+      child: const Text('Move to new tab'),
+    ),
+    for (final (i, shell) in shells.indexed)
+      if (shell != doc.focusedShellId)
+        PopupMenuItem(
+          value: () => app.moveToShell(shell),
+          child: Text('Move to window ${i + 1}'),
+        ),
+  ];
 }
 
 /// A shell's address bar as route information. Reports land in [shown];
@@ -342,30 +444,34 @@ class AddressBarProvider extends RouteInformationProvider with ChangeNotifier {
   }
 }
 
-/// A floating window's frame: a title bar with dock and close over [page].
+/// A tree pane's frame: a [PaneBar] over [page].
+class Pane extends StatelessWidget {
+  const Pane(this.windowId, this.page, {super.key});
+
+  final WindowId windowId;
+  final Widget page;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.stretch,
+    children: [
+      PaneBar(windowId, children: const [Spacer()]),
+      Expanded(child: page),
+    ],
+  );
+}
+
+/// A floating window's frame: a [PaneBar] with its title and dock buttons
+/// over [page].
 class FloatPanel extends StatelessWidget {
   const FloatPanel(this.windowId, this.page, {super.key});
 
   final WindowId windowId;
   final Widget page;
 
-  static const barHeight = 28.0;
-
   @override
   Widget build(BuildContext context) {
     final app = BrowserApp.of(context);
-    Widget action(String tooltip, IconData icon, VoidCallback onPressed) =>
-        IconButton(
-          tooltip: tooltip,
-          iconSize: 16,
-          padding: EdgeInsets.zero,
-          constraints: const BoxConstraints.tightFor(
-            width: barHeight,
-            height: barHeight,
-          ),
-          icon: Icon(icon),
-          onPressed: onPressed,
-        );
     return DecoratedBox(
       decoration: BoxDecoration(
         color: T.surfacePage,
@@ -376,36 +482,30 @@ class FloatPanel extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Container(
-            height: barHeight,
-            color: T.surfaceChrome,
-            padding: const EdgeInsets.only(left: T.space8),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    titleOf(app.routeOf(windowId) ?? const NewTabRoute()),
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(fontSize: 12, color: T.textPrimary),
-                  ),
+          PaneBar(
+            windowId,
+            children: [
+              Expanded(
+                child: Text(
+                  WindowingDelegateScope.of(context).labels
+                      .window(windowId)!
+                      .localize(),
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 12, color: T.textPrimary),
                 ),
-                action(
-                  'Dock left',
-                  Icons.align_horizontal_left,
-                  () => app.dock(windowId, DockSide.before),
-                ),
-                action(
-                  'Dock right',
-                  Icons.align_horizontal_right,
-                  () => app.dock(windowId, DockSide.after),
-                ),
-                action(
-                  'Close',
-                  Icons.close,
-                  () => app.controller.closeWindow(windowId),
-                ),
-              ],
-            ),
+              ),
+              // The keyboard's way to dock; the grip drags anywhere.
+              _barAction(
+                'Dock left',
+                Icons.align_horizontal_left,
+                () => app.dock(windowId, DockSide.before),
+              ),
+              _barAction(
+                'Dock right',
+                Icons.align_horizontal_right,
+                () => app.dock(windowId, DockSide.after),
+              ),
+            ],
           ),
           Expanded(child: page),
         ],
@@ -413,3 +513,57 @@ class FloatPanel extends StatelessWidget {
     );
   }
 }
+
+/// A pane's header: a grip that drags the pane as a reef dock drag (onto a
+/// pane's edge or centre, a tab strip, or out of its window), [children],
+/// and close.
+class PaneBar extends StatelessWidget {
+  const PaneBar(this.windowId, {super.key, this.children = const []});
+
+  final WindowId windowId;
+  final List<Widget> children;
+
+  static const height = 28.0;
+
+  @override
+  Widget build(BuildContext context) => Container(
+    height: height,
+    color: T.surfaceChrome,
+    child: Row(
+      children: [
+        DockSource(
+          dockable: WindowDockable(windowId),
+          child: const Tooltip(
+            message: 'Drag pane',
+            child: MouseRegion(
+              cursor: SystemMouseCursors.grab,
+              child: SizedBox.square(
+                dimension: height,
+                child: Icon(Icons.drag_indicator, size: 16, color: T.textMuted),
+              ),
+            ),
+          ),
+        ),
+        ...children,
+        _barAction(
+          'Close',
+          Icons.close,
+          () => BrowserApp.of(context).controller.closeWindow(windowId),
+        ),
+      ],
+    ),
+  );
+}
+
+Widget _barAction(String tooltip, IconData icon, VoidCallback onPressed) =>
+    IconButton(
+      tooltip: tooltip,
+      iconSize: 16,
+      padding: EdgeInsets.zero,
+      constraints: const BoxConstraints.tightFor(
+        width: PaneBar.height,
+        height: PaneBar.height,
+      ),
+      icon: Icon(icon),
+      onPressed: onPressed,
+    );

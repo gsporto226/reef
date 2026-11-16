@@ -3,6 +3,7 @@ import 'package:formularium/features/localization/localizable_interface.dart';
 import 'package:reef/features/page_identity/_implementations/buffer_id.dart';
 import 'package:reef/features/windowing/_implementations/window_resize_handle.dart';
 import 'package:reef/features/windowing/_implementations/windowing_controller.dart';
+import 'package:reef/features/windowing/_implementations/windowing_dock.dart';
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 import 'package:reef/features/windowing/_implementations/windowing_projection.dart';
 import 'package:reef/features/windowing/_implementations/windowing_root.dart';
@@ -138,7 +139,15 @@ class WindowingDelegate {
     this.projectionPolicy = defaultWindowingProjection,
     this.pageTransition = _noTransition,
     this.pageIdentity = _bufferIdentity,
+    this.keepTabAlive = _never,
   });
+
+  /// Whether a shell's background tab [TabId] stays mounted, offstage, so
+  /// its pages keep their state. Default: never; only the active tab is
+  /// mounted and a background tab's pages rebuild when it is activated.
+  final bool Function(TabId tabId) keepTabAlive;
+
+  static bool _never(TabId _) => false;
 
   /// Picks the page identity of a window's entry. Default: the buffer, so
   /// every new buffer mounts a new page.
@@ -165,7 +174,8 @@ class WindowingDelegate {
   final WindowArrangement? windowArrangement;
 
   /// Default: a plain row of tab names over [TabStripSlot]; a tap activates,
-  /// the `×` closes.
+  /// the `×` closes, and a tab drags as a [DockSource] onto the strip's
+  /// [DockArea]s.
   final TabStripBuilder tabStrip;
 
   /// Default: a 1px grey line centred in an 8px strip.
@@ -212,6 +222,7 @@ class WindowingDelegate {
     WindowingProjectionPolicy? projectionPolicy,
     PageTransitionPicker? pageTransition,
     PageIdentityPicker? pageIdentity,
+    bool Function(TabId tabId)? keepTabAlive,
   }) => WindowingDelegate(
     windowChrome: windowChrome ?? this.windowChrome,
     emptyBuilder: emptyBuilder ?? this.emptyBuilder,
@@ -228,6 +239,7 @@ class WindowingDelegate {
     projectionPolicy: projectionPolicy ?? this.projectionPolicy,
     pageTransition: pageTransition ?? this.pageTransition,
     pageIdentity: pageIdentity ?? this.pageIdentity,
+    keepTabAlive: keepTabAlive ?? this.keepTabAlive,
   );
 
   static Object? _bufferIdentity(BufferId buffer) => buffer;
@@ -279,29 +291,38 @@ class WindowingDelegate {
         shellId,
         builder: (context, strip) {
           final labels = WindowingDelegateScope.of(context).labels;
-          return Row(
-            children: [
-              for (final (i, id) in strip.tabIds.indexed) ...[
-                GestureDetector(
-                  onTap: () => strip.activate(id),
-                  child: Text(
-                    labels.tab(id)?.localize() ?? 'Tab ${i + 1}',
-                    style: TextStyle(
-                      fontWeight: id == strip.activeTabId
-                          ? FontWeight.bold
-                          : FontWeight.normal,
+          // A drop past the last tab appends; on a tab, it lands on the
+          // nearer side of it.
+          return DockArea(
+            target: (_, _) => TabStripTarget(shellId, strip.tabIds.length),
+            child: Row(
+              children: [
+                for (final (i, id) in strip.tabIds.indexed) ...[
+                  DockArea(
+                    target: DockArea.tab(shellId, i),
+                    child: DockSource(
+                      dockable: TabDockable(id),
+                      child: GestureDetector(
+                        onTap: () => strip.activate(id),
+                        child: Text(
+                          labels.tab(id)?.localize() ?? 'Tab ${i + 1}',
+                          style: TextStyle(
+                            fontWeight: id == strip.activeTabId
+                                ? FontWeight.bold
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                // A shell's last tab never closes, so it offers no ×.
-                if (strip.tabIds.length > 1)
                   GestureDetector(
                     key: ValueKey('close ${id.value}'),
                     onTap: () => strip.close(id),
                     child: const Text(' × '),
                   ),
+                ],
               ],
-            ],
+            ),
           );
         },
       );
