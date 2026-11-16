@@ -16,6 +16,6 @@ fvm dart run build_runner build
 `test/goldens/` (`--update-goldens` to refresh).
 
 ```powershell
-fvm flutter run -d windows
+fvm flutter run -d windows -t lib/entry.dart
 fvm flutter test integration_test -d windows
 ```

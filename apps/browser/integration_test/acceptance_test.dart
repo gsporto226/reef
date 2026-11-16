@@ -227,12 +227,73 @@ void main() {
     );
     expect(doc().windows, hasLength(2));
 
+    // Find in page selects the match in the window's live page.
+    app.findInPage();
+    await tester.pumpAndSettle();
+    final findField = find.byWidgetPredicate(
+      (w) => w is TextField && w.decoration?.hintText == 'Find in page',
+    );
+    final findText = find.descendant(
+      of: findField,
+      matching: find.byType(EditableText),
+    );
+    tester.state<EditableTextState>(findText).requestKeyboard();
+    await tester.pump();
+    await tester.enterText(findText, 'fixture');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    expect(
+      await evaluateIn(left, 'window.getSelection().toString() || null'),
+      'fixture',
+    );
+
+    // Shift+click opens the link in a new window: without pop-out, a new
+    // tab.
+    List<TabId> tabs() => doc().shells[doc().focusedShellId]!.tabIds;
+    await evaluateIn(left, ctrlClick.replaceFirst('ctrlKey', 'shiftKey'));
+    await until(() => tabs().length == 2);
+    expect(app.focusedRoute, page('/two.html'));
+    final two = doc().activeWindowId!;
+    expect(await evaluateIn(two, ready), 'Page two');
+
     // Ctrl+T inside the page opens a new tab.
-    await evaluateIn(left, key(shift: false));
-    await until(() => doc().shells[doc().focusedShellId]!.tabIds.length == 2);
+    await evaluateIn(two, key(shift: false));
+    await until(() => tabs().length == 3);
     expect(app.focusedRoute, isA<NewTabRoute>());
     // Let the plugin's async position reports land before teardown.
     await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('a mirror whose original released its webview draws a '
+      'placeholder', (tester) async {
+    final app = await boot(tester);
+    final url = 'http://127.0.0.1:${server.port}/links.html';
+    await type(tester, url);
+    final original = app.controller.doc.value.activeWindowId!;
+    for (var i = 0; i < 100 && app.webViews[original] == null; i++) {
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    expect(app.webViews[original], isNotNull);
+
+    // Memory saver (on by default) releases the background tab's webview.
+    app.newTab();
+    await tester.pumpAndSettle();
+    expect(app.webViews[original], isNull);
+    final focused = app.controller.doc.value.activeWindowId!;
+    app.controller.dispatchAll([
+      SplitWindow(
+        focused,
+        newWindowId: WindowId.generate(),
+        axis: Axis.horizontal,
+        buffer: links.linkOf(WebPage.of(Uri.parse(url))).buffer,
+        arguments: {viewKey: 'shared'},
+      ),
+    ]);
+    await tester.pumpAndSettle();
+
+    final doc = app.controller.doc.value;
+    expect(mirrorSourceOf(doc, doc.activeWindowId!), original);
+    expect(find.byType(MirrorBadge), findsOneWidget);
+    expect(find.byType(Texture), findsNothing);
   });
 
   testWidgets('an unknown internal path shows not-found', (tester) async {

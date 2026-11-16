@@ -4,8 +4,6 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:reef/reef.dart';
 import 'package:vim_editor/vim.dart';
 
-void main() => runApp(VimApp(Vim(ProviderContainer())));
-
 class VimApp extends StatelessWidget {
   const VimApp(this.vim, {super.key});
 

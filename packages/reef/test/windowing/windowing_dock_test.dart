@@ -1,3 +1,5 @@
+import 'dart:ui';
+
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reef/reef.dart';
@@ -67,8 +69,8 @@ void main() {
   test("DockArea.tab picks the slot on the pointer's side of the tab", () {
     final pick = DockArea.tab(s1, 2);
     const size = Size(100, 30);
-    expect(pick(const Offset(10, 5), size), const TabStripTarget(s1, 2));
-    expect(pick(const Offset(60, 5), size), const TabStripTarget(s1, 3));
+    expect((pick(const Offset(10, 5), size)! as TabStripTarget).index, 2);
+    expect((pick(const Offset(60, 5), size)! as TabStripTarget).index, 3);
   });
 
   group('dockCommands, a tab', () {
@@ -233,6 +235,12 @@ void main() {
 
     test('onto a window floating over it is a no-op', () {
       expectEmpty(const WindowDockable(w1), const WindowCentreTarget(w5));
+      final doc = dock(const WindowDockable(w2), const WindowCentreTarget(w5));
+      expect(
+        doc.windows[w5]!.history.current.buffer,
+        const BufferId.manual('B'),
+        reason: 'w5 floats over w1, not over w2',
+      );
     });
 
     test('on an empty tab becomes its root', () {
@@ -515,6 +523,60 @@ void main() {
       expect(c.doc.value.shells[platform.opened.single]!.tabIds, [t1]);
     });
 
+    testWidgets('a drop outside the view pops a window out', (tester) async {
+      await pump(tester);
+      final gesture = await drag(
+        tester,
+        find.text('grip w2'),
+        const Offset(-40, -40),
+      );
+      await gesture.up();
+      await tester.pump();
+      final doc = c.doc.value;
+      final tab = doc.shells[platform.opened.single]!.tabIds.single;
+      expect(doc.tabs[tab]!.root, const WindowLeaf(w2));
+    });
+
+    testWidgets('drops a window on an empty tab', (tester) async {
+      await pump(tester);
+      await tester.tap(find.text('t2'));
+      await tester.pump();
+      final gesture = await drag(
+        tester,
+        find.text('grip w3'),
+        tester.getCenter(find.byType(DesktopProjection).first),
+      );
+      await gesture.up();
+      await tester.pump();
+      expect(c.doc.value.tabs[t2]!.root, const WindowLeaf(w3));
+    });
+
+    testWidgets('tints the hovered edge; a cancelled drag changes nothing', (
+      tester,
+    ) async {
+      await pump(tester);
+      Finder tint(Alignment a) => find.byWidgetPredicate(
+        (w) =>
+            w is Align && w.alignment == a && w.child is FractionallySizedBox,
+      );
+      final gesture = await drag(
+        tester,
+        find.text('grip w2'),
+        tester.getCenter(find.text('grip w3')) + const Offset(0, 10),
+      );
+      expect(tint(Alignment.topCenter), findsOneWidget);
+      await gesture.moveTo(
+        tester.getRect(find.byType(DesktopProjection).last).bottomCenter -
+            const Offset(0, 5),
+      );
+      await tester.pump();
+      expect(tint(Alignment.bottomCenter), findsOneWidget);
+      await gesture.cancel();
+      await tester.pump();
+      expect(tints(tester), isEmpty);
+      expect(c.doc.value.tabs[t3]!.root, const WindowLeaf(w3));
+    });
+
     testWidgets('without pop-out, a drop outside the view is cancelled', (
       tester,
     ) async {
@@ -530,4 +592,76 @@ void main() {
       expect(c.doc.value, fixture());
     });
   });
+
+  testWidgets('drops into an area of another view, by its screen origin', (
+    tester,
+  ) async {
+    final platform = FakeShellPlatform();
+    final c = WindowingController(initial: fixture, platform: platform);
+    addTearDown(c.dispose);
+    final other = _OtherView(tester.view);
+    platform.viewOrigins[other] = const Offset(9000, 0);
+    await tester.pumpWidget(
+      wrapWithView: false,
+      WindowingRoot(
+        controller: c,
+        bufferBuilder: (_, buffer) => Text(buffer.value),
+        child: ViewCollection(
+          views: [
+            View(
+              view: tester.view,
+              child: const Directionality(
+                textDirection: TextDirection.ltr,
+                child: DockSource(
+                  dockable: WindowDockable(w2),
+                  child: Text('grip'),
+                ),
+              ),
+            ),
+            View(
+              view: other,
+              child: Directionality(
+                textDirection: TextDirection.ltr,
+                child: DockArea(
+                  target: (_, _) =>
+                      FloatTarget(ShellScope(c.doc.value.shells.keys.last)),
+                  child: const SizedBox.expand(),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+    final dpr = tester.view.devicePixelRatio;
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('grip')),
+    );
+    await gesture.moveBy(const Offset(20, 0));
+    // Off the implicit view, onto the other view's screen origin + (100, 100).
+    await gesture.moveTo(const Offset(9000, 0) / dpr + const Offset(100, 100));
+    await gesture.up();
+    await tester.pump();
+    expect(c.doc.value.floating[w2]!.scope, const ShellScope(s2));
+  });
+}
+
+/// A second view over the test view, with its own id (as Flutter's own
+/// multi-view tests do).
+class _OtherView extends TestFlutterView {
+  _OtherView(TestFlutterView view)
+    : super(
+        view: view,
+        platformDispatcher: view.platformDispatcher,
+        display: view.display,
+      );
+
+  @override
+  int get viewId => 1;
+
+  @override
+  void render(Scene scene, {Size? size}) {}
+
+  @override
+  void updateSemantics(SemanticsUpdate update) {}
 }

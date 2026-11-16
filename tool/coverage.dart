@@ -3,7 +3,7 @@
 // Runs every test layer, merges their lcov, and fails when a touched `lib/`
 // line is not hit by any layer.
 //
-//   dart run tool/coverage.dart                 # files changed vs main
+//   dart run tool/coverage.dart                 # files changed vs origin/main
 //   dart run tool/coverage.dart --base HEAD~3   # files changed vs a ref
 //   dart run tool/coverage.dart packages/reef/lib/features/windowing
 //
@@ -11,7 +11,8 @@
 // (`apps/*`) with test/.
 // Integration layer: `flutter test integration_test -d windows` in each
 // example with integration_test/. Both collect coverage for every `reef*`
-// package, so a line in reef core counts when the example app hits it.
+// package and the project's own, so a line in reef core counts when the
+// example app hits it, and an app's own lib/ is gated too.
 
 import 'dart:io';
 
@@ -20,7 +21,7 @@ const _device = 'windows';
 
 Future<void> main(List<String> args) async {
   final root = Directory.current.path;
-  var base = 'main';
+  var base = 'origin/main';
   final paths = <String>[];
   for (var i = 0; i < args.length; i++) {
     if (args[i] == '--base') {
@@ -40,16 +41,18 @@ Future<void> main(List<String> args) async {
       }
       continue;
     }
+    final pubspec = File('$dir/pubspec.yaml').readAsStringSync();
+    final packages = coveragePackages(pubspec);
     final unit = Directory('$dir/test').existsSync();
     final integration = Directory('$dir/integration_test').existsSync();
     if (unit) {
-      await _run(dir, ['test', '--coverage', '--coverage-package=^reef']);
+      await _run(dir, ['test', '--coverage', ...packages]);
       mergeLcov(hits, dir, File('$dir/coverage/lcov.info').readAsStringSync());
     }
     if (integration) {
       await _run(dir, [
         'test', 'integration_test', '-d', _device, //
-        '--coverage', '--coverage-package=^reef',
+        '--coverage', ...packages,
       ]);
       mergeLcov(hits, dir, File('$dir/coverage/lcov.info').readAsStringSync());
     }
@@ -75,6 +78,15 @@ Future<void> main(List<String> args) async {
     stdout.writeln('${_rel(root, file)}: $where');
   }
   exitCode = 1;
+}
+
+/// `--coverage-package` flags: every `reef*` package and the project's own.
+/// Two flags, not one `^(a|b)` regex: the shell would read `|` as a pipe.
+List<String> coveragePackages(String pubspec) {
+  final name = RegExp(r'^name:\s*(\w+)', multiLine: true)
+      .firstMatch(pubspec)!
+      .group(1)!;
+  return ['--coverage-package=^reef', '--coverage-package=^$name'];
 }
 
 /// Adds an lcov report's line hits into [hits], keyed by absolute path.
@@ -132,7 +144,9 @@ bool isGated(String path) {
       p.endsWith('.dart') &&
       !p.endsWith('.g.dart') &&
       !p.endsWith('.freezed.dart') &&
-      !p.contains('packages/reef_multi_window/lib/');
+      !p.contains('packages/reef_multi_window/lib/') &&
+      // App entrypoints: main() and real-platform wiring (ADR 0014).
+      !RegExp(r'(^|/)apps/[^/]+/lib/entry\.dart$').hasMatch(p);
 }
 
 /// Packages, their examples, and the integration apps (docs/integration-apps.md).

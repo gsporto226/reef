@@ -18,26 +18,12 @@ class TabDockable extends Dockable {
   const TabDockable(this.tabId);
 
   final TabId tabId;
-
-  @override
-  bool operator ==(Object other) =>
-      other is TabDockable && other.tabId == tabId;
-
-  @override
-  int get hashCode => tabId.hashCode;
 }
 
 class WindowDockable extends Dockable {
   const WindowDockable(this.windowId);
 
   final WindowId windowId;
-
-  @override
-  bool operator ==(Object other) =>
-      other is WindowDockable && other.windowId == windowId;
-
-  @override
-  int get hashCode => windowId.hashCode;
 }
 
 /// Where a [DockArea] lands a drop.
@@ -53,15 +39,6 @@ class TabStripTarget extends DockTarget {
 
   final ShellId shellId;
   final int index;
-
-  @override
-  bool operator ==(Object other) =>
-      other is TabStripTarget &&
-      other.shellId == shellId &&
-      other.index == index;
-
-  @override
-  int get hashCode => Object.hash(shellId, index);
 }
 
 /// Side [edge] of tree window [windowId]: the drop splits it there.
@@ -70,15 +47,6 @@ class WindowEdgeTarget extends DockTarget {
 
   final WindowId windowId;
   final AxisDirection edge;
-
-  @override
-  bool operator ==(Object other) =>
-      other is WindowEdgeTarget &&
-      other.windowId == windowId &&
-      other.edge == edge;
-
-  @override
-  int get hashCode => Object.hash(windowId, edge);
 }
 
 /// The centre of window [windowId]: a dropped window's page is pushed onto
@@ -87,13 +55,6 @@ class WindowCentreTarget extends DockTarget {
   const WindowCentreTarget(this.windowId);
 
   final WindowId windowId;
-
-  @override
-  bool operator ==(Object other) =>
-      other is WindowCentreTarget && other.windowId == windowId;
-
-  @override
-  int get hashCode => windowId.hashCode;
 }
 
 /// Empty tab [tabId]: a dropped window becomes its root.
@@ -101,13 +62,6 @@ class EmptyTabTarget extends DockTarget {
   const EmptyTabTarget(this.tabId);
 
   final TabId tabId;
-
-  @override
-  bool operator ==(Object other) =>
-      other is EmptyTabTarget && other.tabId == tabId;
-
-  @override
-  int get hashCode => tabId.hashCode;
 }
 
 /// The floating layer of [scope]: a dropped tree window floats there.
@@ -115,13 +69,6 @@ class FloatTarget extends DockTarget {
   const FloatTarget(this.scope);
 
   final FloatScope scope;
-
-  @override
-  bool operator ==(Object other) =>
-      other is FloatTarget && other.scope == scope;
-
-  @override
-  int get hashCode => scope.hashCode;
 }
 
 /// The batch dropping [dockable] on [target] dispatches against [doc]: only
@@ -254,13 +201,6 @@ class DockHover {
 
   final DockTarget target;
   final bool allowed;
-
-  @override
-  bool operator ==(Object other) =>
-      other is DockHover && other.target == target && other.allowed == allowed;
-
-  @override
-  int get hashCode => Object.hash(target, allowed);
 }
 
 /// Picks the target under [position] in an area of [size]; null for none.
