@@ -366,7 +366,7 @@ packages:
     source: sdk
     version: "0.0.0"
   formularium:
-    dependency: transitive
+    dependency: "direct overridden"
     description:
       path: "../formularium/packages/formularium"
       relative: true
