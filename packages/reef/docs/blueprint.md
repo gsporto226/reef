@@ -379,18 +379,12 @@ the reef core. `ReefWindow` watches buffer providers; app-scoped services/contro
 are `keepAlive` providers; buffer-scoped viewmodels are auto-dispose families keyed
 by `BufferId` (§4.4, §10). `get_it` is dropped.
 
-## 9. Open items (future sections)
+## 9. Below the viewmodel — the app's choice
 
-- **Layers 4–6** — controller / service / repository: responsibilities, granularity,
-  file placement, the hot/cold rule (`ValueListenable` for owned state,
-  `Future<Result<E, T>>` for one-shot ops, streams never).
-- **Mediator / offline-first contract** — injectable offline implementation, sync &
-  outbox designed upfront; today's mediator (`OnlineAPI` hard-constructed, offline
-  stub) is the problem statement, not the spec.
-- **API-availability guards** — replacement for `Guard<Mediator, Bundle, State,
-  Reason>`.
-- **EventCenter** — event bus story (streams allowed internally? rebuilt on
-  listenables?) — parked.
+Reef owns pages through viewmodels. Everything the viewmodel calls (use cases,
+repositories, services, offline support, event buses) is designed by each app
+and handed to the viewmodel by its provider. Reef only asks that those
+dependencies speak listenables and futures (§1).
 
 ## 10. Page management — buffers, windows, tabs
 

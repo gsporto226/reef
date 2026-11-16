@@ -1,0 +1,5 @@
+{
+  "name": "reef",
+  "owner": { "name": "gsporto226" },
+  "plugins": [{ "name": "reef", "source": "./", "description": "Skills for building Flutter apps on reef." }]
+}
