@@ -1,3 +1,6 @@
+// Uses experimental multi-window API (ADR 0013).
+// ignore_for_file: experimental_member_use
+
 import 'dart:io';
 import 'dart:ui' show AppExitResponse;
 

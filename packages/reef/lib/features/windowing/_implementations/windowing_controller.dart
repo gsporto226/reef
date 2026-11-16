@@ -99,8 +99,10 @@ class ActivateTab extends WindowingCommand {
   }
 }
 
-/// Closes [tabId] and its windows. A shell's last tab never closes. Closing
-/// the active tab activates its left neighbour, or the next one.
+/// Closes [tabId] and its windows. Closing a shell's last tab closes the
+/// shell, unless it is the last shell, whose last tab empties instead
+/// (ADR 0012). Closing the active tab activates its left neighbour, or the
+/// next one.
 class CloseTab extends WindowingCommand {
   const CloseTab(this.tabId);
 
@@ -109,13 +111,22 @@ class CloseTab extends WindowingCommand {
   @override
   WindowingDoc apply(WindowingDoc doc) {
     final (id, shell) = _owner(doc, tabId) ?? (null, null);
-    if (id == null || shell == null || shell.tabIds.length == 1) return doc;
+    if (id == null || shell == null) return doc;
+    final root = doc.tabs[tabId]!.root;
+    if (shell.tabIds.length == 1) {
+      if (doc.shells.length > 1) return CloseShell(id).apply(doc);
+      if (root == null) return doc;
+      return _prune(doc.copyWith(
+        tabs: {...doc.tabs, tabId: const TabState()},
+        windows: {...doc.windows}
+          ..removeWhere((w, _) => root.windowIds.contains(w)),
+      ));
+    }
     final index = shell.tabIds.indexOf(tabId);
     final tabIds = [...shell.tabIds]..removeAt(index);
     final active = shell.activeTabId == tabId
         ? tabIds[index == 0 ? 0 : index - 1]
         : shell.activeTabId;
-    final root = doc.tabs[tabId]!.root;
     return _prune(doc.copyWith(
       shells: {...doc.shells, id: ShellState(tabIds: tabIds, activeTabId: active)},
       tabs: {...doc.tabs}..remove(tabId),
@@ -563,9 +574,9 @@ class CloseShell extends WindowingCommand {
 }
 
 /// Moves [tabId] to [index] (clamped) in [shellId], then activates it and
-/// focuses that shell. A shell's last tab never moves out. When the moved
-/// tab was active in its old shell, its left neighbour (or the next one)
-/// becomes active there.
+/// focuses that shell. Moving a shell's last tab out closes that shell
+/// (ADR 0012). When the moved tab was active in its old shell, its left
+/// neighbour (or the next one) becomes active there.
 class MoveTab extends WindowingCommand {
   const MoveTab(this.tabId, {required this.shellId, required this.index});
 
@@ -578,14 +589,15 @@ class MoveTab extends WindowingCommand {
     final (from, source) = _owner(doc, tabId) ?? (null, null);
     final target = doc.shells[shellId];
     if (from == null || source == null || target == null) return doc;
-    if (from != shellId && source.tabIds.length == 1) return doc;
     final i = source.tabIds.indexOf(tabId);
     if (from == shellId && index.clamp(0, source.tabIds.length - 1) == i) {
       return doc;
     }
     final rest = [...source.tabIds]..removeAt(i);
     final shells = {...doc.shells};
-    if (from != shellId) {
+    if (from != shellId && rest.isEmpty) {
+      shells.remove(from);
+    } else if (from != shellId) {
       shells[from] = ShellState(
         tabIds: rest,
         activeTabId: source.activeTabId == tabId
@@ -596,7 +608,7 @@ class MoveTab extends WindowingCommand {
     final into = from == shellId ? rest : [...target.tabIds];
     into.insert(index.clamp(0, into.length), tabId);
     shells[shellId] = ShellState(tabIds: into, activeTabId: tabId);
-    return doc.copyWith(shells: shells, focusedShellId: shellId);
+    return _prune(doc.copyWith(shells: shells, focusedShellId: shellId));
   }
 }
 
@@ -777,6 +789,10 @@ sealed class CommandDecision {
 
   /// Applies [command] instead, without intercepting it again.
   const factory CommandDecision.replace(WindowingCommand command) = _Replace;
+
+  /// Whether this decision applies the command as dispatched: an
+  /// interceptor that wraps another can then swap in its own command.
+  bool get approves => this is _Approve;
 }
 
 class _Approve extends CommandDecision {
@@ -954,8 +970,9 @@ class WindowingFocusPolicy {
   /// keeps it.
   final bool splitTakesFocus;
 
-  /// Whether closing a tab's last tree window also closes the tab (a
-  /// shell's last tab never closes).
+  /// Whether closing a tab's last tree window also closes the tab; a
+  /// shell's last tab then closes the shell, unless it is the last shell
+  /// (ADR 0012).
   final bool closeEmptyTab;
 
   /// Picks, against the doc before the close, the window to focus when the
@@ -1145,13 +1162,7 @@ class WindowingController {
   bool _dispatch(Iterable<WindowingCommand> commands,
       {Object? coalesceKey, bool Function(WindowingDoc next)? accept}) {
     final before = _doc.value;
-    final vetoes = <CommandVeto>[];
-    WindowingDoc step(WindowingDoc doc, WindowingCommand c) {
-      final after = _intercepted(doc, c, vetoes);
-      return focusPolicy._effects(doc, c, after).fold(after, step);
-    }
-
-    final next = commands.fold(before, step);
+    final (next, vetoes) = _fold(commands);
     final accepted = accept?.call(next) ?? true;
     if (accepted && next != before) _publish(before, next, coalesceKey);
     // After the doc, so veto listeners read the batch result.
@@ -1159,6 +1170,26 @@ class WindowingController {
       _vetoes.value = veto;
     }
     return accepted;
+  }
+
+  /// [commands] folded over the doc as [dispatchAll] would, through the
+  /// interceptor and focus policy, with the vetoes met on the way.
+  (WindowingDoc, List<CommandVeto>) _fold(Iterable<WindowingCommand> commands) {
+    final vetoes = <CommandVeto>[];
+    WindowingDoc step(WindowingDoc doc, WindowingCommand c) {
+      final after = _intercepted(doc, c, vetoes);
+      return focusPolicy._effects(doc, c, after).fold(after, step);
+    }
+
+    return (commands.fold(_doc.value, step), vetoes);
+  }
+
+  /// Whether [dispatchAll] of [commands] would change the doc with no veto,
+  /// asked without dispatching: a dry run (ADR 0012). Publishes nothing and
+  /// reports no veto through [vetoes].
+  bool wouldApply(Iterable<WindowingCommand> commands) {
+    final (next, vetoes) = _fold(commands);
+    return vetoes.isEmpty && next != _doc.value;
   }
 
   void _publish(WindowingDoc before, WindowingDoc next, Object? coalesceKey) {
@@ -1232,7 +1263,10 @@ class WindowingController {
       {BufferId? buffer, Map<String, String> arguments = const {}}) {
     final tab = TabId.generate();
     if (buffer == null) {
-      return _openShellWith((shell) => [AttachShell(shell, tabId: tab)], tab);
+      return _openShellWith(
+        (shell) => [AttachShell(shell, tabId: tab)],
+        (doc, shell) => listEquals(doc.shells[shell]?.tabIds, [tab]),
+      );
     }
     final shown = TabId.generate();
     return _openShellWith(
@@ -1245,15 +1279,18 @@ class WindowingController {
             arguments: arguments),
         CloseTab(tab),
       ],
-      shown,
+      (doc, shell) => listEquals(doc.shells[shell]?.tabIds, [shown]),
     );
   }
 
   /// Opens a real shell, then moves [tabId] into it as its only tab, in one
   /// batch, and focuses it. Returns its id. Fails like [openShell], and with
-  /// `refused` before opening anything when the doc would refuse the move
-  /// (an unknown tab, or a shell's last tab).
-  Future<Result<ShellError, ShellId>> popOutTab(TabId tabId) {
+  /// `refused` before opening anything for an unknown tab or a shell's only
+  /// tab (popping it out would only move the shell).
+  Future<Result<ShellError, ShellId>> popOutTab(TabId tabId) async {
+    if (_doc.value.shells.values.any((s) => listEquals(s.tabIds, [tabId]))) {
+      return const Err(ShellError(ShellErrorKind.refused));
+    }
     final placeholder = TabId.generate();
     return _openShellWith(
       (shell) => [
@@ -1261,30 +1298,46 @@ class WindowingController {
         MoveTab(tabId, shellId: shell, index: 1),
         CloseTab(placeholder),
       ],
-      tabId,
+      (doc, shell) => listEquals(doc.shells[shell]?.tabIds, [tabId]),
+    );
+  }
+
+  /// Opens a real shell, then moves window [windowId] (tree or floating)
+  /// into it as the root of its only tab, in one batch, and focuses it.
+  /// Returns its id. Fails like [openShell].
+  Future<Result<ShellError, ShellId>> popOutWindow(WindowId windowId) {
+    final tab = TabId.generate();
+    final floating = _doc.value.floating.containsKey(windowId);
+    return _openShellWith(
+      (shell) => [
+        AttachShell(shell, tabId: tab),
+        if (floating)
+          DockWindow(windowId, tabId: tab)
+        else
+          MoveWindow(windowId, tabId: tab),
+      ],
+      (doc, _) => doc.tabs[tab]?.root == WindowLeaf(windowId),
     );
   }
 
   /// Opens a real shell and applies [batchFor] it, all or nothing: the batch
-  /// lands only when the new shell then holds exactly [onlyTab]. Refused
+  /// lands only when [landed] holds for the result. Refused
   /// before opening when the bare doc would not land it; when an interceptor
   /// keeps it from landing, nothing is published and the real shell closes.
   Future<Result<ShellError, ShellId>> _openShellWith(
       List<WindowingCommand> Function(ShellId shell) batchFor,
-      TabId onlyTab) async {
+      bool Function(WindowingDoc doc, ShellId shell) landed) async {
     final platform = this.platform;
     if (platform == null || !platform.isSupported) {
       return const Err(ShellError(ShellErrorKind.unsupported));
     }
     final shell = ShellId.generate();
     final batch = batchFor(shell);
-    bool landed(WindowingDoc doc) =>
-        listEquals(doc.shells[shell]?.tabIds, [onlyTab]);
-    if (!landed(batch.fold(_doc.value, (doc, c) => c.apply(doc)))) {
+    if (!landed(batch.fold(_doc.value, (doc, c) => c.apply(doc)), shell)) {
       return const Err(ShellError(ShellErrorKind.refused));
     }
     if (await platform.open(shell) case Err(:final value)) return Err(value);
-    if (!_dispatch(batch, accept: landed)) {
+    if (!_dispatch(batch, accept: (doc) => landed(doc, shell))) {
       platform.close(shell);
       return const Err(ShellError(ShellErrorKind.refused));
     }

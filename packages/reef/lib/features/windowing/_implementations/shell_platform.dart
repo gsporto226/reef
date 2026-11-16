@@ -1,3 +1,6 @@
+import 'dart:ui' show FlutterView, Offset;
+
+import 'package:meta/meta.dart' show experimental;
 import 'package:reef/features/windowing/_implementations/windowing_ids.dart';
 import 'package:reef_fp/result.dart';
 import 'package:reef_fp/unit.dart';
@@ -12,6 +15,12 @@ abstract interface class ShellPlatform {
 
   /// Best-effort.
   void close(ShellId id);
+
+  /// Where [view]'s top-left sits on the screen, in physical pixels; null
+  /// when unknown. A dock drag crosses into another view only when both
+  /// views' origins are known (ADR 0012). Experimental (ADR 0013).
+  @experimental
+  Offset? viewOrigin(FlutterView view);
 }
 
 enum ShellErrorKind { unsupported, refused, platformFailure }
@@ -49,6 +58,11 @@ class FakeShellPlatform implements ShellPlatform {
   @override
   bool isSupported;
 
+  /// The screen origins [viewOrigin] reports; a view not listed sits at
+  /// zero, so shells drawn side by side in one test view share a screen.
+  @experimental
+  final viewOrigins = <FlutterView, Offset>{};
+
   final opened = <ShellId>[];
   final closed = <ShellId>[];
   ShellError? _failure;
@@ -68,4 +82,8 @@ class FakeShellPlatform implements ShellPlatform {
 
   @override
   void close(ShellId id) => closed.add(id);
+
+  @override
+  @experimental
+  Offset? viewOrigin(FlutterView view) => viewOrigins[view] ?? Offset.zero;
 }

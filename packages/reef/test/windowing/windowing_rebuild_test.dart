@@ -117,14 +117,14 @@ void main() {
     await tester.pump();
     expect(builds, 4);
 
+    controller.moveTab(tab, shellId: shell, index: 1);
+    await tester.pump();
+    expect(builds, 4, reason: 'a move to the same place is refused');
+
     final last = controller.doc.value.shells[first]!.tabIds.single;
     controller.moveTab(last, shellId: shell, index: 0);
     await tester.pump();
-    expect(builds, 4, reason: "a shell's last tab never moves out");
-
-    controller.closeShell(first);
-    await tester.pump();
-    expect(builds, 5);
+    expect(builds, 5, reason: "moving a shell's last tab out closes it");
   });
 
   testWidgets('float, raise and dock each rebuild once; refused ones do not',

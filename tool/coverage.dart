@@ -117,13 +117,14 @@ bool hasCode(String source) => source
         !RegExp(r'^(library|import|export)\b').hasMatch(l));
 
 /// Hand-written library code under some package's `lib/`; generated files
-/// are not gated.
+/// and code only real platform windows reach (ADR 0013) are not gated.
 bool isGated(String path) {
   final p = path.replaceAll('\\', '/');
   return p.contains('/lib/') &&
       p.endsWith('.dart') &&
       !p.endsWith('.g.dart') &&
-      !p.endsWith('.freezed.dart');
+      !p.endsWith('.freezed.dart') &&
+      !p.contains('packages/reef_multi_window/lib/');
 }
 
 /// Packages, their examples, and the integration apps (docs/integration-apps.md).

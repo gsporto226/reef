@@ -1,5 +1,5 @@
 name: reef_multi_window
-description: Multi-shell adapter for reef over Flutter's experimental windowing API.
+description: Experimental (ADR 0013) multi-shell adapter for reef over Flutter's unstable windowing API.
 version: 0.1.0
 publish_to: none
 resolution: workspace
@@ -8,9 +8,11 @@ environment:
   sdk: ">=3.13.0"
 
 dependencies:
+  ffi: ^2.1.0
   flutter:
     sdk: flutter
   listenable_plus: ^0.0.2
+  meta: ^1.19.0
   reef: ^0.1.0
   reef_fp: ^0.1.0
 

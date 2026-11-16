@@ -418,7 +418,7 @@ void main() {
     );
 
     testWidgets('target=_blank, a named target and window.open open a new '
-        'tab', (tester) async {
+        'tab; back there closes it (flow 14)', (tester) async {
       final app = await boot(tester);
       await type(tester, at('/blank.html'));
       await showing(tester, app, 'Blank fixture');
@@ -455,6 +455,15 @@ void main() {
         app.routeOf(app.controller.doc.value.tabs[opener]!.activeWindowId),
         page('/blank.html'),
       );
+
+      // Flow 14: back on a page-opened tab with no history closes it.
+      final popup = tabs(app).last;
+      app.controller.activateTab(popup);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Back'));
+      await tester.pumpAndSettle();
+      expect(tabs(app), isNot(contains(popup)));
+      expect(tabs(app), hasLength(3));
     });
 
     testWidgets('flow 6: Ctrl+Shift+T reopens a closed tab with its history', (
@@ -775,6 +784,38 @@ void main() {
           "i.dispatchEvent(new Event('input')); window.scrollTo(0, 0); 1",
     );
     await both([0, 255, 0, 255]);
+    await tester.pump(const Duration(seconds: 1));
+  });
+  testWidgets("flow 17: memory saver releases a background tab's webview "
+      'and reloads it on return; a pinned tab keeps its page', (tester) async {
+    final app = await boot(tester);
+    await type(tester, 'http://127.0.0.1:${server.port}/links.html');
+    final window = app.controller.doc.value.activeWindowId!;
+    final tab = app.focusedTab;
+    Future<Object?> mark() => evaluate(
+      tester,
+      app,
+      "document.readyState == 'complete' ? String(window.mark) : null",
+    );
+    await evaluate(tester, app, 'window.mark = 1; 1');
+    expect(await mark(), '1');
+
+    app.newTab();
+    await tester.pumpAndSettle();
+    expect(app.webViews[window], isNull, reason: 'released');
+    app.controller.activateTab(tab);
+    await tester.pumpAndSettle();
+    expect(await mark(), 'undefined', reason: 'rematerialized: reloaded');
+
+    app.togglePin();
+    await evaluate(tester, app, 'window.mark = 2; 1');
+    final web = app.webViews[window];
+    app.newTab();
+    await tester.pumpAndSettle();
+    expect(app.webViews[window], same(web), reason: 'pinned: kept');
+    app.controller.activateTab(tab);
+    await tester.pumpAndSettle();
+    expect(await mark(), '2');
     await tester.pump(const Duration(seconds: 1));
   });
 }

@@ -248,10 +248,22 @@ void main() {
       expected: doc({s1: ([t1], t1)}),
     ),
     (
-      name: "a shell's last tab is unchanged",
+      name: "the last shell's empty last tab is unchanged",
       start: doc({s1: ([t1], t1)}),
       commands: [const CloseTab(t1)],
       expected: null,
+    ),
+    (
+      name: "the last shell's last tab empties, dropping its windows",
+      start: doc({s1: ([t1], t1)}, windows: {t1: w1}),
+      commands: [const CloseTab(t1)],
+      expected: doc({s1: ([t1], t1)}),
+    ),
+    (
+      name: "a shell's last tab closes the shell when another remains",
+      start: doc({s1: ([t1], t1), s2: ([t2], t2)}, windows: {t1: w1}),
+      commands: [const CloseTab(t1)],
+      expected: doc({s2: ([t2], t2)}, focused: s2),
     ),
     (
       name: 'unknown tab is unchanged',
@@ -693,10 +705,10 @@ void main() {
           focused: s2, windows: {t2: w2}),
     ),
     (
-      name: "moving a shell's last tab out is unchanged",
-      start: doc({s1: ([t1], t1), s2: ([t2], t2)}),
+      name: "moving a shell's last tab out closes that shell",
+      start: doc({s1: ([t1], t1), s2: ([t2], t2)}, windows: {t1: w1}),
       commands: [const MoveTab(t1, shellId: s2, index: 0)],
-      expected: null,
+      expected: doc({s2: ([t1, t2], t1)}, focused: s2, windows: {t1: w1}),
     ),
     (
       name: 'the same place is unchanged even for an inactive tab in an '
