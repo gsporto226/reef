@@ -12,6 +12,23 @@ import 'package:reef_example/main.dart' as app;
 void main() {
   IntegrationTestWidgetsFlutterBinding.ensureInitialized();
 
+  testWidgets('saving a task runs the save operation to a ready state',
+      (tester) async {
+    app.main();
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Buy milk'));
+    await tester.pumpAndSettle();
+    expect(find.text('Not saved yet'), findsOneWidget);
+
+    await tester.tap(find.text('Save (submit style)'));
+    await tester.pump();
+    expect(find.text('Saving…'), findsOneWidget);
+
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 600)));
+    await tester.pumpAndSettle();
+    expect(find.text('Saved!'), findsOneWidget);
+  });
+
   testWidgets('without the windowing flag the app boots inline, with no pop-out '
       'controls, and opens a task in an editor',
       (tester) async {

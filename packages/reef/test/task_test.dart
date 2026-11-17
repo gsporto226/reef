@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:reef/features/operation/_implementations/operation.dart';
 import 'package:reef/features/view_model/_implementations/view_model.dart';
@@ -50,7 +51,36 @@ void main() {
       await vm.load.run(() async => ['x']);
       expect(vm.load.state, isA<Ready<List<String>>>());
       vm.dispose();
-      expect(() => vm.load.$state.addListener(() {}), throwsStateError);
+      expect(() => vm.load.$state.addListener(() {}), throwsA(isA<Error>()));
+    });
+
+    testWidgets('a builder renders each state of a task', (tester) async {
+      final task = Task<int>();
+      addTearDown(task.dispose);
+      await tester.pumpWidget(
+        Directionality(
+          textDirection: TextDirection.ltr,
+          child: ValueListenableBuilder<Async<int>>(
+            valueListenable: task.$state,
+            builder: (context, state, _) => Text(switch (state) {
+              Idle() => 'idle',
+              Pending() => 'pending',
+              Ready(:final value) => 'ready $value',
+            }),
+          ),
+        ),
+      );
+      expect(find.text('idle'), findsOneWidget);
+
+      final gate = Completer<int>();
+      final run = task.run(() => gate.future);
+      await tester.pump();
+      expect(find.text('pending'), findsOneWidget);
+
+      gate.complete(7);
+      await run;
+      await tester.pump();
+      expect(find.text('ready 7'), findsOneWidget);
     });
   });
 }
