@@ -19,3 +19,8 @@ The five default roles, each label named after its role (`needs-triage`, `needs-
 ### Domain docs
 
 Single-context: root `GLOSSARY.md` and `docs/adr/`. See `docs/agents/domain.md`.
+
+### App skills
+
+`skills/` ships the `reef` plugin for apps built on reef. Keep it in sync with
+`packages/reef/docs/blueprint.md` and the ADRs when an app-facing rule changes.
