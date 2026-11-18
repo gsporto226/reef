@@ -37,6 +37,13 @@ abstract class ViewModel<M> {
   /// Reactive view of the model — the out-binding root.
   ValueListenable<M> get $model => _$model;
 
+  /// Creates and registers a [Task] owned by this viewmodel.
+  Task<V> task<V>() {
+    final task = Task<V>();
+    _disposals.add(task.dispose);
+    return task;
+  }
+
   /// Creates and registers an [Operation] owned by this viewmodel.
   Operation<T, E> operation<T, E>() {
     final op = Operation<T, E>();
